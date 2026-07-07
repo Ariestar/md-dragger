@@ -13,17 +13,7 @@ export type DragPipelineOptions<TPreview = unknown> = {
     onOutputs?: (outputs: PipelineOutput<TPreview>[], result: PipelineResult<TPreview>) => void;
 };
 
-export type DragPipeline<TPreview = unknown> = {
-    readonly state: PipelineState;
-    enter(event: PipelineEvent<TPreview>): PipelineResult<TPreview>;
-    clear(): PipelineResult<TPreview>;
-};
-
-export function createDragPipeline<TPreview = unknown>(options?: DragPipelineOptions<TPreview>): DragPipeline<TPreview> {
-    return new DragPipelineImpl<TPreview>(options);
-}
-
-class DragPipelineImpl<TPreview> implements DragPipeline<TPreview> {
+export class DragPipeline<TPreview = unknown> {
     private currentState: PipelineState = IDLE_PIPELINE_STATE;
 
     constructor(

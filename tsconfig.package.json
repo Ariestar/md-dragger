@@ -10,10 +10,10 @@
   "include": [
     "src/index.ts",
     "src/domain.ts",
-    "src/drag.ts",
-    "src/drag-runtime.ts",
-    "src/markdown.ts",
+    "src/runtime.ts",
+    "src/adapter/codemirror.ts",
     "src/domain/**/*.ts",
+    "src/adapter/**/*.ts",
     "src/drag/**/*.ts"
   ],
   "exclude": [

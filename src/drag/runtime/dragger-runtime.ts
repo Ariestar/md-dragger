@@ -12,7 +12,7 @@ import { buildInsertTextForDrop } from '../../domain/mutation/text-mutation-poli
 import { resolveDropRuleAtInsertion } from '../../domain/rules/container-policy-service';
 import { planMove, type MoveDeps, type MoveResult } from '../../domain/move/move-plan';
 import { moveTx } from '../../domain/transaction/move-blocks';
-import { createDragPipeline, type DragPipeline } from '../pipeline/drag-pipeline';
+import { DragPipeline } from '../pipeline/drag-pipeline';
 import type { DragDropSnapshot, DropResolution } from '../pipeline/pipeline-drop';
 import type { DragCancelReason } from '../pipeline/pipeline-event';
 import type { PipelineOutput } from '../pipeline/pipeline-output';
@@ -57,7 +57,7 @@ type ActiveDragSession = {
 
 export class DraggerRuntime {
     private uxDisposable: (() => void) | null = null;
-    private readonly pipeline: DragPipeline = createDragPipeline({
+    private readonly pipeline: DragPipeline = new DragPipeline({
         onOutputs: (outputs) => this.handlePipelineOutputs(outputs),
     });
     private pressSession: PressSession | null = null;

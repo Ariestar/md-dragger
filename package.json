@@ -2,43 +2,58 @@
   "name": "md-dragger",
   "version": "1.3.4",
   "description": "Core markdown block drag-and-drop engine",
+  "type": "commonjs",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Ariestar/obsidian-dragger"
+    "url": "git+https://github.com/Ariestar/obsidian-dragger.git"
   },
   "main": "./dist/npm/index.cjs",
   "module": "./dist/npm/index.mjs",
   "types": "./dist/npm/types/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/npm/types/index.d.ts",
       "source": "./src/index.ts",
-      "import": "./dist/npm/index.mjs",
-      "require": "./dist/npm/index.cjs"
+      "import": {
+        "types": "./dist/npm/types/index.d.mts",
+        "default": "./dist/npm/index.mjs"
+      },
+      "require": {
+        "types": "./dist/npm/types/index.d.cts",
+        "default": "./dist/npm/index.cjs"
+      }
     },
     "./domain": {
-      "types": "./dist/npm/types/domain.d.ts",
       "source": "./src/domain.ts",
-      "import": "./dist/npm/domain.mjs",
-      "require": "./dist/npm/domain.cjs"
+      "import": {
+        "types": "./dist/npm/types/domain.d.mts",
+        "default": "./dist/npm/domain.mjs"
+      },
+      "require": {
+        "types": "./dist/npm/types/domain.d.cts",
+        "default": "./dist/npm/domain.cjs"
+      }
     },
-    "./drag": {
-      "types": "./dist/npm/types/drag.d.ts",
-      "source": "./src/drag.ts",
-      "import": "./dist/npm/drag.mjs",
-      "require": "./dist/npm/drag.cjs"
+    "./runtime": {
+      "source": "./src/runtime.ts",
+      "import": {
+        "types": "./dist/npm/types/runtime.d.mts",
+        "default": "./dist/npm/runtime.mjs"
+      },
+      "require": {
+        "types": "./dist/npm/types/runtime.d.cts",
+        "default": "./dist/npm/runtime.cjs"
+      }
     },
-    "./drag/runtime": {
-      "types": "./dist/npm/types/drag-runtime.d.ts",
-      "source": "./src/drag-runtime.ts",
-      "import": "./dist/npm/drag-runtime.mjs",
-      "require": "./dist/npm/drag-runtime.cjs"
-    },
-    "./markdown": {
-      "types": "./dist/npm/types/markdown.d.ts",
-      "source": "./src/markdown.ts",
-      "import": "./dist/npm/markdown.mjs",
-      "require": "./dist/npm/markdown.cjs"
+    "./adapter/codemirror": {
+      "source": "./src/adapter/codemirror.ts",
+      "import": {
+        "types": "./dist/npm/types/adapter/codemirror.d.mts",
+        "default": "./dist/npm/adapter/codemirror.mjs"
+      },
+      "require": {
+        "types": "./dist/npm/types/adapter/codemirror.d.cts",
+        "default": "./dist/npm/adapter/codemirror.cjs"
+      }
     }
   },
   "files": [
@@ -47,7 +62,13 @@
   "sideEffects": false,
   "scripts": {
     "build": "node scripts/build-core-package.mjs",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint:pkg": "publint",
+    "check:types": "attw --pack --profile node16"
+  },
+  "peerDependencies": {
+    "@codemirror/state": "^6.0.0",
+    "@codemirror/view": "^6.0.0"
   },
   "keywords": [
     "markdown",
@@ -59,7 +80,11 @@
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^16.11.6",
+    "@arethetypeswrong/cli": "^0.18.2",
+    "@codemirror/state": "^6.6.0",
+    "@codemirror/view": "^6.43.1",
     "esbuild": "^0.17.3",
+    "publint": "^0.3.15",
     "tslib": "^2.4.0",
     "typescript": "^4.9.0"
   }

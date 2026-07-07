@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createSingleBlockSelection } from '../../domain/selection/block-selection';
 import { BlockType } from '../../domain/block/block-types';
-import { createDragPipeline } from './drag-pipeline';
+import { DragPipeline } from './drag-pipeline';
 import type { PipelineState } from './pipeline-state';
 
 const block = {
@@ -33,7 +33,7 @@ const multiSelection = {
 describe('drag pipeline object', () => {
     it('can consume outputs as part of enter', () => {
         const observed: string[] = [];
-        const pipeline = createDragPipeline({
+        const pipeline = new DragPipeline({
             onOutputs: (outputs, result) => {
                 observed.push(result.current.type);
                 observed.push(...outputs.map((output) => output.type));
@@ -53,7 +53,7 @@ describe('drag pipeline object', () => {
     });
 
     it('moves a single block selection through the unified drag path', () => {
-        const pipeline = createDragPipeline();
+        const pipeline = new DragPipeline();
 
         const hold = pipeline.enter({
             type: 'hold_start',
@@ -78,7 +78,7 @@ describe('drag pipeline object', () => {
     });
 
     it('uses the same dragging state for multi-range selections', () => {
-        const pipeline = createDragPipeline();
+        const pipeline = new DragPipeline();
 
         pipeline.enter({
             type: 'hold_start',
@@ -100,7 +100,7 @@ describe('drag pipeline object', () => {
     });
 
     it('clears drag source visual on terminal drag paths', () => {
-        const pipeline = createDragPipeline();
+        const pipeline = new DragPipeline();
 
         pipeline.enter({
             type: 'hold_start',
@@ -125,7 +125,7 @@ describe('drag pipeline object', () => {
     });
 
     it('keeps selection as a passive pipeline state after finish', () => {
-        const pipeline = createDragPipeline();
+        const pipeline = new DragPipeline();
         pipeline.enter({
             type: 'selection_start',
             seed: { selection },
@@ -143,7 +143,7 @@ describe('drag pipeline object', () => {
     });
 
     it('updates selecting state through drag selection policy', () => {
-        const pipeline = createDragPipeline();
+        const pipeline = new DragPipeline();
         pipeline.enter({
             type: 'selection_start',
             seed: {
@@ -185,7 +185,7 @@ describe('drag pipeline object', () => {
     });
 
     it('retains passive selection while held and clears it when dragging starts', () => {
-        const pipeline = createDragPipeline();
+        const pipeline = new DragPipeline();
         pipeline.enter({
             type: 'selection_start',
             seed: { selection: multiSelection },
@@ -219,7 +219,7 @@ describe('drag pipeline object', () => {
     });
 
     it('clears guard-dependent states when guard becomes unavailable', () => {
-        const pipeline = createDragPipeline();
+        const pipeline = new DragPipeline();
         pipeline.enter({
             type: 'selection_start',
             seed: { selection },
