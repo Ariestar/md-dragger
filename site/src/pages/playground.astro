@@ -24,7 +24,8 @@ import '@/styles/global.css';
     </div>
 
     <script>
-        import { ink } from 'ink-mde';
+        import { ink, plugin, pluginTypes } from 'ink-mde';
+        import { mdDraggerCodeMirrorExtension } from '../../../packages/codemirror/src';
 
         const sampleDoc = `# Dragger Playground
 
@@ -85,6 +86,12 @@ That's it! Try rearranging this document to see how it feels.
 
         ink(document.getElementById('editor')!, {
             doc: sampleDoc,
+            plugins: [
+                plugin({
+                    type: pluginTypes.default,
+                    value: () => mdDraggerCodeMirrorExtension(),
+                }),
+            ],
             interface: {
                 appearance: 'dark',
                 toolbar: true,
@@ -99,7 +106,6 @@ That's it! Try rearranging this document to see how it feels.
         #editor .ink-mde .ink-mde-toolbar { border: none; }
         #editor .ink-mde .cm-scroller { overflow: auto; }
         #editor .ink-mde .cm-content { max-width: 48rem; margin: 0 auto; padding: 2rem 1.5rem; }
-        #editor .ink-mde .cm-gutters { display: none; }
 
         /* Scrollbar */
         #editor *  {
