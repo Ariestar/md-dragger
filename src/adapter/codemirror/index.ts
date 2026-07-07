@@ -16,19 +16,29 @@ import {
 } from '@codemirror/view';
 import {
   DraggerRuntime,
-  type DragPoint,
+  type Point,
   type DragPreview,
-  type DraggerInputSource,
-  type DraggerPressInput,
-  type DraggerRuntimeConfigInput,
+  type DropCommit,
+  type InputSource,
+  type PressInput,
+  type Config,
 } from '../../runtime';
-import { detectBlock, type BlockSelection, type TextChange } from '../../domain';
+import {
+  BlockType,
+  detectBlock,
+  type BlockSelection,
+  type DropTarget,
+  type ListDropTarget,
+} from '../../domain';
+import { createLineParsingContext } from '../../domain/markdown/line-parsing-service';
+import type { ParsedLine } from '../../domain/markdown/document-types';
 
 const HANDLE_CLASS = 'md-dragger-cm-handle';
 const EDITOR_CLASS = 'md-dragger-cm-editor';
+const LIST_INTENT_THRESHOLD_PX = 24;
 
 export type MdDraggerCodeMirrorOptions = {
-  config?: DraggerRuntimeConfigInput;
+  config?: Config;
 };
 
 export function mdDraggerCodeMirrorExtension(options: MdDraggerCodeMirrorOptions = {}): Extension {
@@ -46,15 +56,19 @@ export function mdDraggerCodeMirrorExtension(options: MdDraggerCodeMirrorOptions
           input: createPointerInputSource(view),
           document: {
             getDoc: () => view.state.doc,
-            applyChanges: (changes) => applyTextChanges(view, changes),
           },
           locate: {
             sourceLineFromInput: (input) => sourceLineFromInput(view, input),
-            targetLineFromPoint: (point) => targetLineFromPoint(view, point),
+            resolveDropTarget: (point, context) => resolveDropTarget(view, point, context.selection, options),
           },
-          preview: (value) => this.preview.render(value),
-          selection: (selection) => {
-            view.dispatch({ effects: setBlockSelectionEffect.of(selection) });
+          commit: {
+            apply: (commit) => applyCommit(view, commit),
+          },
+          output: {
+            onPreview: (value) => this.preview.render(value),
+            onSelection: (selection) => {
+              view.dispatch({ effects: setBlockSelectionEffect.of(selection) });
+            },
           },
           config: () => ({
             longPressMs: 0,
@@ -139,30 +153,125 @@ function isDraggableBlockStart(view: EditorView, line: ViewBlockInfo, options: M
   const docLine = view.state.doc.lineAt(line.from);
   if (docLine.from !== line.from) return false;
   const block = detectBlock({ doc: view.state.doc }, docLine.number, {
-    tabSize: resolveConfig(options.config)?.tabSize ?? 4,
+    tabSize: resolveTabSize(options),
   });
   return block?.startLine === docLine.number - 1;
 }
 
-function sourceLineFromInput(view: EditorView, input: DraggerPressInput): number | null {
+function sourceLineFromInput(view: EditorView, input: PressInput): number | null {
   const event = nativePointerEvent(input.native);
   const target = event?.target instanceof Element ? event.target : null;
   const handle = target?.closest(`.${HANDLE_CLASS}`);
   if (!handle) return null;
-  return targetLineFromPoint(view, input.point);
+  return lineNumberFromPoint(view, input.point);
 }
 
-function targetLineFromPoint(view: EditorView, point: DragPoint): number | null {
+function lineNumberFromPoint(view: EditorView, point: Point): number | null {
   const contentRect = view.contentDOM.getBoundingClientRect();
   if (point.y <= contentRect.top) return 1;
-  if (point.y >= contentRect.bottom) return view.state.doc.lines;
+  if (point.y >= contentRect.bottom) return view.state.doc.lines + 1;
 
   const pos = view.posAtCoords({ x: Math.max(contentRect.left + 1, point.x), y: point.y }, false);
   if (typeof pos !== 'number') return null;
   return view.state.doc.lineAt(pos).number;
 }
 
-function createPointerInputSource(view: EditorView): DraggerInputSource {
+function resolveDropTarget(
+  view: EditorView,
+  point: Point,
+  selection: BlockSelection,
+  options: MdDraggerCodeMirrorOptions
+): DropTarget | null {
+  const targetLineNumber = lineNumberFromPoint(view, point);
+  if (targetLineNumber === null) return null;
+
+  return {
+    targetLineNumber,
+    placement: 'before',
+    listIntent: resolveListIntent(view, point, selection, targetLineNumber, options),
+  };
+}
+
+function resolveListIntent(
+  view: EditorView,
+  point: Point,
+  selection: BlockSelection,
+  targetLineNumber: number,
+  options: MdDraggerCodeMirrorOptions
+): ListDropTarget | undefined {
+  if (selection.anchorBlock.type !== BlockType.ListItem) return undefined;
+
+  const lineParsing = createLineParsingContext(resolveTabSize(options));
+  const sourceBase = firstListLine(selection.anchorBlock.content, lineParsing.parseLine);
+  if (!sourceBase) return undefined;
+
+  const context = findListContext(view, targetLineNumber, lineParsing.parseLine);
+  if (!context) {
+    return {
+      mode: 'sibling',
+      contextLineNumber: targetLineNumber,
+      targetIndentWidth: 0,
+    };
+  }
+
+  const indentUnitWidth = lineParsing.getIndentUnitWidth(context.parsed.indentRaw || sourceBase.indentRaw);
+  const markerX = markerStartX(view, context.lineNumber, context.parsed);
+  const horizontalDelta = markerX === null ? 0 : point.x - markerX;
+  const mode = horizontalDelta >= LIST_INTENT_THRESHOLD_PX
+    ? 'child'
+    : horizontalDelta <= -LIST_INTENT_THRESHOLD_PX
+      ? 'outdent'
+      : 'sibling';
+  const targetIndentWidth = Math.max(0, context.parsed.indentWidth + (
+    mode === 'child' ? indentUnitWidth : mode === 'outdent' ? -indentUnitWidth : 0
+  ));
+
+  return {
+    mode,
+    contextLineNumber: context.lineNumber,
+    targetIndentWidth,
+  };
+}
+
+function firstListLine(text: string, parseLine: (line: string) => ParsedLine): { indentRaw: string } | null {
+  for (const line of text.split('\n')) {
+    const parsed = parseLine(line);
+    if (parsed.isListItem) {
+      return { indentRaw: parsed.indentRaw };
+    }
+  }
+  return null;
+}
+
+function findListContext(
+  view: EditorView,
+  targetLineNumber: number,
+  parseLine: (line: string) => ParsedLine
+): { lineNumber: number; parsed: ParsedLine } | null {
+  const doc = view.state.doc;
+  const candidates = [
+    Math.min(targetLineNumber, doc.lines),
+    targetLineNumber - 1,
+    targetLineNumber + 1,
+  ];
+  const seen = new Set<number>();
+  for (const lineNumber of candidates) {
+    if (lineNumber < 1 || lineNumber > doc.lines || seen.has(lineNumber)) continue;
+    seen.add(lineNumber);
+    const parsed = parseLine(doc.line(lineNumber).text);
+    if (parsed.isListItem) return { lineNumber, parsed };
+  }
+  return null;
+}
+
+function markerStartX(view: EditorView, lineNumber: number, parsed: ParsedLine): number | null {
+  const line = view.state.doc.line(lineNumber);
+  const offset = parsed.quotePrefix.length + parsed.indentRaw.length;
+  const rect = view.coordsAtPos(Math.min(line.to, line.from + offset), 1);
+  return rect?.left ?? null;
+}
+
+function createPointerInputSource(view: EditorView): InputSource {
   return {
     onPress: (handler) => {
       const listener = (event: PointerEvent) => {
@@ -254,7 +363,8 @@ class DropPreviewRenderer {
       return;
     }
 
-    const line = this.view.state.doc.line(preview.targetLineNumber);
+    const lineNumber = Math.min(preview.targetLineNumber, this.view.state.doc.lines);
+    const line = this.view.state.doc.line(lineNumber);
     const rect = this.view.coordsAtPos(line.from, -1);
     const contentRect = this.view.contentDOM.getBoundingClientRect();
     if (!rect) {
@@ -262,10 +372,11 @@ class DropPreviewRenderer {
       return;
     }
 
+    const indentOffset = (preview.target?.listIntent?.targetIndentWidth ?? 0) * defaultCharacterWidth(this.view);
     this.indicator.hidden = false;
-    this.indicator.style.left = `${contentRect.left}px`;
-    this.indicator.style.top = `${rect.top}px`;
-    this.indicator.style.width = `${contentRect.width}px`;
+    this.indicator.style.left = `${contentRect.left + indentOffset}px`;
+    this.indicator.style.top = `${preview.targetLineNumber > this.view.state.doc.lines ? rect.bottom : rect.top}px`;
+    this.indicator.style.width = `${Math.max(16, contentRect.width - indentOffset)}px`;
   }
 
   scheduleRefresh(): void {
@@ -285,13 +396,22 @@ class DropPreviewRenderer {
   }
 }
 
-function applyTextChanges(view: EditorView, changes: TextChange[]): void {
-  if (changes.length === 0) return;
-  view.dispatch({ changes });
+function applyCommit(view: EditorView, commit: DropCommit): void {
+  if (commit.changes.length === 0) return;
+  view.dispatch({ changes: commit.changes });
 }
 
-function resolveConfig(config: DraggerRuntimeConfigInput | undefined) {
+function resolveConfig(config: Config | undefined) {
   return typeof config === 'function' ? config() : config;
+}
+
+function resolveTabSize(options: MdDraggerCodeMirrorOptions): number {
+  return resolveConfig(options.config)?.tabSize ?? 4;
+}
+
+function defaultCharacterWidth(view: EditorView): number {
+  const width = (view as unknown as { defaultCharacterWidth?: number }).defaultCharacterWidth;
+  return typeof width === 'number' && width > 0 ? width : 8;
 }
 
 function nativePointerEvent(value: unknown): PointerEvent | null {

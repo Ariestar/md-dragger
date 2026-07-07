@@ -1,122 +1,184 @@
-import type { TextChange } from '../domain/transaction/block-transaction';
+import type { TextChange, BlockEffect } from '../domain/transaction/block-transaction';
 import type { BlockSelection } from '../domain/selection/block-selection';
 import type { DocLikeWithRange } from '../domain/markdown/document-types';
+import type { DropTarget } from '../domain/command/drop-target';
 import type { DragCancelReason } from '../pipeline/pipeline-event';
+import type { Transition } from '../pipeline/drag-pipeline';
 
-export type DraggerDisposable = () => void;
+export type Disposable = () => void;
 
-export type DragPoint = {
+export type Point = {
     x: number;
     y: number;
 };
 
-export type DragPointer = {
+export type Pointer = {
     id: number;
     type: string | null;
 };
 
-export type DragModifiers = {
+export type Modifiers = {
     altKey?: boolean;
     ctrlKey?: boolean;
     metaKey?: boolean;
     shiftKey?: boolean;
 };
 
-export type DragTimerToken = ReturnType<typeof setTimeout>;
+export type TimerToken = ReturnType<typeof setTimeout>;
 
-export type DraggerPressInput = {
-    point: DragPoint;
-    pointer: DragPointer;
+export type PressInput = {
+    point: Point;
+    pointer: Pointer;
     button?: number;
-    modifiers?: DragModifiers;
+    modifiers?: Modifiers;
     native?: unknown;
     claim?: () => void;
     capture?: () => void;
     releaseCapture?: () => void;
 };
 
-export type DraggerMoveInput = {
-    point: DragPoint;
-    pointer: DragPointer;
+export type MoveInput = {
+    point: Point;
+    pointer: Pointer;
     native?: unknown;
     claim?: () => void;
 };
 
-export type DraggerReleaseInput = {
-    point: DragPoint;
-    pointer: DragPointer;
+export type ReleaseInput = {
+    point: Point;
+    pointer: Pointer;
     native?: unknown;
     claim?: () => void;
     releaseCapture?: () => void;
 };
 
-export type DraggerCancelInput = {
-    pointer: DragPointer;
+export type CancelInput = {
+    pointer: Pointer;
     reason: DragCancelReason;
     native?: unknown;
     releaseCapture?: () => void;
 };
 
-export type DraggerInputSource = {
-    onPress: (handler: (input: DraggerPressInput) => void) => DraggerDisposable;
-    onMove: (handler: (input: DraggerMoveInput) => void) => DraggerDisposable;
-    onRelease: (handler: (input: DraggerReleaseInput) => void) => DraggerDisposable;
-    onCancel?: (handler: (input: DraggerCancelInput) => void) => DraggerDisposable;
-    onEscape?: (handler: () => void) => DraggerDisposable;
+export type SelectionChangeInput = {
+    point?: Point;
+    lineNumber?: number;
+    native?: unknown;
+    claim?: () => void;
+};
+
+export type InputSource = {
+    onPress: (handler: (input: PressInput) => void) => Disposable;
+    onMove: (handler: (input: MoveInput) => void) => Disposable;
+    onRelease: (handler: (input: ReleaseInput) => void) => Disposable;
+    onCancel?: (handler: (input: CancelInput) => void) => Disposable;
+    onEscape?: (handler: () => void) => Disposable;
 };
 
 export type DragPreview = {
     source: BlockSelection;
+    target: DropTarget | null;
     targetLineNumber: number | null;
     allowed: boolean;
     reason?: DragCancelReason | null;
 };
 
-export type DraggerRuntimeConfig = {
+// --- document axis (host -> rt, pull, read-only) ---
+
+export type DocumentHost = {
+    getDoc(): DocLikeWithRange;
+};
+
+// --- locate axis (host -> rt, pull, coordinate translation) ---
+
+export type LocateHost = {
+    sourceLineFromInput(input: PressInput): number | null;
+    resolveDropTarget(point: Point, context: { selection: BlockSelection }): DropTarget | null;
+};
+
+// --- commit axis (rt -> host, hands back the whole transaction) ---
+
+// Structurally equivalent to the domain transaction shape, but defined here so
+// headless runtime code never couples to the domain transaction type identity.
+export type DropCommit = {
+    changes: TextChange[];
+    effects?: BlockEffect[];
+    selectionAfter?: BlockSelection | null;
+};
+
+export type DropCommitContext = {
+    selection: BlockSelection;
+    target: DropTarget;
+};
+
+export type CommitHost = {
+    apply(commit: DropCommit, context: DropCommitContext): void;
+};
+
+// --- broadcast axis (rt -> host, single source of truth) ---
+
+export type OutputHost = {
+    // Single source of truth: every pipeline transition, verbatim.
+    onResult?(transition: Transition): void;
+    // Convenience derived views. These are PURE projections of the stream
+    // above, never a second semantics. DragPreview is the one thing the
+    // runtime itself derives (from drag_over); onSelection mirrors
+    // selection_changed so hosts don't have to scan outputs for it.
+    onPreview?(preview: DragPreview | null): void;
+    onSelection?(selection: BlockSelection | null): void;
+};
+
+// --- scheduler axis (injected timers) ---
+
+export type SchedulerHost = {
+    setTimer(callback: () => void, delayMs: number): TimerToken;
+    clearTimer(token: TimerToken): void;
+};
+
+// --- config ---
+
+export type ResolvedConfig = {
     tabSize: number;
     longPressMs: number;
     dragStartMoveThresholdPx: number;
     dragCancelMoveThresholdPx: number;
 };
 
-export type DraggerRuntimeConfigInput =
-    | Partial<DraggerRuntimeConfig>
-    | (() => Partial<DraggerRuntimeConfig>);
+// A single `Config` name that accepts either a partial object or a thunk;
+// the runtime resolves it against defaults internally.
+export type Config = Partial<ResolvedConfig> | (() => Partial<ResolvedConfig>);
 
-export type DraggerRuntimeController = {
-    readonly input: DraggerInputSource;
-    handlePress(input: DraggerPressInput): void;
-    handleMove(input: DraggerMoveInput): void;
-    handleRelease(input: DraggerReleaseInput): void;
-    handleCancel(pointer: DragPointer, releaseCapture?: () => void): void;
+// --- input stage (gesture recognition + input wiring, swappable) ---
+
+export type RuntimeController = {
+    readonly input: InputSource;
+    handlePress(input: PressInput): void;
+    handleMove(input: MoveInput): void;
+    handleRelease(input: ReleaseInput): void;
+    handleCancel(pointer: Pointer, releaseCapture?: () => void): void;
+    handleSelectionChange(input: SelectionChangeInput): void;
+    finishSelection(): void;
     clearSelectionOrCancel(): void;
 };
 
-export type DraggerRuntimeUx = {
-    mount(runtime: DraggerRuntimeController): DraggerDisposable | void;
+export type RuntimeUx = {
+    mount(runtime: RuntimeController): Disposable | void;
 };
 
-export type DraggerRuntimeUxInput =
+export type UxOption =
     | 'default'
     | 'none'
-    | DraggerRuntimeUx
-    | (() => DraggerRuntimeUx);
+    | RuntimeUx
+    | (() => RuntimeUx);
 
-export type DraggerRuntimeOptions = {
-    input: DraggerInputSource;
-    // eslint-disable-next-line obsidianmd/prefer-active-doc
-    document: {
-        getDoc(): DocLikeWithRange;
-        applyChanges(changes: TextChange[]): void;
-    };
-    locate: {
-        sourceLineFromInput(input: DraggerPressInput): number | null;
-        targetLineFromPoint(point: DragPoint): number | null;
-    };
-    preview?: (preview: DragPreview | null) => void;
-    selection?: (selection: BlockSelection | null) => void;
-    ux?: DraggerRuntimeUxInput;
-    config?: DraggerRuntimeConfigInput;
-    setTimer?: (callback: () => void, delayMs: number) => DragTimerToken;
-    clearTimer?: (token: DragTimerToken) => void;
+// --- runtime options: five fixed IO axes + a swappable input stage ---
+
+export type RuntimeOptions = {
+    input: InputSource;
+    document: DocumentHost;
+    locate: LocateHost;
+    commit: CommitHost;
+    output?: OutputHost;
+    scheduler?: SchedulerHost;
+    ux?: UxOption;
+    config?: Config;
 };

@@ -1,9 +1,11 @@
 import { detectBlock } from '../domain/block/block-detector';
 import type { BlockInfo } from '../domain/block/block-types';
+import type { DropTarget } from '../domain/command/drop-target';
 import { createSingleBlockSelection, type BlockSelection } from '../domain/selection/block-selection';
 import type { SelectedBlockRange } from '../domain/selection/block-ranges';
 import {
     buildSelectedBlockRangeFromBlockInfo,
+    type RangeSelectionBoundary,
     type RangeSelectionBoundaryResolver,
 } from '../domain/selection/range-selection';
 import { createLineParsingContext } from '../domain/markdown/line-parsing-service';
@@ -17,20 +19,23 @@ import type { DragDropSnapshot, DropResolution } from '../pipeline/pipeline-drop
 import type { DragCancelReason } from '../pipeline/pipeline-event';
 import type { PipelineOutput } from '../pipeline/pipeline-output';
 import type { PipelineState } from '../pipeline/pipeline-state';
-import { defaultDraggerRuntimeUx } from './default-ux';
+import { defaultRuntimeUx } from './default-ux';
 import {
-    type DragPoint,
-    type DragPointer,
-    type DragTimerToken,
-    type DraggerRuntimeConfig,
-    type DraggerRuntimeOptions,
-    type DraggerMoveInput,
-    type DraggerPressInput,
-    type DraggerReleaseInput,
-    type DraggerRuntimeUx,
+    type Point,
+    type Pointer,
+    type TimerToken,
+    type ResolvedConfig,
+    type RuntimeController,
+    type RuntimeOptions,
+    type MoveInput,
+    type PressInput,
+    type ReleaseInput,
+    type SelectionChangeInput,
+    type DragPreview,
+    type RuntimeUx,
 } from './dragger-runtime-types';
 
-const DEFAULT_CONFIG: DraggerRuntimeConfig = {
+const DEFAULT_CONFIG: ResolvedConfig = {
     tabSize: 4,
     longPressMs: 250,
     dragStartMoveThresholdPx: 4,
@@ -39,33 +44,33 @@ const DEFAULT_CONFIG: DraggerRuntimeConfig = {
 
 type PressSession = {
     sessionId: string;
-    pointer: DragPointer;
-    start: DragPoint;
+    pointer: Pointer;
+    start: Point;
     selection: BlockSelection;
     ready: boolean;
-    timer: DragTimerToken | null;
+    timer: TimerToken | null;
     releaseCapture?: () => void;
 };
 
 type ActiveDragSession = {
     sessionId: string;
-    pointer: DragPointer;
+    pointer: Pointer;
     selection: BlockSelection;
-    targetLineNumber: number | null;
+    target: DropTarget | null;
     releaseCapture?: () => void;
 };
 
-export class DraggerRuntime {
+export class DraggerRuntime implements RuntimeController {
     private uxDisposable: (() => void) | null = null;
     private readonly pipeline: DragPipeline = new DragPipeline({
-        onOutputs: (outputs) => this.handlePipelineOutputs(outputs),
+        onResult: (transition) => this.handleTransition(transition),
     });
     private pressSession: PressSession | null = null;
     private activeDragSession: ActiveDragSession | null = null;
     private mounted = false;
     private nextSessionNumber = 1;
 
-    constructor(private readonly options: DraggerRuntimeOptions) {}
+    constructor(private readonly options: RuntimeOptions) {}
 
     get state(): PipelineState {
         return this.pipeline.state;
@@ -82,10 +87,6 @@ export class DraggerRuntime {
         this.uxDisposable = ux?.mount(this) ?? null;
     }
 
-    attach(): void {
-        this.mount();
-    }
-
     destroy(): void {
         this.clearPressSession();
         this.activeDragSession?.releaseCapture?.();
@@ -97,12 +98,8 @@ export class DraggerRuntime {
         this.preview(null);
     }
 
-    refreshSelectionVisual(): void {
-        // Selection visuals are a platform concern in the minimal runtime API.
-    }
-
-    guardUnavailable(_guardId: string): void {
-        this.pipeline.enter({ type: 'guard_unavailable', guardId: _guardId });
+    guardUnavailable(guardId: string): void {
+        this.pipeline.enter({ type: 'guard_unavailable', guardId });
     }
 
     handleMobileDragAvailabilityChanged(mobileDragAvailable: boolean): void {
@@ -113,7 +110,7 @@ export class DraggerRuntime {
         return this.pressSession !== null || this.activeDragSession !== null;
     }
 
-    handlePress(input: DraggerPressInput): void {
+    handlePress(input: PressInput): void {
         if (input.button !== undefined && input.button !== 0) return;
 
         const doc = this.options.document.getDoc();
@@ -157,7 +154,7 @@ export class DraggerRuntime {
         if (this.config().longPressMs <= 0) this.markPressReady(sessionId, input.pointer);
     }
 
-    handleMove(input: DraggerMoveInput): void {
+    handleMove(input: MoveInput): void {
         if (this.activeDragSession) {
             this.handleDragMove(input);
             return;
@@ -178,7 +175,7 @@ export class DraggerRuntime {
             sessionId: session.sessionId,
             pointer: input.pointer,
             selection: session.selection,
-            targetLineNumber: this.resolveTargetLine(input.point),
+            target: this.resolveTarget(input.point, session.selection),
             releaseCapture: session.releaseCapture,
         };
         this.clearPressTimer(session);
@@ -186,25 +183,25 @@ export class DraggerRuntime {
         this.pipeline.enter({
             type: 'drag_start',
             sessionId: session.sessionId,
-            drop: this.buildDropSnapshot(session.selection, this.activeDragSession.targetLineNumber),
+            drop: this.buildDropSnapshot(session.selection, this.activeDragSession.target),
             pointerType: input.pointer.type,
         });
     }
 
-    handleDragMove(input: DraggerMoveInput): void {
+    handleDragMove(input: MoveInput): void {
         const drag = this.activeDragSession;
         if (!drag || !samePointer(drag.pointer, input.pointer)) return;
         input.claim?.();
-        drag.targetLineNumber = this.resolveTargetLine(input.point);
+        drag.target = this.resolveTarget(input.point, drag.selection);
         this.pipeline.enter({
             type: 'drag_over',
             sessionId: drag.sessionId,
-            drop: this.buildDropSnapshot(drag.selection, drag.targetLineNumber),
+            drop: this.buildDropSnapshot(drag.selection, drag.target),
             pointerType: input.pointer.type,
         });
     }
 
-    handleRelease(input: DraggerReleaseInput): void {
+    handleRelease(input: ReleaseInput): void {
         if (this.activeDragSession && samePointer(this.activeDragSession.pointer, input.pointer)) {
             input.claim?.();
             this.drop(input);
@@ -216,7 +213,7 @@ export class DraggerRuntime {
         }
     }
 
-    handleCancel(pointer: DragPointer, releaseCapture?: () => void): void {
+    handleCancel(pointer: Pointer, releaseCapture?: () => void): void {
         if (this.activeDragSession && samePointer(this.activeDragSession.pointer, pointer)) {
             releaseCapture?.();
             this.cancel('pointer_cancelled', pointer.type);
@@ -228,13 +225,36 @@ export class DraggerRuntime {
         }
     }
 
-    private drop(input: DraggerReleaseInput): void {
+    handleSelectionChange(input: SelectionChangeInput): void {
+        if (this.pipeline.state.type !== 'selecting') return;
+        const lineNumber = this.selectionLineFromInput(input);
+        if (lineNumber === null) return;
+        input.claim?.();
+        const doc = this.options.document.getDoc();
+        const resolveBoundary = this.createBoundaryResolver();
+        this.pipeline.enter({
+            type: 'selection_change',
+            boundary: this.boundaryAtLine(lineNumber),
+            docLines: doc.lines,
+            resolveBoundary,
+        });
+    }
+
+    finishSelection(): void {
+        if (this.pipeline.state.type !== 'selecting') return;
+        this.pipeline.enter({ type: 'selection_finish' });
+        if (this.currentPassiveSelection()?.ranges.length === 0) {
+            this.pipeline.enter({ type: 'selection_clear' });
+        }
+    }
+
+    private drop(input: ReleaseInput): void {
         const drag = this.activeDragSession;
         if (!drag) return;
-        drag.targetLineNumber = this.resolveTargetLine(input.point);
-        const dropSnapshot = this.buildDropSnapshot(drag.selection, drag.targetLineNumber);
-        const planned = this.plan(drag.selection, drag.targetLineNumber);
-        if (planned.type === 'ok') {
+        drag.target = this.resolveTarget(input.point, drag.selection);
+        const dropSnapshot = this.buildDropSnapshot(drag.selection, drag.target);
+        const planned = this.plan(drag.selection, drag.target);
+        if (planned.type === 'ok' && drag.target) {
             const transaction = moveTx(this.options.document.getDoc(), planned.value);
             if ('changes' in transaction) {
                 this.pipeline.enter({
@@ -243,8 +263,17 @@ export class DraggerRuntime {
                     resolution: { type: 'platform_commit', drop: dropSnapshot },
                     pointerType: input.pointer.type,
                 });
+                const target = drag.target;
+                const selection = drag.selection;
                 this.activeDragSession = null;
-                this.options.document.applyChanges(transaction.changes);
+                this.options.commit.apply(
+                    {
+                        changes: transaction.changes,
+                        effects: transaction.effects,
+                        selectionAfter: transaction.selectionAfter,
+                    },
+                    { selection, target }
+                );
                 return;
             }
             this.pipeline.enter({
@@ -259,7 +288,7 @@ export class DraggerRuntime {
         this.pipeline.enter({
             type: 'drop',
             sessionId: drag.sessionId,
-            resolution: this.cancelDrop(dropSnapshot, planned.reason),
+            resolution: this.cancelDrop(dropSnapshot, planned.type === 'ok' ? 'no_target' : planned.reason),
             pointerType: input.pointer.type,
         });
         this.activeDragSession = null;
@@ -281,39 +310,46 @@ export class DraggerRuntime {
         this.cancel();
     }
 
-    private preview(value: Parameters<NonNullable<DraggerRuntimeOptions['preview']>>[0]): void {
-        this.options.preview?.(value);
+    private preview(value: DragPreview | null): void {
+        this.options.output?.onPreview?.(value);
     }
 
-    private resolveUx(): DraggerRuntimeUx | null {
+    private resolveUx(): RuntimeUx | null {
         const ux = this.options.ux ?? 'default';
         if (ux === 'none') return null;
-        if (ux === 'default') return defaultDraggerRuntimeUx();
+        if (ux === 'default') return defaultRuntimeUx();
         return typeof ux === 'function' ? ux() : ux;
     }
 
-    private resolveTargetLine(point: DragPoint): number | null {
-        const lineNumber = this.options.locate.targetLineFromPoint(point);
-        if (lineNumber === null) return null;
-        const doc = this.options.document.getDoc();
-        return Math.max(1, Math.min(doc.lines, lineNumber));
+    private resolveTarget(point: Point, selection: BlockSelection): DropTarget | null {
+        const target = this.options.locate.resolveDropTarget(point, { selection });
+        if (target) return this.clampTarget(target);
+        return null;
     }
 
-    private plan(selection: BlockSelection, targetLineNumber: number | null): MoveResult {
-        if (targetLineNumber === null) return { type: 'reject', reason: 'no_target' };
+    private clampTarget(target: DropTarget): DropTarget {
+        const doc = this.options.document.getDoc();
+        return {
+            ...target,
+            targetLineNumber: Math.max(1, Math.min(doc.lines + 1, target.targetLineNumber)),
+        };
+    }
+
+    private plan(selection: BlockSelection, target: DropTarget | null): MoveResult {
+        if (target === null) return { type: 'reject', reason: 'no_target' };
         const doc = this.options.document.getDoc();
         const tabSize = this.config().tabSize;
         const lineParsing = createLineParsingContext(tabSize);
         return planMove({
             doc,
             selection,
-            target: { targetLineNumber, placement: 'before' },
+            target,
             deps: this.moveDeps(doc, lineParsing),
         });
     }
 
     private moveDeps(
-        doc: ReturnType<DraggerRuntimeOptions['document']['getDoc']>,
+        doc: ReturnType<RuntimeOptions['document']['getDoc']>,
         lineParsing: ReturnType<typeof createLineParsingContext>
     ): MoveDeps {
         return {
@@ -335,17 +371,17 @@ export class DraggerRuntime {
         };
     }
 
-    private buildDropSnapshot(selection: BlockSelection, targetLineNumber: number | null): DragDropSnapshot {
+    private buildDropSnapshot(selection: BlockSelection, target: DropTarget | null): DragDropSnapshot {
         return {
-            target: targetLineNumber === null ? null : { targetLineNumber, placement: 'before' },
-            rejectReason: targetLineNumber === null
+            target,
+            rejectReason: target === null
                 ? 'no_target'
-                : this.dropRejectReason(selection, targetLineNumber),
+                : this.dropRejectReason(selection, target),
         };
     }
 
-    private dropRejectReason(selection: BlockSelection, targetLineNumber: number): DragCancelReason | null {
-        const planned = this.plan(selection, targetLineNumber);
+    private dropRejectReason(selection: BlockSelection, target: DropTarget): DragCancelReason | null {
+        const planned = this.plan(selection, target);
         if (planned.type === 'ok') return null;
         return isDragCancelReason(planned.reason) ? planned.reason : 'selection_invalid';
     }
@@ -364,7 +400,7 @@ export class DraggerRuntime {
         return sessionId;
     }
 
-    private markPressReady(sessionId: string, pointer: DragPointer): void {
+    private markPressReady(sessionId: string, pointer: Pointer): void {
         const session = this.pressSession;
         if (!session || session.sessionId !== sessionId || !samePointer(session.pointer, pointer)) return;
         session.ready = true;
@@ -376,7 +412,7 @@ export class DraggerRuntime {
         });
     }
 
-    private selectBlock(block: BlockInfo, input: DraggerPressInput): void {
+    private selectBlock(block: BlockInfo, input: PressInput): void {
         const doc = this.options.document.getDoc();
         const current = this.currentPassiveSelection();
         const selectedBlocks = selectionToSelectedBlocks(current);
@@ -420,6 +456,22 @@ export class DraggerRuntime {
         return state.selection.selection;
     }
 
+    private selectionLineFromInput(input: SelectionChangeInput): number | null {
+        if (typeof input.lineNumber === 'number') return input.lineNumber;
+        return null;
+    }
+
+    private boundaryAtLine(lineNumber: number): RangeSelectionBoundary {
+        const doc = this.options.document.getDoc();
+        const block = detectBlock({ doc }, lineNumber, { tabSize: this.config().tabSize });
+        if (block) return boundaryFromBlock(block);
+        return {
+            startLineNumber: lineNumber,
+            endLineNumber: lineNumber,
+            representativeLineNumber: lineNumber,
+        };
+    }
+
     private createBoundaryResolver(): RangeSelectionBoundaryResolver {
         return (lineNumber) => {
             const doc = this.options.document.getDoc();
@@ -431,15 +483,17 @@ export class DraggerRuntime {
         };
     }
 
-    private handlePipelineOutputs(outputs: PipelineOutput[]): void {
-        for (const output of outputs) {
+    private handleTransition(transition: ReturnType<DragPipeline['enter']>): void {
+        this.options.output?.onResult?.(transition);
+        for (const output of transition.outputs) {
             switch (output.type) {
                 case 'selection_changed':
-                    this.options.selection?.(output.selection);
+                    this.options.output?.onSelection?.(output.selection);
                     break;
                 case 'drag_over':
                     this.preview({
                         source: output.selection,
+                        target: output.drop.target,
                         targetLineNumber: output.drop.target?.targetLineNumber ?? null,
                         allowed: output.drop.rejectReason == null,
                         reason: output.drop.rejectReason ?? null,
@@ -467,22 +521,22 @@ export class DraggerRuntime {
         session.timer = null;
     }
 
-    private setTimer(callback: () => void, delayMs: number): DragTimerToken {
-        if (this.options.setTimer) return this.options.setTimer(callback, delayMs);
+    private setTimer(callback: () => void, delayMs: number): TimerToken {
+        if (this.options.scheduler) return this.options.scheduler.setTimer(callback, delayMs);
         // eslint-disable-next-line obsidianmd/prefer-window-timers
         return setTimeout(callback, delayMs);
     }
 
-    private clearTimer(token: DragTimerToken): void {
-        if (this.options.clearTimer) {
-            this.options.clearTimer(token);
+    private clearTimer(token: TimerToken): void {
+        if (this.options.scheduler) {
+            this.options.scheduler.clearTimer(token);
             return;
         }
         // eslint-disable-next-line obsidianmd/prefer-window-timers
         clearTimeout(token);
     }
 
-    private config(): DraggerRuntimeConfig {
+    private config(): ResolvedConfig {
         const config = typeof this.options.config === 'function'
             ? this.options.config()
             : this.options.config;
@@ -493,15 +547,15 @@ export class DraggerRuntime {
     }
 }
 
-function samePointer(a: DragPointer, b: DragPointer): boolean {
+function samePointer(a: Pointer, b: Pointer): boolean {
     return a.id === b.id;
 }
 
-function distanceBetween(a: DragPoint, b: DragPoint): number {
+function distanceBetween(a: Point, b: Point): number {
     return Math.hypot(b.x - a.x, b.y - a.y);
 }
 
-function isSelectionGesture(input: DraggerPressInput): boolean {
+function isSelectionGesture(input: PressInput): boolean {
     return input.modifiers?.shiftKey === true
         || input.modifiers?.ctrlKey === true
         || input.modifiers?.metaKey === true;

@@ -84,7 +84,7 @@ export type DropCheck =
     | { type: 'ok'; value: DropOk }
     | { type: 'reject'; reason: DropRejectReason };
 
-export type MoveInput = DropInput & {
+export type MovePlanInput = DropInput & {
     relation?: DocRelation;
     crossFile?: boolean;
 };
@@ -171,7 +171,7 @@ export function checkDrop(input: DropInput): DropCheck {
     };
 }
 
-export function planMove(input: MoveInput): MoveResult {
+export function planMove(input: MovePlanInput): MoveResult {
     if (
         input.scope === 'cross_editor'
         && input.relation === 'different_document'

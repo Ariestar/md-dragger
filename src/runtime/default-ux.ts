@@ -1,9 +1,9 @@
-import type { DraggerDisposable, DraggerRuntimeController } from './dragger-runtime-types';
+import type { Disposable, RuntimeController } from './dragger-runtime-types';
 
-export function defaultDraggerRuntimeUx(): { mount(runtime: DraggerRuntimeController): DraggerDisposable } {
+export function defaultRuntimeUx(): { mount(runtime: RuntimeController): Disposable } {
     return {
         mount(runtime) {
-            const disposables: DraggerDisposable[] = [];
+            const disposables: Disposable[] = [];
             const input = runtime.input;
             disposables.push(input.onPress((event) => runtime.handlePress(event)));
             disposables.push(input.onMove((event) => runtime.handleMove(event)));

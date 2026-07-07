@@ -34,9 +34,9 @@ describe('drag pipeline object', () => {
     it('can consume outputs as part of enter', () => {
         const observed: string[] = [];
         const pipeline = new DragPipeline({
-            onOutputs: (outputs, result) => {
-                observed.push(result.current.type);
-                observed.push(...outputs.map((output) => output.type));
+            onResult: (transition) => {
+                observed.push(transition.current.type);
+                observed.push(...transition.outputs.map((output) => output.type));
             },
         });
 

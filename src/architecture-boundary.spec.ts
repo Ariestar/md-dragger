@@ -98,8 +98,8 @@ describe('headless architecture boundaries', () => {
 
     it('keeps runtime input as headless points instead of host events', () => {
         const runtimeTypes = readFileSync(join(runtimeRoot, 'dragger-runtime-types.ts'), 'utf8');
-        expect(runtimeTypes).toContain('point: DragPoint');
-        expect(runtimeTypes).toContain('sourceLineFromInput(input: DraggerPressInput): number | null');
+        expect(runtimeTypes).toContain('point: Point');
+        expect(runtimeTypes).toContain('sourceLineFromInput(input: PressInput): number | null');
         expect(runtimeTypes).not.toMatch(/\bDraggerPressZone\b|\bDraggerPressTarget\b|\bzone:\b|\bskipLongPress\b|\bpassiveSelection\?:/);
     });
 });
