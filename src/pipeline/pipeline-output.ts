@@ -1,6 +1,6 @@
-import type { ListDropTarget } from '../../domain/command/drop-target';
-import type { BlockCommand } from '../../domain/command/block-command';
-import type { BlockSelection } from '../../domain/selection/block-selection';
+import type { ListDropTarget } from '../domain/command/drop-target';
+import type { BlockCommand } from '../domain/command/block-command';
+import type { BlockSelection } from '../domain/selection/block-selection';
 import type { DragCancelReason } from './pipeline-event';
 import type { DragDropSnapshot } from './pipeline-drop';
 import type { PipelineState } from './pipeline-state';

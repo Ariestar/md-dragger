@@ -9,12 +9,12 @@
   },
   "include": [
     "src/index.ts",
-    "src/domain.ts",
-    "src/runtime.ts",
-    "src/adapter/codemirror.ts",
+    "src/domain/index.ts",
+    "src/adapter/codemirror/index.ts",
     "src/domain/**/*.ts",
     "src/adapter/**/*.ts",
-    "src/drag/**/*.ts"
+    "src/pipeline/**/*.ts",
+    "src/runtime/**/*.ts"
   ],
   "exclude": [
     "src/**/*.spec.ts"

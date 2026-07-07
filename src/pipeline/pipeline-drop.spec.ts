@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createSingleBlockSelection } from '../../domain/selection/block-selection';
-import { BlockType } from '../../domain/block/block-types';
+import { createSingleBlockSelection } from '../domain/selection/block-selection';
+import { BlockType } from '../domain/block/block-types';
 import { drop, dragOver, startDragDrop } from './pipeline-drop';
 
 const block = {

@@ -21,8 +21,8 @@ import {
   type DraggerInputSource,
   type DraggerPressInput,
   type DraggerRuntimeConfigInput,
-} from '../drag/runtime';
-import { detectBlock, type BlockSelection, type TextChange } from '../domain';
+} from '../../runtime';
+import { detectBlock, type BlockSelection, type TextChange } from '../../domain';
 
 const HANDLE_CLASS = 'md-dragger-cm-handle';
 const EDITOR_CLASS = 'md-dragger-cm-editor';

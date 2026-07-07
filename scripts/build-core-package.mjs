@@ -7,20 +7,18 @@ fs.rmSync("dist/npm", { recursive: true, force: true });
 fs.mkdirSync("dist/npm", { recursive: true });
 
 const common = {
-  entryPoints: [
-    "src/index.ts",
-    "src/domain.ts",
-    "src/runtime.ts",
-    "src/adapter/codemirror.ts"
-  ],
+  entryPoints: {
+    index: "src/index.ts",
+    domain: "src/domain/index.ts",
+    runtime: "src/runtime/index.ts",
+    "adapter/codemirror": "src/adapter/codemirror/index.ts"
+  },
   bundle: true,
   platform: "neutral",
   target: "es2018",
   sourcemap: false,
   logLevel: "info",
   outdir: "dist/npm",
-  outbase: "src",
-  entryNames: "[dir]/[name]",
   external: [
     "@codemirror/state",
     "@codemirror/view"

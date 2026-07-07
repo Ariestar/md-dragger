@@ -1,6 +1,6 @@
-import type { TextChange } from '../../domain/transaction/block-transaction';
-import type { BlockSelection } from '../../domain/selection/block-selection';
-import type { DocLikeWithRange } from '../../domain/markdown/document-types';
+import type { TextChange } from '../domain/transaction/block-transaction';
+import type { BlockSelection } from '../domain/selection/block-selection';
+import type { DocLikeWithRange } from '../domain/markdown/document-types';
 import type { DragCancelReason } from '../pipeline/pipeline-event';
 
 export type DraggerDisposable = () => void;

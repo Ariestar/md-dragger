@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createSingleBlockSelection } from '../../domain/selection/block-selection';
-import { BlockType } from '../../domain/block/block-types';
+import { createSingleBlockSelection } from '../domain/selection/block-selection';
+import { BlockType } from '../domain/block/block-types';
 import { DragPipeline } from './drag-pipeline';
 import type { PipelineState } from './pipeline-state';
 

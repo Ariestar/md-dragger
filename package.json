@@ -23,35 +23,35 @@
       }
     },
     "./domain": {
-      "source": "./src/domain.ts",
+      "source": "./src/domain/index.ts",
       "import": {
-        "types": "./dist/npm/types/domain.d.mts",
+        "types": "./dist/npm/types/domain/index.d.mts",
         "default": "./dist/npm/domain.mjs"
       },
       "require": {
-        "types": "./dist/npm/types/domain.d.cts",
+        "types": "./dist/npm/types/domain/index.d.cts",
         "default": "./dist/npm/domain.cjs"
       }
     },
     "./runtime": {
-      "source": "./src/runtime.ts",
+      "source": "./src/runtime/index.ts",
       "import": {
-        "types": "./dist/npm/types/runtime.d.mts",
+        "types": "./dist/npm/types/runtime/index.d.mts",
         "default": "./dist/npm/runtime.mjs"
       },
       "require": {
-        "types": "./dist/npm/types/runtime.d.cts",
+        "types": "./dist/npm/types/runtime/index.d.cts",
         "default": "./dist/npm/runtime.cjs"
       }
     },
     "./adapter/codemirror": {
-      "source": "./src/adapter/codemirror.ts",
+      "source": "./src/adapter/codemirror/index.ts",
       "import": {
-        "types": "./dist/npm/types/adapter/codemirror.d.mts",
+        "types": "./dist/npm/types/adapter/codemirror/index.d.mts",
         "default": "./dist/npm/adapter/codemirror.mjs"
       },
       "require": {
-        "types": "./dist/npm/types/adapter/codemirror.d.cts",
+        "types": "./dist/npm/types/adapter/codemirror/index.d.cts",
         "default": "./dist/npm/adapter/codemirror.cjs"
       }
     }

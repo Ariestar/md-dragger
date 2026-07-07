@@ -1,9 +1,9 @@
-import type { DocLikeWithRange } from '../../domain/markdown/document-types';
-import type { BlockSelection } from '../../domain/selection/block-selection';
-import type { RangeSelectionOperation } from '../../domain/selection/block-selection';
-import type { SelectedBlockRange } from '../../domain/selection/block-ranges';
-import type { BlockCommand } from '../../domain/command/block-command';
-import type { RangeSelectionBoundary, RangeSelectionBoundaryResolver } from '../../domain/selection/range-selection';
+import type { DocLikeWithRange } from '../domain/markdown/document-types';
+import type { BlockSelection } from '../domain/selection/block-selection';
+import type { RangeSelectionOperation } from '../domain/selection/block-selection';
+import type { SelectedBlockRange } from '../domain/selection/block-ranges';
+import type { BlockCommand } from '../domain/command/block-command';
+import type { RangeSelectionBoundary, RangeSelectionBoundaryResolver } from '../domain/selection/range-selection';
 import type { DragDropSnapshot, DropResolution } from './pipeline-drop';
 import type { HoldTarget } from './pipeline-state';
 
