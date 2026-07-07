@@ -1,3 +1,5 @@
 export * from './dragger-runtime';
 export * from './dragger-runtime-types';
 export * from './default-ux';
+export type { Transition, DragPipelineOptions } from '../pipeline/drag-pipeline';
+export type { PipelineOutput } from '../pipeline/pipeline-output';

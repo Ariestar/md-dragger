@@ -74,14 +74,6 @@ export type InputSource = {
     onEscape?: (handler: () => void) => Disposable;
 };
 
-export type DragPreview = {
-    source: BlockSelection;
-    target: DropTarget | null;
-    targetLineNumber: number | null;
-    allowed: boolean;
-    reason?: DragCancelReason | null;
-};
-
 // --- document axis (host -> rt, pull, read-only) ---
 
 export type DocumentHost = {
@@ -118,13 +110,9 @@ export type CommitHost = {
 
 export type OutputHost = {
     // Single source of truth: every pipeline transition, verbatim.
+    // All derived views (drop preview, selection highlight, ...) are the
+    // platform's job — it projects them from transition.outputs itself.
     onResult?(transition: Transition): void;
-    // Convenience derived views. These are PURE projections of the stream
-    // above, never a second semantics. DragPreview is the one thing the
-    // runtime itself derives (from drag_over); onSelection mirrors
-    // selection_changed so hosts don't have to scan outputs for it.
-    onPreview?(preview: DragPreview | null): void;
-    onSelection?(selection: BlockSelection | null): void;
 };
 
 // --- scheduler axis (injected timers) ---

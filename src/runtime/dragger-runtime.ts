@@ -31,7 +31,6 @@ import {
     type PressInput,
     type ReleaseInput,
     type SelectionChangeInput,
-    type DragPreview,
     type RuntimeUx,
 } from './dragger-runtime-types';
 
@@ -95,7 +94,6 @@ export class DraggerRuntime implements RuntimeController {
         this.uxDisposable?.();
         this.uxDisposable = null;
         this.mounted = false;
-        this.preview(null);
     }
 
     guardUnavailable(guardId: string): void {
@@ -310,10 +308,6 @@ export class DraggerRuntime implements RuntimeController {
         this.cancel();
     }
 
-    private preview(value: DragPreview | null): void {
-        this.options.output?.onPreview?.(value);
-    }
-
     private resolveUx(): RuntimeUx | null {
         const ux = this.options.ux ?? 'default';
         if (ux === 'none') return null;
@@ -485,27 +479,6 @@ export class DraggerRuntime implements RuntimeController {
 
     private handleTransition(transition: ReturnType<DragPipeline['enter']>): void {
         this.options.output?.onResult?.(transition);
-        for (const output of transition.outputs) {
-            switch (output.type) {
-                case 'selection_changed':
-                    this.options.output?.onSelection?.(output.selection);
-                    break;
-                case 'drag_over':
-                    this.preview({
-                        source: output.selection,
-                        target: output.drop.target,
-                        targetLineNumber: output.drop.target?.targetLineNumber ?? null,
-                        allowed: output.drop.rejectReason == null,
-                        reason: output.drop.rejectReason ?? null,
-                    });
-                    break;
-                case 'dropped':
-                case 'cancelled':
-                case 'terminal':
-                    this.preview(null);
-                    break;
-            }
-        }
     }
 
     private clearPressSession(): void {
