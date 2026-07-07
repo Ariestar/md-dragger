@@ -107,9 +107,17 @@ Drag any block by its handle to rearrange content. Try it now!
 ## Features
 
 - Drag paragraphs, headings, lists, code blocks
+- Drag nested list items by moving horizontally while dragging
 - Multi-block selection with long press
 - Cross-file drag support
 - Works on both desktop and mobile
+
+Nested list sample:
+
+- Parent item
+    - Nested child item
+    - Another child item
+- Sibling item
 
 ## How to Use
 
@@ -121,6 +129,15 @@ Hover over the left edge of any block to reveal the drag handle. Click and drag 
 const greeting = "Hello, Dragger!";
 console.log(greeting);
 \`\`\`
+
+| Feature | Status |
+| --- | --- |
+| Tables | Draggable as a block |
+| Math | Draggable as a block |
+
+$$
+E = mc^2
+$$
 
 1. First ordered item
 2. Second ordered item

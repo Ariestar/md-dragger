@@ -47,11 +47,24 @@ Headings of any level are draggable. Try moving this H3 above the H2.
 
 - Bullet list item one
 - Bullet list item two
+    - Nested child A
+    - Nested child B
 - Bullet list item three
 
 1. Ordered item alpha
 2. Ordered item beta
+    1. Ordered child beta-one
+    2. Ordered child beta-two
 3. Ordered item gamma
+
+Drag list items horizontally while moving them to change sibling, child, and outdent placement.
+
+### Tables
+
+| Block type | Web adapter |
+| --- | --- |
+| Table | Drag the whole table from the first row |
+| Math block | Drag the whole fenced math block |
 
 ### Code Blocks
 
@@ -62,6 +75,12 @@ interface DragConfig {
     mobileDragLongPress: number;
 }
 \`\`\`
+
+### Math Blocks
+
+$$
+\\int_0^1 x^2 dx = \\frac{1}{3}
+$$
 
 ### Blockquotes
 
