@@ -34,16 +34,16 @@ describe('drag pipeline object', () => {
     it('can consume outputs as part of enter', () => {
         const observed: string[] = [];
         const pipeline = new DragPipeline({
-            onResult: (transition) => {
-                observed.push(transition.current.type);
-                observed.push(...transition.outputs.map((output) => output.type));
+            onChange: (output) => {
+                observed.push(output.current.type);
+                observed.push(...output.outputs.map((o) => o.type));
             },
         });
 
         const result = pipeline.enter({
             type: 'hold_start',
             sessionId: 's1',
-            target: { selection, source: 'handle' },
+            target: { selection },
         });
 
         expect(result.current.type).toBe('holding');
@@ -58,7 +58,7 @@ describe('drag pipeline object', () => {
         const hold = pipeline.enter({
             type: 'hold_start',
             sessionId: 's1',
-            target: { selection, source: 'handle' },
+            target: { selection },
         });
         expect(hold.current.type).toBe('holding');
 
@@ -83,7 +83,7 @@ describe('drag pipeline object', () => {
         pipeline.enter({
             type: 'hold_start',
             sessionId: 's1',
-            target: { selection: multiSelection, source: 'selected_text' },
+            target: { selection: multiSelection },
         });
         pipeline.enter({ type: 'hold_ready', sessionId: 's1' });
         const dragging = pipeline.enter({
@@ -105,7 +105,7 @@ describe('drag pipeline object', () => {
         pipeline.enter({
             type: 'hold_start',
             sessionId: 's1',
-            target: { selection, source: 'handle' },
+            target: { selection },
         });
         pipeline.enter({ type: 'hold_ready', sessionId: 's1' });
         pipeline.enter({
@@ -196,7 +196,7 @@ describe('drag pipeline object', () => {
         const hold = pipeline.enter({
             type: 'hold_start',
             sessionId: 's1',
-            target: { selection: multiSelection, source: 'selected_text' },
+            target: { selection: multiSelection },
             guardDeps: ['text-drag-mode'],
         });
 

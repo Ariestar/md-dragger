@@ -62,7 +62,7 @@ type ActiveDragSession = {
 export class DraggerRuntime implements RuntimeController {
     private uxDisposable: (() => void) | null = null;
     private readonly pipeline: DragPipeline = new DragPipeline({
-        onResult: (transition) => this.handleTransition(transition),
+        onChange: (output) => this.handleChange(output),
     });
     private pressSession: PressSession | null = null;
     private activeDragSession: ActiveDragSession | null = null;
@@ -143,10 +143,7 @@ export class DraggerRuntime implements RuntimeController {
         this.pipeline.enter({
             type: 'hold_start',
             sessionId,
-            target: {
-                selection,
-                source: isBlockCoveredBySelection(this.currentPassiveSelection(), block) ? 'selected_text' : 'handle',
-            },
+            target: { selection },
             pointerType: input.pointer.type,
         });
         if (this.config().longPressMs <= 0) this.markPressReady(sessionId, input.pointer);
@@ -477,8 +474,8 @@ export class DraggerRuntime implements RuntimeController {
         };
     }
 
-    private handleTransition(transition: ReturnType<DragPipeline['enter']>): void {
-        this.options.output?.onResult?.(transition);
+    private handleChange(output: ReturnType<DragPipeline['enter']>): void {
+        this.options.onChange?.(output);
     }
 
     private clearPressSession(): void {

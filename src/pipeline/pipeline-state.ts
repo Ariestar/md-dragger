@@ -19,7 +19,6 @@ export type HoldContext = {
 
 export type HoldTarget = {
     selection: BlockSelection;
-    source: 'handle' | 'text' | 'selected_text' | 'command';
 };
 
 export type SelectionContext = {

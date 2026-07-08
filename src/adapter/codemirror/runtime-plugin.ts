@@ -27,10 +27,8 @@ export function dragRuntime(options: MdDraggerCodeMirrorOptions = {}): Extension
         commit: {
           apply: (commit) => applyCommit(view, commit),
         },
-        output: {
-          onResult: (transition) => {
-            view.dispatch({ effects: dragTransitionEffect.of(transition) });
-          },
+        onChange: (output) => {
+          view.dispatch({ effects: dragTransitionEffect.of(output) });
         },
         config: () => ({
           longPressMs: 0,

@@ -3,14 +3,15 @@ import type { PipelineOutput } from './pipeline-output';
 import { transitionPipelineState } from './pipeline-reducer';
 import { IDLE_PIPELINE_STATE, type PipelineState } from './pipeline-state';
 
-export type Transition<TPreview = unknown> = {
+export type Change<TPreview = unknown> = {
     previous: PipelineState;
     current: PipelineState;
     outputs: PipelineOutput<TPreview>[];
+    event: PipelineEvent<TPreview>;
 };
 
 export type DragPipelineOptions<TPreview = unknown> = {
-    onResult?: (transition: Transition<TPreview>) => void;
+    onChange?: (output: Change<TPreview>) => void;
 };
 
 export class DragPipeline<TPreview = unknown> {
@@ -24,20 +25,21 @@ export class DragPipeline<TPreview = unknown> {
         return this.currentState;
     }
 
-    enter(event: PipelineEvent<TPreview>): Transition<TPreview> {
+    enter(event: PipelineEvent<TPreview>): Change<TPreview> {
         const previous = this.currentState;
         const transition = transitionPipelineState(previous, event);
         this.currentState = transition.state;
-        const result = {
+        const output: Change<TPreview> = {
             previous,
             current: this.currentState,
             outputs: this.decorateOutputs(previous, this.currentState, event, transition.outputs),
+            event,
         };
-        this.options.onResult?.(result);
-        return result;
+        this.options.onChange?.(output);
+        return output;
     }
 
-    clear(): Transition<TPreview> {
+    clear(): Change<TPreview> {
         return this.enter({ type: 'destroy' });
     }
 

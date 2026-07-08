@@ -3,7 +3,7 @@ import type { BlockSelection } from '../domain/selection/block-selection';
 import type { DocLikeWithRange } from '../domain/markdown/document-types';
 import type { DropTarget } from '../domain/command/drop-target';
 import type { DragCancelReason } from '../pipeline/pipeline-event';
-import type { Transition } from '../pipeline/drag-pipeline';
+import type { Change } from '../pipeline/drag-pipeline';
 
 export type Disposable = () => void;
 
@@ -106,15 +106,6 @@ export type CommitHost = {
     apply(commit: DropCommit, context: DropCommitContext): void;
 };
 
-// --- broadcast axis (rt -> host, single source of truth) ---
-
-export type OutputHost = {
-    // Single source of truth: every pipeline transition, verbatim.
-    // All derived views (drop preview, selection highlight, ...) are the
-    // platform's job — it projects them from transition.outputs itself.
-    onResult?(transition: Transition): void;
-};
-
 // --- scheduler axis (injected timers) ---
 
 export type SchedulerHost = {
@@ -158,14 +149,18 @@ export type UxOption =
     | RuntimeUx
     | (() => RuntimeUx);
 
-// --- runtime options: five fixed IO axes + a swappable input stage ---
+// --- runtime options: IO axes + swappable input stage ---
 
 export type RuntimeOptions = {
     input: InputSource;
     document: DocumentHost;
     locate: LocateHost;
     commit: CommitHost;
-    output?: OutputHost;
+    // Broadcast hook: every pipeline change (state transition + the event
+    // that triggered it + outputs) is delivered here. This is the platform's
+    // observation point — it projects ux (drop preview, selection highlight,
+    // handle-tap, …) from `output`. Shallow: observe + derive, not intercept.
+    onChange?(output: Change): void;
     scheduler?: SchedulerHost;
     ux?: UxOption;
     config?: Config;
