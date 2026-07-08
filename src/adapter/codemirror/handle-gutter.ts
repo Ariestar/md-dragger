@@ -6,27 +6,35 @@ import {
   gutter,
 } from '@codemirror/view';
 import { detectBlock } from '../../domain';
-import { HANDLE_CLASS, resolveTabSize, type MdDraggerCodeMirrorOptions } from './config';
+import { HANDLE_CLASS, resolveTabSize, type MdDraggerCodeMirrorOptions, type RenderHandle } from './config';
 
-class DragHandleMarker extends GutterMarker {
-  toDOM(): HTMLElement {
-    const handle = document.createElement('button');
-    handle.type = 'button';
-    handle.className = HANDLE_CLASS;
-    handle.setAttribute('aria-label', 'Drag markdown block');
-    handle.textContent = '⋮⋮';
-    return handle;
-  }
+// Default handle: a plain ⋮⋮ button.
+function createDefaultHandle(): HTMLElement {
+  const handle = document.createElement('button');
+  handle.type = 'button';
+  handle.className = HANDLE_CLASS;
+  handle.setAttribute('aria-label', 'Drag markdown block');
+  handle.textContent = '⋮⋮';
+  return handle;
 }
 
-const dragHandleMarker = new DragHandleMarker();
+// A GutterMarker whose toDOM delegates to a consumer-provided factory (or the
+// default). One marker instance is reused for every draggable line.
+function createHandleMarker(render: RenderHandle | undefined): GutterMarker {
+  return new (class extends GutterMarker {
+    toDOM(): HTMLElement {
+      return render?.() ?? createDefaultHandle();
+    }
+  })();
+}
 
-export function dragHandleGutter(options: MdDraggerCodeMirrorOptions): Extension {
+export function dragHandleGutter(options: MdDraggerCodeMirrorOptions = {}): Extension {
+  const marker = createHandleMarker(options.handle?.render);
   return gutter({
     class: 'md-dragger-cm-gutter',
     lineMarker: (view, line) => {
       if (!isDraggableBlockStart(view, line, options)) return null;
-      return dragHandleMarker;
+      return marker;
     },
   });
 }
@@ -39,3 +47,4 @@ function isDraggableBlockStart(view: EditorView, line: ViewBlockInfo, options: M
   });
   return block?.startLine === docLine.number - 1;
 }
+

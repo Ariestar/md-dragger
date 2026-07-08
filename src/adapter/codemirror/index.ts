@@ -20,6 +20,8 @@ export {
   resolveConfig,
   resolveTabSize,
   type MdDraggerCodeMirrorOptions,
+  type HandleOptions,
+  type RenderHandle,
 } from './config';
 
 const editorAttributes = EditorView.editorAttributes.of({ class: EDITOR_CLASS });
