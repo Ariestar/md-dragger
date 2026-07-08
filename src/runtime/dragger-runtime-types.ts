@@ -77,7 +77,12 @@ export type InputSource = {
 // --- document axis (host -> rt, pull, read-only) ---
 
 export type DocumentHost = {
+    // Single-doc host: getDoc covers both source and target.
     getDoc(): DocLikeWithRange;
+    // Cross-doc host: override to distinguish the drag's source and target
+    // documents. When omitted, both resolve to getDoc() (single-doc case).
+    getSourceDoc?(): DocLikeWithRange;
+    getTargetDoc?(): DocLikeWithRange;
 };
 
 // --- locate axis (host -> rt, pull, coordinate translation) ---
@@ -97,13 +102,20 @@ export type DropCommit = {
     selectionAfter?: BlockSelection | null;
 };
 
+// Cross-document drop yields two commits: source-side deletes and target-side
+// inserts. Single-document drops use the flat DropCommit above.
+export type CrossDocDropCommit = {
+    source: DropCommit;
+    target: DropCommit;
+};
+
 export type DropCommitContext = {
     selection: BlockSelection;
     target: DropTarget;
 };
 
 export type CommitHost = {
-    apply(commit: DropCommit, context: DropCommitContext): void;
+    apply(commit: DropCommit | CrossDocDropCommit, context: DropCommitContext): void;
 };
 
 // --- scheduler axis (injected timers) ---

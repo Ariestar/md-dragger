@@ -5,7 +5,7 @@ import { resolveDeleteRange, resolveInsertionChange } from '../mutation/document
 import { normalizeCompositeRanges, type CompositeLineRange } from '../selection/selection-ranges';
 import type { BlockSelection } from '../selection/block-selection';
 import type { MoveDeps, MovePlan } from '../move/move-plan';
-import type { BlockTransaction } from './block-transaction';
+import type { BlockTransaction, TextChange } from './block-transaction';
 import { rejectCommand, type CommandReject } from './command-reject';
 
 export type MoveSourceSegment = {
@@ -76,20 +76,38 @@ export function captureMoveSourcePayload(doc: DocLikeWithRange, selection: Block
     return { content, ranges, segments };
 }
 
-export function moveTx(doc: DocLikeWithRange, plan: MovePlan): BlockTransaction | CommandReject {
+export type MoveTxResult =
+    | BlockTransaction
+    | { source: BlockTransaction; target: BlockTransaction };
+
+export function moveTx(params: {
+    sourceDoc: DocLikeWithRange;
+    targetDoc: DocLikeWithRange;
+    plan: MovePlan;
+}): MoveTxResult | CommandReject {
+    const { sourceDoc, targetDoc, plan } = params;
+
+    // Cross-document: insert on target, delete on source — two independent
+    // transactions (no insertion_inside_deleted_range conflict, no in-place
+    // merge, no removedLineCountBeforeTarget fixup; the docs are disjoint).
     if (plan.mode === 'insert-only') {
-        return planInsertOnlyTransaction({
-            doc,
+        const target = planInsertOnlyTransaction({
+            doc: targetDoc,
             sourceBlock: plan.captured.block,
             payload: plan.captured.payload,
             targetLineNumber: plan.targetLineNumber,
             listIntent: plan.target.listIntent,
             deps: plan.deps,
         });
+        if ('type' in target) return target;
+        const source: BlockTransaction = { changes: planSourceDeletion(plan.captured.payload) };
+        return { source, target };
     }
 
+    // Same-document: sourceDoc === targetDoc — single merged transaction with
+    // the in-place / line-shift optimizations that only hold within one doc.
     return planInsertionAndDeletionTransaction({
-        doc,
+        doc: targetDoc,
         sourceBlock: plan.captured.block,
         payload: plan.captured.payload,
         targetLineNumber: plan.targetLineNumber,
@@ -97,6 +115,14 @@ export function moveTx(doc: DocLikeWithRange, plan: MovePlan): BlockTransaction 
         deps: plan.deps,
         allowInPlaceIndentChange: plan.allowIndent,
     });
+}
+
+// Source-side delete changes for a cross-document move: one delete per
+// captured segment, sorted for safe sequential application.
+export function planSourceDeletion(payload: MoveSourcePayload): TextChange[] {
+    return payload.segments
+        .map((segment) => ({ from: segment.deleteFrom, to: segment.deleteTo, insert: '' }))
+        .sort((a, b) => b.from - a.from);
 }
 
 function planInsertionAndDeletionTransaction(params: {

@@ -13,7 +13,7 @@ import { getListContext } from '../domain/mutation/list-mutation';
 import { buildInsertTextForDrop } from '../domain/mutation/text-mutation-policy';
 import { resolveDropRuleAtInsertion } from '../domain/rules/container-policy-service';
 import { planMove, type MoveDeps, type MoveResult } from '../domain/move/move-plan';
-import { moveTx } from '../domain/transaction/move-blocks';
+import { moveTx, type MoveTxResult } from '../domain/transaction/move-blocks';
 import { DragPipeline } from '../pipeline/drag-pipeline';
 import type { DragDropSnapshot, DropResolution } from '../pipeline/pipeline-drop';
 import type { DragCancelReason } from '../pipeline/pipeline-event';
@@ -250,34 +250,34 @@ export class DraggerRuntime implements RuntimeController {
         const dropSnapshot = this.buildDropSnapshot(drag.selection, drag.target);
         const planned = this.plan(drag.selection, drag.target);
         if (planned.type === 'ok' && drag.target) {
-            const transaction = moveTx(this.options.document.getDoc(), planned.value);
-            if ('changes' in transaction) {
+            const documentHost = this.options.document;
+            const sourceDoc = documentHost.getSourceDoc?.() ?? documentHost.getDoc();
+            const targetDoc = documentHost.getTargetDoc?.() ?? documentHost.getDoc();
+            const transaction = moveTx({ sourceDoc, targetDoc, plan: planned.value });
+            if ('type' in transaction) {
+                // CommandReject
                 this.pipeline.enter({
                     type: 'drop',
                     sessionId: drag.sessionId,
-                    resolution: { type: 'platform_commit', drop: dropSnapshot },
+                    resolution: this.cancelDrop(dropSnapshot, transaction.reason),
                     pointerType: input.pointer.type,
                 });
-                const target = drag.target;
-                const selection = drag.selection;
                 this.activeDragSession = null;
-                this.options.commit.apply(
-                    {
-                        changes: transaction.changes,
-                        effects: transaction.effects,
-                        selectionAfter: transaction.selectionAfter,
-                    },
-                    { selection, target }
-                );
                 return;
             }
             this.pipeline.enter({
                 type: 'drop',
                 sessionId: drag.sessionId,
-                resolution: this.cancelDrop(dropSnapshot, transaction.reason),
+                resolution: { type: 'platform_commit', drop: dropSnapshot },
                 pointerType: input.pointer.type,
             });
+            const target = drag.target;
+            const selection = drag.selection;
             this.activeDragSession = null;
+            this.options.commit.apply(
+                toDropCommit(transaction),
+                { selection, target }
+            );
             return;
         }
         this.pipeline.enter({
@@ -319,7 +319,8 @@ export class DraggerRuntime implements RuntimeController {
     }
 
     private clampTarget(target: DropTarget): DropTarget {
-        const doc = this.options.document.getDoc();
+        const documentHost = this.options.document;
+        const doc = documentHost.getTargetDoc?.() ?? documentHost.getDoc();
         return {
             ...target,
             targetLineNumber: Math.max(1, Math.min(doc.lines + 1, target.targetLineNumber)),
@@ -328,14 +329,17 @@ export class DraggerRuntime implements RuntimeController {
 
     private plan(selection: BlockSelection, target: DropTarget | null): MoveResult {
         if (target === null) return { type: 'reject', reason: 'no_target' };
-        const doc = this.options.document.getDoc();
+        const documentHost = this.options.document;
+        const sourceDoc = documentHost.getSourceDoc?.() ?? documentHost.getDoc();
+        const targetDoc = documentHost.getTargetDoc?.() ?? documentHost.getDoc();
         const tabSize = this.config().tabSize;
         const lineParsing = createLineParsingContext(tabSize);
         return planMove({
-            doc,
+            sourceDoc,
+            targetDoc,
             selection,
             target,
-            deps: this.moveDeps(doc, lineParsing),
+            deps: this.moveDeps(targetDoc, lineParsing),
         });
     }
 
@@ -345,8 +349,8 @@ export class DraggerRuntime implements RuntimeController {
     ): MoveDeps {
         return {
             tabSize: this.config().tabSize,
-            slotAt: (sourceBlock, lineNumber, options) =>
-                resolveDropRuleAtInsertion({ doc }, sourceBlock, lineNumber, options),
+            slotAt: (targetDoc, sourceBlock, lineNumber, options) =>
+                resolveDropRuleAtInsertion({ doc: targetDoc }, sourceBlock, lineNumber, options),
             parseLine: lineParsing.parseLine,
             listCtx: (activeDoc, lineNumber) => getListContext(activeDoc, lineNumber, lineParsing.parseLine),
             indentUnit: (sample) => lineParsing.getIndentUnitWidth(sample),
@@ -559,4 +563,20 @@ function isBlockCoveredBySelection(selection: BlockSelection | null, block: Bloc
 
 function isDragCancelReason(reason: string): reason is DragCancelReason {
     return reason !== 'empty_selection';
+}
+
+// Map a moveTx result (single transaction or source/target pair) to the
+// commit payload the host lands. CommandReject is the caller's responsibility.
+function toDropCommit(transaction: MoveTxResult): import('./dragger-runtime-types').DropCommit | import('./dragger-runtime-types').CrossDocDropCommit {
+    if ('source' in transaction && 'target' in transaction) {
+        return {
+            source: { changes: transaction.source.changes, effects: transaction.source.effects },
+            target: { changes: transaction.target.changes, effects: transaction.target.effects, selectionAfter: transaction.target.selectionAfter },
+        };
+    }
+    return {
+        changes: transaction.changes,
+        effects: transaction.effects,
+        selectionAfter: transaction.selectionAfter,
+    };
 }

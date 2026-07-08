@@ -43,6 +43,7 @@ export type DocRelation = 'same_document' | 'different_document';
 export type MoveDeps = {
     tabSize: number;
     slotAt: (
+        doc: DocLikeWithRange,
         sourceBlock: BlockInfo,
         targetLineNumber: number,
         options: { lineMap?: LineMap; tabSize: number }
@@ -63,7 +64,8 @@ export type MoveDeps = {
 };
 
 export type DropInput = {
-    doc: DocLikeWithRange;
+    sourceDoc: DocLikeWithRange;
+    targetDoc: DocLikeWithRange;
     selection: BlockSelection;
     target: DropTarget;
     deps: MoveDeps;
@@ -105,12 +107,12 @@ export type MoveResult =
     | { type: 'reject'; reason: MoveRejectReason };
 
 export function checkDrop(input: DropInput): DropCheck {
-    const captured = input.captured ?? captureMoveSource(input.doc, input.selection);
+    const captured = input.captured ?? captureMoveSource(input.sourceDoc, input.selection);
     if (!captured) return { type: 'reject', reason: 'empty_selection' };
 
-    const targetLineNumber = clampTarget(input.doc.lines, input.target.targetLineNumber);
-    const lineMap = getLineMap({ doc: input.doc }, { tabSize: input.deps.tabSize });
-    const slot = input.deps.slotAt(captured.block, targetLineNumber, {
+    const targetLineNumber = clampTarget(input.targetDoc.lines, input.target.targetLineNumber);
+    const lineMap = getLineMap({ doc: input.targetDoc }, { tabSize: input.deps.tabSize });
+    const slot = input.deps.slotAt(input.targetDoc, captured.block, targetLineNumber, {
         lineMap,
         tabSize: input.deps.tabSize,
     });
@@ -123,7 +125,7 @@ export function checkDrop(input: DropInput): DropCheck {
 
     if (input.scope !== 'cross_editor') {
         const self = selfDrop({
-            doc: input.doc,
+            doc: input.targetDoc,
             source: createBlockSelection(captured.block, captured.payload.ranges),
             targetLineNumber,
             parseLineWithQuote: input.deps.parseLine,

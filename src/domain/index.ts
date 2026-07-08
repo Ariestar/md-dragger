@@ -87,10 +87,12 @@ export {
 export { type TextChange, type BlockEffect, type BlockTransaction } from './transaction/block-transaction';
 export {
   moveTx,
+  planSourceDeletion,
   captureMoveSource,
   type CapturedMoveSource,
   type MoveSourcePayload,
   type MoveSourceSegment,
+  type MoveTxResult,
 } from './transaction/move-blocks';
 export { type CommandReject, type CommandRejectReason, rejectCommand } from './transaction/command-reject';
 export {
