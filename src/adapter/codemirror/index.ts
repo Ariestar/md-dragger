@@ -3,15 +3,16 @@ import { EditorView } from '@codemirror/view';
 import { EDITOR_CLASS, type MdDraggerCodeMirrorOptions } from './config';
 import { dragHandleGutter } from './handle-gutter';
 import { dragRuntime } from './runtime-plugin';
-import { dropIndicator } from './drop-indicator';
 
 // Named building blocks — compose them yourself, or use mdDragger() below.
+// Adapter parts only: they wire CodeMirror into the headless runtime's five
+// IO axes. Rendering (drop indicator, selection highlight, …) is the
+// consumer's job — derive it from dragTransitionEffect, not shipped here.
 export { pointerInput } from './pointer-input';
 export { sourceLineFromInput, resolveDropTarget, lineNumberFromPoint } from './locate';
 export { dragHandleGutter } from './handle-gutter';
 export { applyCommit } from './commit';
 export { dragRuntime } from './runtime-plugin';
-export { dropIndicator } from './drop-indicator';
 export { dragTransitionEffect } from './drag-events';
 export {
   HANDLE_CLASS,
@@ -23,14 +24,14 @@ export {
 
 const editorAttributes = EditorView.editorAttributes.of({ class: EDITOR_CLASS });
 
-// Thin, transparent composition of the building blocks above. Spread it into
-// your extensions array (`[...mdDragger()]`); to drop a piece — e.g. the drop
-// indicator — list the blocks yourself instead of calling this.
+// Thin, transparent composition of the adapter blocks above. Spread it into
+// your extensions array (`[...mdDragger()]`); it carries no visuals — add
+// your own drop indicator / selection highlight by listening to
+// dragTransitionEffect.
 export function mdDragger(options: MdDraggerCodeMirrorOptions = {}): Extension[] {
   return [
     editorAttributes,
     dragHandleGutter(options),
     dragRuntime(options),
-    dropIndicator(),
   ];
 }

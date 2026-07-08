@@ -99,6 +99,7 @@ import { Badge } from '@/components/ui/badge';
     <script>
         import { ink, plugin, pluginTypes } from 'ink-mde';
         import { mdDragger } from 'md-dragger/adapter/codemirror';
+        import { dropIndicator } from '@/lib/drop-indicator';
 
         const sampleDoc = `# Welcome to Dragger
 
@@ -149,7 +150,7 @@ $$
             plugins: [
                 plugin({
                     type: pluginTypes.default,
-                    value: () => mdDragger(),
+                    value: () => [...mdDragger(), dropIndicator()],
                 }),
             ],
             interface: {

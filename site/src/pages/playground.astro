@@ -26,6 +26,7 @@ import '@/styles/global.css';
     <script>
         import { ink, plugin, pluginTypes } from 'ink-mde';
         import { mdDragger } from 'md-dragger/adapter/codemirror';
+        import { dropIndicator } from '@/lib/drop-indicator';
 
         const sampleDoc = `# Dragger Playground
 
@@ -108,7 +109,7 @@ That's it! Try rearranging this document to see how it feels.
             plugins: [
                 plugin({
                     type: pluginTypes.default,
-                    value: () => mdDragger(),
+                    value: () => [...mdDragger(), dropIndicator()],
                 }),
             ],
             interface: {

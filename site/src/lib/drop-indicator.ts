@@ -1,18 +1,19 @@
 import type { Extension } from '@codemirror/state';
 import { EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view';
-import type { DropTarget } from '../../domain';
-import type { Transition } from '../../runtime';
-import { dragTransitionEffect } from './drag-events';
+import type { DropTarget } from 'md-dragger/domain';
+import type { Transition } from 'md-dragger/runtime';
+import { dragTransitionEffect } from 'md-dragger/adapter/codemirror';
 
+// Demo-only drop indicator: derives a drop line from the pipeline's drag_over
+// output (broadcast via dragTransitionEffect). The package ships no visuals —
+// this is the playground's own rendering, here as a reference for how a
+// consumer projects the stream.
 type IndicatorTarget = {
   target: DropTarget | null;
   targetLineNumber: number;
   allowed: boolean;
 };
 
-// Visual-only plugin: derives a drop indicator line from the pipeline's
-// drag_over output (broadcast via dragTransitionEffect) and clears it on
-// drop/cancel/terminal. Drop this from the extension array to render nothing.
 export function dropIndicator(): Extension {
   return ViewPlugin.fromClass(class {
     private readonly indicator: HTMLDivElement;
