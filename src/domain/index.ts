@@ -122,6 +122,14 @@ export {
 } from './markdown/line-map';
 export { type LineRange } from './markdown/line-range-types';
 export {
+  computeListIntent,
+  resolveReferenceListLineNumber,
+  getListAncestorLineNumbers,
+  findParentLineNumberByIndent,
+  type ListIntent,
+  type ListIntentMode,
+} from './markdown/list-target';
+export {
   normalizeLineRange,
   mergeLineRanges,
   cloneLineRanges,

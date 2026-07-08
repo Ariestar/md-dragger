@@ -2,6 +2,8 @@ import { EditorView } from '@codemirror/view';
 import type { Point, PressInput } from '../../runtime';
 import {
   BlockType,
+  computeListIntent,
+  getLineMap,
   type BlockSelection,
   type DropTarget,
   type ListDropTarget,
@@ -10,7 +12,6 @@ import { createLineParsingContext } from '../../domain/markdown/line-parsing-ser
 import type { ParsedLine } from '../../domain/markdown/document-types';
 import {
   HANDLE_CLASS,
-  LIST_INTENT_THRESHOLD_PX,
   resolveTabSize,
   type MdDraggerCodeMirrorOptions,
 } from './config';
@@ -50,6 +51,9 @@ export function resolveDropTarget(
   };
 }
 
+// Thin coordinate adapter: translate pointer pixels into the column-space
+// inputs the domain computeListIntent expects, then map its result back to a
+// ListDropTarget.
 function resolveListIntent(
   view: EditorView,
   point: Point,
@@ -59,72 +63,81 @@ function resolveListIntent(
 ): ListDropTarget | undefined {
   if (selection.anchorBlock.type !== BlockType.ListItem) return undefined;
 
-  const lineParsing = createLineParsingContext(resolveTabSize(options));
-  const sourceBase = firstListLine(selection.anchorBlock.content, lineParsing.parseLine);
-  if (!sourceBase) return undefined;
+  const tabSize = resolveTabSize(options);
+  const lineParsing = createLineParsingContext(tabSize);
+  const doc = view.state.doc;
+  const lineMap = getLineMap({ doc }, { tabSize });
 
-  const context = findListContext(view, targetLineNumber, lineParsing.parseLine);
-  if (!context) {
-    return {
-      mode: 'sibling',
-      contextLineNumber: targetLineNumber,
-      targetIndentWidth: 0,
-    };
+  const referenceLineNumber = nearestListLineAtOrBefore(view, targetLineNumber, lineMap);
+  if (referenceLineNumber === null) {
+    return { mode: 'sibling', contextLineNumber: targetLineNumber, targetIndentWidth: 0 };
   }
 
-  const indentUnitWidth = lineParsing.getIndentUnitWidth(context.parsed.indentRaw || sourceBase.indentRaw);
-  const markerX = markerStartX(view, context.lineNumber, context.parsed);
-  const horizontalDelta = markerX === null ? 0 : point.x - markerX;
-  const mode = horizontalDelta >= LIST_INTENT_THRESHOLD_PX
-    ? 'child'
-    : horizontalDelta <= -LIST_INTENT_THRESHOLD_PX
-      ? 'outdent'
-      : 'sibling';
-  const targetIndentWidth = Math.max(0, context.parsed.indentWidth + (
-    mode === 'child' ? indentUnitWidth : mode === 'outdent' ? -indentUnitWidth : 0
-  ));
+  const markerX = markerStartX(view, referenceLineNumber, lineParsing.parseLine);
+  if (markerX === null) {
+    return { mode: 'sibling', contextLineNumber: referenceLineNumber, targetIndentWidth: 0 };
+  }
 
+  const columnPixelWidth = defaultCharacterWidth(view);
+  const cursorOffsetColumns = (point.x - markerX) / columnPixelWidth;
+  const indentUnit = lineParsing.getIndentUnitWidthForDoc(doc);
+
+  // Self-target guard: dropping onto the source block's own root list line
+  // forbids child (would make it its own child).
+  const isSelfTarget = referenceLineNumber === selection.anchorBlock.startLine + 1;
+
+  const intent = computeListIntent({
+    doc,
+    lineMap,
+    referenceLineNumber,
+    cursorOffsetColumns,
+    indentUnit,
+    allowChild: !isSelfTarget,
+  });
+  if (!intent) return undefined;
   return {
-    mode,
-    contextLineNumber: context.lineNumber,
-    targetIndentWidth,
+    mode: intent.mode,
+    contextLineNumber: intent.contextLineNumber,
+    targetIndentWidth: intent.targetIndentWidth,
   };
 }
 
-function firstListLine(text: string, parseLine: (line: string) => ParsedLine): { indentRaw: string } | null {
-  for (const line of text.split('\n')) {
-    const parsed = parseLine(line);
-    if (parsed.isListItem) {
-      return { indentRaw: parsed.indentRaw };
+function nearestListLineAtOrBefore(
+  view: EditorView,
+  targetLineNumber: number,
+  lineMap: ReturnType<typeof getLineMap>
+): number | null {
+  const doc = view.state.doc;
+  const clamped = Math.max(1, Math.min(targetLineNumber, doc.lines));
+  // Walk up from the target to find the nearest list line; fall back to a
+  // small downward probe if the target itself isn't in a list.
+  const meta = (() => { try { return lineMap.lineMeta[clamped] ?? null; } catch { return null; } })();
+  if (meta?.isList) return clamped;
+  for (let delta = 1; delta <= 2; delta++) {
+    const up = clamped - delta;
+    if (up >= 1) {
+      const m = (() => { try { return lineMap.lineMeta[up] ?? null; } catch { return null; } })();
+      if (m?.isList) return up;
+    }
+    const down = clamped + delta;
+    if (down <= doc.lines) {
+      const m = (() => { try { return lineMap.lineMeta[down] ?? null; } catch { return null; } })();
+      if (m?.isList) return down;
     }
   }
   return null;
 }
 
-function findListContext(
-  view: EditorView,
-  targetLineNumber: number,
-  parseLine: (line: string) => ParsedLine
-): { lineNumber: number; parsed: ParsedLine } | null {
-  const doc = view.state.doc;
-  const candidates = [
-    Math.min(targetLineNumber, doc.lines),
-    targetLineNumber - 1,
-    targetLineNumber + 1,
-  ];
-  const seen = new Set<number>();
-  for (const lineNumber of candidates) {
-    if (lineNumber < 1 || lineNumber > doc.lines || seen.has(lineNumber)) continue;
-    seen.add(lineNumber);
-    const parsed = parseLine(doc.line(lineNumber).text);
-    if (parsed.isListItem) return { lineNumber, parsed };
-  }
-  return null;
-}
-
-function markerStartX(view: EditorView, lineNumber: number, parsed: ParsedLine): number | null {
+function markerStartX(view: EditorView, lineNumber: number, parseLine: (line: string) => ParsedLine): number | null {
   const line = view.state.doc.line(lineNumber);
+  const parsed = parseLine(line.text);
   const offset = parsed.quotePrefix.length + parsed.indentRaw.length;
   const rect = view.coordsAtPos(Math.min(line.to, line.from + offset), 1);
   return rect?.left ?? null;
 }
+
+function defaultCharacterWidth(view: EditorView): number {
+  const width = (view as unknown as { defaultCharacterWidth?: number }).defaultCharacterWidth;
+  return typeof width === 'number' && width > 0 ? width : 8;
+}
+

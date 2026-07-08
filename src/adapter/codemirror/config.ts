@@ -2,7 +2,6 @@ import type { Config } from '../../runtime';
 
 export const HANDLE_CLASS = 'md-dragger-cm-handle';
 export const EDITOR_CLASS = 'md-dragger-cm-editor';
-export const LIST_INTENT_THRESHOLD_PX = 24;
 
 // Custom handle element factory. Returns the DOM element used for every
 // draggable block's handle. The same element shape is reused across blocks;
