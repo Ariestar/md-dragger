@@ -33,6 +33,17 @@
         "default": "./dist/npm/domain.cjs"
       }
     },
+    "./domain/perf": {
+      "source": "./src/domain/perf.ts",
+      "import": {
+        "types": "./dist/npm/types/domain/perf.d.mts",
+        "default": "./dist/npm/domain/perf.mjs"
+      },
+      "require": {
+        "types": "./dist/npm/types/domain/perf.d.cts",
+        "default": "./dist/npm/domain/perf.cjs"
+      }
+    },
     "./runtime": {
       "source": "./src/runtime/index.ts",
       "import": {
