@@ -134,6 +134,14 @@ export class DefaultUx implements Ux {
         const session = this.pressSession;
         if (!session || !samePointer(session.pointer, input.pointer)) return;
 
+        // Drag in progress (this same press already promoted to a drag): forward
+        // every move to the runtime so drag_over fires and the drop indicator
+        // follows. The session stays alive across the whole press→drag gesture.
+        if (this.runtime().isGestureActive()) {
+            this.runtime().moveDrag(session.sessionId, input.point, input.pointer, input.pointer.type);
+            return;
+        }
+
         const distance = distanceBetween(session.start, input.point);
         const cfg = this.cfg();
 
@@ -165,7 +173,6 @@ export class DefaultUx implements Ux {
             session.releaseCapture,
         );
         this.clearPressTimer();
-        this.pressSession = null;
     }
 
     private handleRelease(input: ReleaseInput): void {
@@ -230,7 +237,6 @@ export class DefaultUx implements Ux {
             input.pointer.type,
             session.releaseCapture,
         );
-        this.pressSession = null;
     }
 
     private cancelPress(reason: DragCancelReason, pointerType: string | null): void {
