@@ -1,4 +1,4 @@
-import type { Config } from '../../runtime';
+import type { Config, GestureConfig } from '../../runtime';
 
 export const HANDLE_CLASS = 'md-dragger-cm-handle';
 export const EDITOR_CLASS = 'md-dragger-cm-editor';
@@ -16,10 +16,17 @@ export type HandleOptions = {
 export type MdDraggerCodeMirrorOptions = {
   config?: Config;
   handle?: HandleOptions;
+  // Gesture config for the runtime's default ux (long-press ms, thresholds,
+  // multi-select toggle). Partial — merged onto the defaults. Omit for defaults.
+  gestureConfig?: Partial<GestureConfig> | (() => Partial<GestureConfig>);
 };
 
 export function resolveConfig(config: Config | undefined) {
   return typeof config === 'function' ? config() : config;
+}
+
+export function resolveGestureConfig(gestureConfig: MdDraggerCodeMirrorOptions['gestureConfig']) {
+  return typeof gestureConfig === 'function' ? gestureConfig() : gestureConfig;
 }
 
 export function resolveTabSize(options: MdDraggerCodeMirrorOptions): number {

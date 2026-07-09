@@ -164,20 +164,46 @@ function buildSelectionFromRangeState(
     };
 }
 
+function dragSourceFrom(state: PipelineState): BlockSelection | null {
+    switch (state.type) {
+        case 'ready_to_drag':
+            return state.hold.selection;
+        case 'selecting':
+            return state.selection.selection;
+        default:
+            return null;
+    }
+}
+
 function onDragStart<TPreview>(
     state: PipelineState,
     event: Extract<PipelineEvent<TPreview>, { type: 'drag_start' }>
 ): PipelineTransitionResult<TPreview> {
-    if (state.type !== 'ready_to_drag' || state.hold.sessionId !== event.sessionId) {
+    // drag_start may come from a ready_to_drag hold OR from a selecting range
+    // that is being upgraded to a drag (long-press range-select → continue
+    // holding + drag past threshold). Either way the drag source is the
+    // selection held in that state.
+    if (state.type !== 'ready_to_drag' && state.type !== 'selecting') {
         return { state, outputs: [] };
     }
+    const source = dragSourceFrom(state);
+    if (source === null) {
+        return { state, outputs: [] };
+    }
+    const sessionId = state.type === 'ready_to_drag' ? state.hold.sessionId : event.sessionId;
+    if (sessionId !== event.sessionId) {
+        return { state, outputs: [] };
+    }
+    const guardDeps = state.type === 'ready_to_drag'
+        ? state.hold.guardDeps
+        : state.selection.guardDeps;
     const next: PipelineState = {
         type: 'dragging',
         drag: {
             sessionId: event.sessionId,
-            selection: state.hold.selection,
+            selection: source,
             drop: event.drop,
-            guardDeps: state.hold.guardDeps,
+            guardDeps,
         },
     };
     return {

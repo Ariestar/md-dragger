@@ -1,9 +1,9 @@
 import type { Extension } from '@codemirror/state';
 import { EditorView, ViewPlugin } from '@codemirror/view';
 import { DraggerRuntime } from '../../runtime';
-import { resolveConfig, type MdDraggerCodeMirrorOptions } from './config';
+import { resolveConfig, resolveGestureConfig, type MdDraggerCodeMirrorOptions } from './config';
 import { pointerInput } from './pointer-input';
-import { sourceLineFromInput, resolveDropTarget } from './locate';
+import { sourceLineFromInput, resolveDropTarget, lineNumberFromPoint } from './locate';
 import { applyCommit } from './commit';
 import { dragTransitionEffect } from './drag-events';
 
@@ -23,6 +23,7 @@ export function dragRuntime(options: MdDraggerCodeMirrorOptions = {}): Extension
         locate: {
           sourceLineFromInput: (input) => sourceLineFromInput(view, input),
           resolveDropTarget: (point, context) => resolveDropTarget(view, point, context.selection, options),
+          lineFromPoint: (point) => lineNumberFromPoint(view, point),
         },
         commit: {
           apply: (commit) => applyCommit(view, commit),
@@ -30,10 +31,8 @@ export function dragRuntime(options: MdDraggerCodeMirrorOptions = {}): Extension
         onChange: (output) => {
           view.dispatch({ effects: dragTransitionEffect.of(output) });
         },
-        config: () => ({
-          longPressMs: 0,
-          ...resolveConfig(options.config),
-        }),
+        config: resolveConfig(options.config),
+        gestureConfig: () => resolveGestureConfig(options.gestureConfig) ?? {},
       });
       this.runtime.mount();
     }

@@ -2,7 +2,6 @@ import { detectBlock } from '../domain/block/block-detector';
 import type { BlockInfo } from '../domain/block/block-types';
 import type { DropTarget } from '../domain/command/drop-target';
 import { createSingleBlockSelection, type BlockSelection } from '../domain/selection/block-selection';
-import type { SelectedBlockRange } from '../domain/selection/block-ranges';
 import { buildSelectedBlockRangeFromBlockInfo, type RangeSelectionBoundary, type RangeSelectionBoundaryResolver } from '../domain/selection/range-selection';
 import { createLineParsingContext } from '../domain/markdown/line-parsing-service';
 import { getListContext } from '../domain/mutation/list-mutation';
@@ -13,25 +12,12 @@ import { moveTx } from '../domain/transaction/move-blocks';
 import { DragPipeline } from '../pipeline/drag-pipeline';
 import type { DragDropSnapshot, DropResolution } from '../pipeline/pipeline-drop';
 import type { DragCancelReason } from '../pipeline/pipeline-event';
-import type { PipelineOutput } from '../pipeline/pipeline-output';
 import type { PipelineState } from '../pipeline/pipeline-state';
-import { type Disposable, type Point, type Pointer, type TimerToken, type ResolvedConfig, type RuntimeOptions, type MoveInput, type PressInput, type ReleaseInput, type SelectionChangeInput } from './dragger-runtime-types';
+import { type Point, type Pointer, type ResolvedConfig, type RuntimeOptions, type Ux } from './dragger-runtime-types';
+import { DefaultUx } from './default-ux';
 
 const DEFAULT_CONFIG: ResolvedConfig = {
     tabSize: 4,
-    longPressMs: 250,
-    dragStartMoveThresholdPx: 4,
-    dragCancelMoveThresholdPx: 12,
-};
-
-type PressSession = {
-    sessionId: string;
-    pointer: Pointer;
-    start: Point;
-    selection: BlockSelection;
-    ready: boolean;
-    timer: TimerToken | null;
-    releaseCapture?: () => void;
 };
 
 type ActiveDragSession = {
@@ -42,15 +28,44 @@ type ActiveDragSession = {
     releaseCapture?: () => void;
 };
 
-export class DraggerRuntime {
+// The semantic command surface a gesture stage (or any host) drives the runtime
+// through. The runtime is platform-agnostic: it never sees raw pointers, timers
+// or pixel thresholds — those live in the gesture stage. Every method below is
+// a semantic transition; the runtime owns pipeline ordering, drop planning and
+// commit, nothing else.
+export type RuntimeController = {
+    readonly state: PipelineState;
+    isGestureActive(): boolean;
+    // Allocate a session id. Kept on the runtime so session numbering is
+    // centralized; the gesture stage borrows it to thread one gesture through
+    // beginHold/beginDrag/commitDrop.
+    createSessionId(): string;
+    beginHold(sessionId: string, selection: BlockSelection, pointerType: string | null): void;
+    markHoldReady(sessionId: string, pointerType: string | null): void;
+    beginDrag(sessionId: string, selection: BlockSelection, point: Point, pointer: Pointer, pointerType: string | null, releaseCapture?: () => void): void;
+    moveDrag(sessionId: string, point: Point, pointer: Pointer, pointerType: string | null): void;
+    commitDrop(sessionId: string, point: Point, pointer: Pointer, pointerType: string | null): void;
+    startRangeSelection(block: BlockInfo): void;
+    extendSelection(lineNumber: number): void;
+    finishSelection(): void;
+    // Resolve a block at a line and enter range-select there. Semantic entry
+    // for hosts whose gesture does not start from a pointer press (e.g. a
+    // mobile toolbar command). Equivalent to detectBlock + startRangeSelection.
+    enterRangeSelectionMode(anchorLine: number): void;
+    cancel(reason: DragCancelReason, pointerType: string | null): void;
+    clearSelectionOrCancel(): void;
+    guardUnavailable(guardId: string): void;
+    handleMobileDragAvailabilityChanged(mobileDragAvailable: boolean): void;
+};
+
+export class DraggerRuntime implements RuntimeController {
     private readonly pipeline: DragPipeline = new DragPipeline({
         onChange: (output) => this.handleChange(output),
     });
-    private pressSession: PressSession | null = null;
     private activeDragSession: ActiveDragSession | null = null;
-    private inputDisposables: Disposable[] = [];
     private mounted = false;
     private nextSessionNumber = 1;
+    private ux: Ux | null = null;
 
     constructor(private readonly options: RuntimeOptions) {}
 
@@ -58,40 +73,45 @@ export class DraggerRuntime {
         return this.pipeline.state;
     }
 
-    get input() {
-        return this.options.input;
-    }
-
     mount(): void {
         if (this.mounted) return;
         this.mounted = true;
-        this.wireInput();
+        this.ux = this.buildUx();
+        this.ux.mount();
     }
 
     destroy(): void {
-        this.clearPressSession();
+        this.ux?.destroy();
+        this.ux = null;
         this.activeDragSession?.releaseCapture?.();
         this.activeDragSession = null;
         this.pipeline.clear();
-        for (const dispose of this.inputDisposables) dispose();
-        this.inputDisposables = [];
         this.mounted = false;
     }
 
-    // Wire the input source to the gesture handlers. This is what the old
-    // "ux" axis did — but it was never actually swapped, so it's just the
-    // runtime's own startup, not a pluggable concern.
-    private wireInput(): void {
-        const input = this.options.input;
-        this.inputDisposables.push(input.onPress((e) => this.handlePress(e)));
-        this.inputDisposables.push(input.onMove((e) => this.handleMove(e)));
-        this.inputDisposables.push(input.onRelease((e) => this.handleRelease(e)));
-        if (input.onCancel) {
-            this.inputDisposables.push(input.onCancel((e) => this.handleCancel(e.pointer, e.releaseCapture)));
-        }
-        if (input.onEscape) {
-            this.inputDisposables.push(input.onEscape(() => this.clearSelectionOrCancel()));
-        }
+    private buildUx(): Ux {
+        if (this.options.ux) return this.options.ux(this);
+        const scheduler = this.options.scheduler ?? {
+            setTimer: (cb, ms) => setTimeout(cb, ms),
+            clearTimer: (token) => clearTimeout(token),
+        };
+        return new DefaultUx({
+            input: this.options.input,
+            runtime: this,
+            getDoc: () => this.options.document.getDoc(),
+            sourceLineFromInput: (input) => this.options.locate.sourceLineFromInput(input),
+            lineFromPoint: (point) => this.options.locate.lineFromPoint?.(point) ?? null,
+            tabSize: this.config().tabSize,
+            gestureConfig: () => this.resolveGestureConfig(),
+            scheduler,
+        });
+    }
+
+    private resolveGestureConfig(): import('./dragger-runtime-types').GestureConfig {
+        const raw = typeof this.options.gestureConfig === 'function'
+            ? this.options.gestureConfig()
+            : this.options.gestureConfig;
+        return { longPressMs: 250, dragStartMoveThresholdPx: 4, dragCancelMoveThresholdPx: 12, multiSelectEnabled: false, ...raw };
     }
 
     guardUnavailable(guardId: string): void {
@@ -103,161 +123,59 @@ export class DraggerRuntime {
     }
 
     isGestureActive(): boolean {
-        return this.pressSession !== null || this.activeDragSession !== null;
+        return this.activeDragSession !== null;
     }
 
-    handlePress(input: PressInput): void {
-        if (input.button !== undefined && input.button !== 0) return;
+    // --- semantic command surface ---
 
-        const doc = this.options.document.getDoc();
-        const lineNumber = this.options.locate.sourceLineFromInput(input);
-        if (lineNumber === null) return;
-
-        const block = detectBlock(doc, lineNumber, { tabSize: this.config().tabSize });
-        if (!block) return;
-
-        input.claim?.();
-        if (isSelectionGesture(input)) {
-            this.selectBlock(block, input);
-            return;
-        }
-
-        input.capture?.();
-        this.clearPressSession();
-        const sessionId = this.createSessionId();
-        const selection = this.resolveDragSelection(block);
-        const timer = this.config().longPressMs > 0
-            ? this.setTimer(() => this.markPressReady(sessionId, input.pointer), this.config().longPressMs)
-            : null;
-        this.pressSession = {
-            sessionId,
-            pointer: input.pointer,
-            start: input.point,
-            selection,
-            ready: this.config().longPressMs <= 0,
-            timer,
-            releaseCapture: input.releaseCapture,
-        };
-        this.pipeline.enter({
-            type: 'hold_start',
-            sessionId,
-            selection,
-            pointerType: input.pointer.type,
-        });
-        if (this.config().longPressMs <= 0) this.markPressReady(sessionId, input.pointer);
+    beginHold(sessionId: string, selection: BlockSelection, pointerType: string | null): void {
+        this.pipeline.enter({ type: 'hold_start', sessionId, selection, pointerType });
     }
 
-    handleMove(input: MoveInput): void {
-        if (this.activeDragSession) {
-            this.handleDragMove(input);
-            return;
-        }
+    markHoldReady(sessionId: string, pointerType: string | null): void {
+        if (this.pipeline.state.type !== 'holding') return;
+        if (this.pipeline.state.hold.sessionId !== sessionId) return;
+        this.pipeline.enter({ type: 'hold_ready', sessionId, pointerType });
+    }
 
-        const session = this.pressSession;
-        if (!session || !samePointer(session.pointer, input.pointer)) return;
-
-        const distance = distanceBetween(session.start, input.point);
-        if (!session.ready) {
-            if (distance > this.config().dragCancelMoveThresholdPx) this.cancel();
-            return;
-        }
-        if (distance < this.config().dragStartMoveThresholdPx) return;
-
-        input.claim?.();
-        this.activeDragSession = {
-            sessionId: session.sessionId,
-            pointer: input.pointer,
-            selection: session.selection,
-            target: this.resolveTarget(input.point, session.selection),
-            releaseCapture: session.releaseCapture,
-        };
-        this.clearPressTimer(session);
-        this.pressSession = null;
+    beginDrag(sessionId: string, selection: BlockSelection, point: Point, pointer: Pointer, pointerType: string | null, releaseCapture?: () => void): void {
+        this.activeDragSession?.releaseCapture?.();
+        const target = this.resolveTarget(point, selection);
+        this.activeDragSession = { sessionId, pointer, selection, target, releaseCapture };
         this.pipeline.enter({
             type: 'drag_start',
-            sessionId: session.sessionId,
-            drop: this.buildDropSnapshot(session.selection, this.activeDragSession.target),
-            pointerType: input.pointer.type,
+            sessionId,
+            drop: this.buildDropSnapshot(selection, target),
+            pointerType,
         });
     }
 
-    handleDragMove(input: MoveInput): void {
+    moveDrag(sessionId: string, point: Point, pointer: Pointer, pointerType: string | null): void {
         const drag = this.activeDragSession;
-        if (!drag || !samePointer(drag.pointer, input.pointer)) return;
-        input.claim?.();
-        drag.target = this.resolveTarget(input.point, drag.selection);
+        if (!drag || drag.sessionId !== sessionId || !samePointer(drag.pointer, pointer)) return;
+        drag.target = this.resolveTarget(point, drag.selection);
         this.pipeline.enter({
             type: 'drag_over',
             sessionId: drag.sessionId,
             drop: this.buildDropSnapshot(drag.selection, drag.target),
-            pointerType: input.pointer.type,
+            pointerType,
         });
     }
 
-    handleRelease(input: ReleaseInput): void {
-        if (this.activeDragSession && samePointer(this.activeDragSession.pointer, input.pointer)) {
-            input.claim?.();
-            this.drop(input);
-            input.releaseCapture?.();
-            return;
-        }
-        if (this.pressSession && samePointer(this.pressSession.pointer, input.pointer)) {
-            this.cancel('press_cancelled', input.pointer.type);
-        }
-    }
-
-    handleCancel(pointer: Pointer, releaseCapture?: () => void): void {
-        if (this.activeDragSession && samePointer(this.activeDragSession.pointer, pointer)) {
-            releaseCapture?.();
-            this.cancel('pointer_cancelled', pointer.type);
-            return;
-        }
-        if (this.pressSession && samePointer(this.pressSession.pointer, pointer)) {
-            releaseCapture?.();
-            this.cancel('pointer_cancelled', pointer.type);
-        }
-    }
-
-    handleSelectionChange(input: SelectionChangeInput): void {
-        if (this.pipeline.state.type !== 'selecting') return;
-        const lineNumber = this.selectionLineFromInput(input);
-        if (lineNumber === null) return;
-        input.claim?.();
-        const doc = this.options.document.getDoc();
-        const resolveBoundary = this.createBoundaryResolver();
-        this.pipeline.enter({
-            type: 'selection_change',
-            boundary: this.boundaryAtLine(lineNumber),
-            docLines: doc.lines,
-            resolveBoundary,
-        });
-    }
-
-    finishSelection(): void {
-        if (this.pipeline.state.type !== 'selecting') return;
-        if (this.currentSelection()?.ranges.length === 0) {
-            this.pipeline.enter({ type: 'selection_clear' });
-        }
-    }
-
-    private drop(input: ReleaseInput): void {
+    commitDrop(sessionId: string, point: Point, pointer: Pointer, pointerType: string | null): void {
         const drag = this.activeDragSession;
-        if (!drag) return;
-        drag.target = this.resolveTarget(input.point, drag.selection);
+        if (!drag || drag.sessionId !== sessionId || !samePointer(drag.pointer, pointer)) return;
+        drag.target = this.resolveTarget(point, drag.selection);
         const dropSnapshot = this.buildDropSnapshot(drag.selection, drag.target);
         const planned = this.plan(drag.selection, drag.target);
         if (planned.type === 'ok' && drag.target) {
-            const edits = moveTx({
-                sourceDoc: this.options.document.getDoc(),
-                plan: planned.value,
-            });
+            const edits = moveTx({ sourceDoc: this.options.document.getDoc(), plan: planned.value });
             if (!Array.isArray(edits)) {
-                // CommandReject
                 this.pipeline.enter({
                     type: 'drop',
                     sessionId: drag.sessionId,
                     resolution: this.cancelDrop(dropSnapshot, edits.reason),
-                    pointerType: input.pointer.type,
+                    pointerType,
                 });
                 this.activeDragSession = null;
                 return;
@@ -266,7 +184,7 @@ export class DraggerRuntime {
                 type: 'drop',
                 sessionId: drag.sessionId,
                 resolution: { type: 'platform_commit', drop: dropSnapshot },
-                pointerType: input.pointer.type,
+                pointerType,
             });
             this.activeDragSession = null;
             this.options.commit.apply(edits);
@@ -276,14 +194,58 @@ export class DraggerRuntime {
             type: 'drop',
             sessionId: drag.sessionId,
             resolution: this.cancelDrop(dropSnapshot, planned.type === 'ok' ? 'no_target' : planned.reason),
-            pointerType: input.pointer.type,
+            pointerType,
         });
         this.activeDragSession = null;
     }
 
+    startRangeSelection(block: BlockInfo): void {
+        const doc = this.options.document.getDoc();
+        const anchorBoundary = boundaryFromBlock(block);
+        this.pipeline.enter({
+            type: 'selection_start',
+            seed: {
+                selection: createSingleBlockSelection(block),
+                range: {
+                    type: 'range',
+                    doc,
+                    anchorBoundary,
+                    initialBoundary: anchorBoundary,
+                    selectedBlocks: [],
+                    resolveBoundary: this.createBoundaryResolver(),
+                },
+            },
+        });
+    }
+
+    extendSelection(lineNumber: number): void {
+        if (this.pipeline.state.type !== 'selecting') return;
+        const doc = this.options.document.getDoc();
+        this.pipeline.enter({
+            type: 'selection_change',
+            boundary: this.boundaryAtLine(lineNumber),
+            docLines: doc.lines,
+            resolveBoundary: this.createBoundaryResolver(),
+        });
+    }
+
+    enterRangeSelectionMode(anchorLine: number): void {
+        if (this.isGestureActive()) return;
+        const doc = this.options.document.getDoc();
+        const block = detectBlock(doc, anchorLine, { tabSize: this.config().tabSize });
+        if (!block) return;
+        this.startRangeSelection(block);
+    }
+
+    finishSelection(): void {
+        if (this.pipeline.state.type !== 'selecting') return;
+        if (this.currentSelection()?.ranges.length === 0) {
+            this.pipeline.enter({ type: 'selection_clear' });
+        }
+    }
+
     cancel(reason: DragCancelReason = 'press_cancelled', pointerType: string | null = null): void {
-        const sessionId = this.activeDragSession?.sessionId ?? this.pressSession?.sessionId;
-        this.clearPressSession();
+        const sessionId = this.activeDragSession?.sessionId;
         this.activeDragSession?.releaseCapture?.();
         this.activeDragSession = null;
         this.pipeline.enter({ type: 'cancel', sessionId, reason, pointerType });
@@ -296,6 +258,8 @@ export class DraggerRuntime {
         }
         this.cancel();
     }
+
+    // --- internals ---
 
     private resolveTarget(point: Point, selection: BlockSelection): DropTarget | null {
         const target = this.options.locate.resolveDropTarget(point, { selection });
@@ -348,9 +312,7 @@ export class DraggerRuntime {
     private buildDropSnapshot(selection: BlockSelection, target: DropTarget | null): DragDropSnapshot {
         return {
             target,
-            rejectReason: target === null
-                ? 'no_target'
-                : this.dropRejectReason(selection, target),
+            rejectReason: target === null ? 'no_target' : this.dropRejectReason(selection, target),
         };
     }
 
@@ -368,70 +330,16 @@ export class DraggerRuntime {
         };
     }
 
-    private createSessionId(): string {
+    createSessionId(): string {
         const sessionId = `runtime-${this.nextSessionNumber}`;
         this.nextSessionNumber += 1;
         return sessionId;
-    }
-
-    private markPressReady(sessionId: string, pointer: Pointer): void {
-        const session = this.pressSession;
-        if (!session || session.sessionId !== sessionId || !samePointer(session.pointer, pointer)) return;
-        session.ready = true;
-        this.clearPressTimer(session);
-        this.pipeline.enter({
-            type: 'hold_ready',
-            sessionId,
-            pointerType: pointer.type,
-        });
-    }
-
-    private selectBlock(block: BlockInfo, input: PressInput): void {
-        const doc = this.options.document.getDoc();
-        const current = this.currentSelection();
-        const selectedBlocks = selectionToSelectedBlocks(current);
-        const clickedBoundary = boundaryFromBlock(block);
-        const range = {
-            type: 'range' as const,
-            doc,
-            anchorBoundary: input.modifiers?.shiftKey && current
-                ? boundaryFromBlock(current.anchorBlock)
-                : clickedBoundary,
-            initialBoundary: clickedBoundary,
-            selectedBlocks,
-            operation: input.modifiers?.shiftKey && current ? 'add' as const : undefined,
-            resolveBoundary: this.createBoundaryResolver(),
-        };
-
-        this.pipeline.enter({
-            type: 'selection_start',
-            seed: {
-                selection: current ?? createSingleBlockSelection(block),
-                range,
-            },
-        });
-        if (this.currentSelection()?.ranges.length === 0) {
-            this.pipeline.enter({ type: 'selection_clear' });
-        }
-    }
-
-    private resolveDragSelection(block: BlockInfo): BlockSelection {
-        const current = this.currentSelection();
-        if (isBlockCoveredBySelection(current, block)) {
-            return current;
-        }
-        return createSingleBlockSelection(block);
     }
 
     private currentSelection(): BlockSelection | null {
         const state = this.pipeline.state;
         if (state.type !== 'selecting') return null;
         return state.selection.selection;
-    }
-
-    private selectionLineFromInput(input: SelectionChangeInput): number | null {
-        if (typeof input.lineNumber === 'number') return input.lineNumber;
-        return null;
     }
 
     private boundaryAtLine(lineNumber: number): RangeSelectionBoundary {
@@ -460,37 +368,11 @@ export class DraggerRuntime {
         this.options.onChange?.(output);
     }
 
-    private clearPressSession(): void {
-        if (!this.pressSession) return;
-        this.clearPressTimer(this.pressSession);
-        this.pressSession.releaseCapture?.();
-        this.pressSession = null;
-    }
-
-    private clearPressTimer(session: PressSession): void {
-        if (session.timer === null) return;
-        this.clearTimer(session.timer);
-        session.timer = null;
-    }
-
-    private setTimer(callback: () => void, delayMs: number): TimerToken {
-        // eslint-disable-next-line obsidianmd/prefer-window-timers
-        return setTimeout(callback, delayMs);
-    }
-
-    private clearTimer(token: TimerToken): void {
-        // eslint-disable-next-line obsidianmd/prefer-window-timers
-        clearTimeout(token);
-    }
-
     private config(): ResolvedConfig {
         const config = typeof this.options.config === 'function'
             ? this.options.config()
             : this.options.config;
-        return {
-            ...DEFAULT_CONFIG,
-            ...config,
-        };
+        return { ...DEFAULT_CONFIG, ...config };
     }
 }
 
@@ -498,40 +380,11 @@ function samePointer(a: Pointer, b: Pointer): boolean {
     return a.id === b.id;
 }
 
-function distanceBetween(a: Point, b: Point): number {
-    return Math.hypot(b.x - a.x, b.y - a.y);
-}
-
-function isSelectionGesture(input: PressInput): boolean {
-    return input.modifiers?.shiftKey === true
-        || input.modifiers?.ctrlKey === true
-        || input.modifiers?.metaKey === true;
-}
-
-function selectionToSelectedBlocks(selection: BlockSelection | null): SelectedBlockRange[] {
-    if (!selection) return [];
-    return selection.ranges.map((range) => ({
-        startLineNumber: range.startLine + 1,
-        endLineNumber: range.endLine + 1,
-    }));
-}
-
 function boundaryFromBlock(block: BlockInfo): ReturnType<typeof buildSelectedBlockRangeFromBlockInfo> & {
     representativeLineNumber: number;
 } {
     const range = buildSelectedBlockRangeFromBlockInfo(block);
-    return {
-        ...range,
-        representativeLineNumber: range.startLineNumber,
-    };
-}
-
-function isBlockCoveredBySelection(selection: BlockSelection | null, block: BlockInfo): selection is BlockSelection {
-    if (!selection) return false;
-    return selection.ranges.some((range) => (
-        range.startLine === block.startLine
-        && range.endLine === block.endLine
-    ));
+    return { ...range, representativeLineNumber: range.startLineNumber };
 }
 
 function isDragCancelReason(reason: string): reason is DragCancelReason {
