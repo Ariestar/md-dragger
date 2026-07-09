@@ -68,13 +68,7 @@ export class DragPipeline<TPreview = unknown> {
 }
 
 function shouldClearSelectionVisual(previous: PipelineState, current: PipelineState): boolean {
-    if ((previous.type === 'holding' || previous.type === 'ready_to_drag') && previous.hold.retainedSelection && current.type === 'dragging') {
-        return true;
-    }
-    if (previous.type !== 'selecting' || current.type === 'selecting') {
-        return false;
-    }
-    return !(current.type === 'holding' && current.hold.retainedSelection);
+    return previous.type === 'selecting' && current.type !== 'selecting';
 }
 
 function hasSelectionClearOutput(outputs: PipelineOutput[]): boolean {

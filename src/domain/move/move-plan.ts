@@ -1,22 +1,14 @@
 import type { BlockInfo } from '../block/block-types';
 import { createMoveCommand, type MoveBlockCommand } from '../command/move-command';
 import type { DropTarget, ListDropTarget } from '../command/drop-target';
-import type {
-    DocLike,
-    DocLikeWithRange,
-    ListContext,
-    ParsedLine,
-} from '../markdown/document-types';
+import type { Doc, ListContext, ParsedLine } from '../markdown/document-types';
 import { getLineMap, type LineMap } from '../markdown/line-map';
 import type { InsertionSlotContext } from '../rules/insertion-rules';
 import { selfDrop } from '../rules/self-drop';
 import type { BlockSelection } from '../selection/block-selection';
 import { createBlockSelection } from '../selection/block-selection';
 import type { InsertionRuleRejectReason } from '../rules/insertion-rules';
-import {
-    captureMoveSource,
-    type CapturedMoveSource,
-} from '../transaction/move-blocks';
+import { captureMoveSource, type CapturedMoveSource } from '../transaction/move-blocks';
 
 export type DropRejectReason =
     | 'table_cell'
@@ -33,17 +25,14 @@ export type DropRejectReason =
     | 'container_policy'
     | 'empty_selection';
 
-export type MoveRejectReason =
-    | DropRejectReason
-    | 'cross_document_disabled';
-
-export type DragScope = 'same_editor' | 'cross_editor';
-export type DocRelation = 'same_document' | 'different_document';
+// Cross-document is a native property of the inputs, not a mode to opt into:
+// distinct source and target documents (by identity) are a cross-document move.
+export type MoveRejectReason = DropRejectReason;
 
 export type MoveDeps = {
     tabSize: number;
     slotAt: (
-        doc: DocLikeWithRange,
+        doc: Doc,
         sourceBlock: BlockInfo,
         targetLineNumber: number,
         options: { lineMap?: LineMap; tabSize: number }
@@ -52,10 +41,10 @@ export type MoveDeps = {
         decision: { allowDrop: boolean; rejectReason?: InsertionRuleRejectReason | 'container_policy' | null };
     };
     parseLine: (line: string) => ParsedLine;
-    listCtx: (doc: DocLike, lineNumber: number) => ListContext;
+    listCtx: (doc: Doc, lineNumber: number) => ListContext;
     indentUnit: (sample: string) => number;
     insertText: (
-        doc: DocLike,
+        doc: Doc,
         sourceBlock: BlockInfo,
         targetLineNumber: number,
         sourceContent: string,
@@ -64,12 +53,10 @@ export type MoveDeps = {
 };
 
 export type DropInput = {
-    sourceDoc: DocLikeWithRange;
-    targetDoc: DocLikeWithRange;
+    sourceDoc: Doc;
     selection: BlockSelection;
     target: DropTarget;
     deps: MoveDeps;
-    scope?: DragScope;
     captured?: CapturedMoveSource;
 };
 
@@ -86,11 +73,6 @@ export type DropCheck =
     | { type: 'ok'; value: DropOk }
     | { type: 'reject'; reason: DropRejectReason };
 
-export type MovePlanInput = DropInput & {
-    relation?: DocRelation;
-    crossFile?: boolean;
-};
-
 export type MovePlan = {
     command: MoveBlockCommand;
     target: DropTarget;
@@ -98,7 +80,6 @@ export type MovePlan = {
     slot: InsertionSlotContext;
     captured: CapturedMoveSource;
     allowIndent: boolean;
-    mode: 'same-document' | 'insert-only';
     deps: MoveDeps;
 };
 
@@ -107,12 +88,13 @@ export type MoveResult =
     | { type: 'reject'; reason: MoveRejectReason };
 
 export function checkDrop(input: DropInput): DropCheck {
+    const targetDoc = input.target.targetDoc;
     const captured = input.captured ?? captureMoveSource(input.sourceDoc, input.selection);
     if (!captured) return { type: 'reject', reason: 'empty_selection' };
 
-    const targetLineNumber = clampTarget(input.targetDoc.lines, input.target.targetLineNumber);
-    const lineMap = getLineMap({ doc: input.targetDoc }, { tabSize: input.deps.tabSize });
-    const slot = input.deps.slotAt(input.targetDoc, captured.block, targetLineNumber, {
+    const targetLineNumber = clampTarget(targetDoc.lines, input.target.targetLineNumber);
+    const lineMap = getLineMap(targetDoc, { tabSize: input.deps.tabSize });
+    const slot = input.deps.slotAt(targetDoc, captured.block, targetLineNumber, {
         lineMap,
         tabSize: input.deps.tabSize,
     });
@@ -123,9 +105,11 @@ export function checkDrop(input: DropInput): DropCheck {
         };
     }
 
-    if (input.scope !== 'cross_editor') {
+    // Self-drop can only happen within one document — a different target doc
+    // can never be the source block itself.
+    if (input.sourceDoc === targetDoc) {
         const self = selfDrop({
-            doc: input.targetDoc,
+            doc: targetDoc,
             source: createBlockSelection(captured.block, captured.payload.ranges),
             targetLineNumber,
             parseLineWithQuote: input.deps.parseLine,
@@ -173,15 +157,7 @@ export function checkDrop(input: DropInput): DropCheck {
     };
 }
 
-export function planMove(input: MovePlanInput): MoveResult {
-    if (
-        input.scope === 'cross_editor'
-        && input.relation === 'different_document'
-        && input.crossFile !== true
-    ) {
-        return { type: 'reject', reason: 'cross_document_disabled' };
-    }
-
+export function planMove(input: DropInput): MoveResult {
     const drop = checkDrop(input);
     if (drop.type === 'reject') return drop;
 
@@ -194,9 +170,6 @@ export function planMove(input: MovePlanInput): MoveResult {
             slot: drop.value.slot,
             captured: drop.value.captured,
             allowIndent: drop.value.allowIndent,
-            mode: input.scope === 'cross_editor' && input.relation === 'different_document'
-                ? 'insert-only'
-                : 'same-document',
             deps: input.deps,
         },
     };

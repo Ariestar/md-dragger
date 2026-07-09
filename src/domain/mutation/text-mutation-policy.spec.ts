@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { BlockInfo, BlockType } from '../block/block-types';
-import type { DocLike } from '../markdown/document-types';
+import type { Doc } from '../markdown/document-types';
 import { createLineParsingContext } from '../markdown/line-parsing-service';
 import { buildInsertTextForDrop } from './text-mutation-policy';
 
-function createDoc(docText: string): DocLike {
+function createDoc(docText: string): Doc {
     const lines = docText.split('\n');
     return {
         lines: lines.length,

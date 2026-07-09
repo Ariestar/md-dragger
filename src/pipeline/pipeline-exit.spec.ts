@@ -38,7 +38,6 @@ describe('pipeline exit rules', () => {
             type: 'selecting',
             selection: {
                 selection,
-                phase: 'passive',
                 guardDeps: ['text-drag-mode'],
             },
         };

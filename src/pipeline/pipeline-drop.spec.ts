@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createSingleBlockSelection } from '../domain/selection/block-selection';
 import { BlockType } from '../domain/block/block-types';
+import type { Doc } from '../domain/markdown/document-types';
 import { drop, dragOver, startDragDrop } from './pipeline-drop';
 
 const block = {
@@ -15,6 +16,13 @@ const block = {
 
 const selection = createSingleBlockSelection(block);
 
+const doc: Doc = {
+    lines: 1,
+    length: 5,
+    line: () => ({ text: 'alpha', from: 0, to: 5 }),
+    sliceString: () => 'alpha',
+};
+
 describe('pipeline drop phase', () => {
     it('reports drag over without platform preview commands', () => {
         const outputs = dragOver({
@@ -23,17 +31,17 @@ describe('pipeline drop phase', () => {
             pointerType: 'mouse',
         });
 
-        expect(outputs.map((output) => output.type)).toEqual(['drag_over', 'lifecycle']);
+        expect(outputs.map((output) => output.type)).toEqual(['drag_over']);
     });
 
-    it('starts with drag lifecycle then drag over output', () => {
+    it('starts with a drag over output', () => {
         const outputs = startDragDrop({
             selection,
             drop: { target: null, rejectReason: 'no_target' },
             pointerType: 'mouse',
         });
 
-        expect(outputs.map((output) => output.type)).toEqual(['lifecycle', 'drag_over', 'lifecycle']);
+        expect(outputs.map((output) => output.type)).toEqual(['drag_over']);
     });
 
     it('turns command drops into command_ready and dropped outputs', () => {
@@ -46,6 +54,7 @@ describe('pipeline drop phase', () => {
                     type: 'move',
                     selection,
                     target: {
+                        targetDoc: doc,
                         targetLineNumber: 1,
                         placement: 'before',
                     },
@@ -54,6 +63,6 @@ describe('pipeline drop phase', () => {
             },
         });
 
-        expect(outputs.map((output) => output.type)).toEqual(['command_ready', 'dropped', 'lifecycle']);
+        expect(outputs.map((output) => output.type)).toEqual(['command_ready', 'dropped']);
     });
 });

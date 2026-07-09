@@ -1,12 +1,9 @@
 import type { BlockInfo } from '../block/block-types';
-import type { DocLikeWithRange } from '../markdown/document-types';
+import type { Doc } from '../markdown/document-types';
 import { clampLineNumber } from '../markdown/line-number';
-import {
-    mergeSelectedBlocks,
-    type SelectedBlockRange,
-} from './block-ranges';
+import { mergeSelectedBlocks, type SelectedBlockRange } from './block-ranges';
 
-type DocWithLineAt = DocLikeWithRange & {
+type DocWithLineAt = Doc & {
     lineAt: (pos: number) => { number: number };
 };
 

@@ -1,4 +1,4 @@
-import { DocLikeWithRange } from '../markdown/document-types';
+import { Doc } from '../markdown/document-types';
 
 export type TextChange = {
     from: number;
@@ -7,7 +7,7 @@ export type TextChange = {
 };
 
 export function resolveInsertionChange(
-    doc: DocLikeWithRange,
+    doc: Doc,
     targetLineNumber: number,
     insertText: string,
     options?: {
@@ -37,7 +37,7 @@ export function resolveInsertionChange(
 }
 
 export function resolveDeleteRange(
-    doc: DocLikeWithRange,
+    doc: Doc,
     sourceFrom: number,
     sourceTo: number
 ): { from: number; to: number } {

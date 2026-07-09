@@ -1,9 +1,9 @@
 import { BlockType } from '../block/block-types';
 import type { ListDropTarget } from '../command/drop-target';
-import { DocLike, ListContext, ListContextValue, ParsedLine } from '../markdown/document-types';
+import { Doc, ListContext, ListContextValue, ParsedLine } from '../markdown/document-types';
 
 export function getListContext(
-    doc: DocLike,
+    doc: Doc,
     lineNumber: number,
     parseLineWithQuote: (line: string) => ParsedLine
 ): ListContext {
@@ -18,7 +18,7 @@ export interface ListContextNearLineOptions {
 }
 
 function parseListContextFromLine(
-    doc: DocLike,
+    doc: Doc,
     lineNumber: number,
     parseLineWithQuote: (line: string) => ParsedLine
 ): { context: ListContextValue | null; isBlank: boolean; isList: boolean } {
@@ -43,7 +43,7 @@ function parseListContextFromLine(
 }
 
 export function getListContextNearLine(
-    doc: DocLike,
+    doc: Doc,
     lineNumber: number,
     parseLineWithQuote: (line: string) => ParsedLine,
     options?: ListContextNearLineOptions
@@ -112,12 +112,12 @@ export interface ListIndentPlan {
 }
 
 export function computeListIndentPlan(params: {
-    doc: DocLike;
+    doc: Doc;
     sourceBase: { indentWidth: number; indentRaw: string };
     targetLineNumber: number;
     parseLineWithQuote: (line: string) => ParsedLine;
     getIndentUnitWidth: (sample: string) => number;
-    getListContext?: (doc: DocLike, lineNumber: number) => ListContext;
+    getListContext?: (doc: Doc, lineNumber: number) => ListContext;
     listIntent?: ListDropTarget;
 }): ListIndentPlan {
     const {
@@ -160,13 +160,13 @@ export function computeListIndentPlan(params: {
 }
 
 export function adjustListToTargetContext(params: {
-    doc: DocLike;
+    doc: Doc;
     sourceContent: string;
     targetLineNumber: number;
     parseLineWithQuote: (line: string) => ParsedLine;
     getIndentUnitWidth: (sample: string) => number;
     buildIndentStringFromSample: (sample: string, width: number) => string;
-    getListContext?: (doc: DocLike, lineNumber: number) => ListContext;
+    getListContext?: (doc: Doc, lineNumber: number) => ListContext;
     listIntent?: ListDropTarget;
 }): string {
     const {

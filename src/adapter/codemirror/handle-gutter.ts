@@ -1,10 +1,5 @@
 import type { Extension } from '@codemirror/state';
-import {
-  EditorView,
-  GutterMarker,
-  type BlockInfo as ViewBlockInfo,
-  gutter,
-} from '@codemirror/view';
+import { EditorView, GutterMarker, type BlockInfo as ViewBlockInfo, gutter } from '@codemirror/view';
 import { detectBlock } from '../../domain';
 import { HANDLE_CLASS, resolveTabSize, type MdDraggerCodeMirrorOptions, type RenderHandle } from './config';
 
@@ -42,7 +37,7 @@ export function dragHandleGutter(options: MdDraggerCodeMirrorOptions = {}): Exte
 function isDraggableBlockStart(view: EditorView, line: ViewBlockInfo, options: MdDraggerCodeMirrorOptions): boolean {
   const docLine = view.state.doc.lineAt(line.from);
   if (docLine.from !== line.from) return false;
-  const block = detectBlock({ doc: view.state.doc }, docLine.number, {
+  const block = detectBlock(view.state.doc, docLine.number, {
     tabSize: resolveTabSize(options),
   });
   return block?.startLine === docLine.number - 1;

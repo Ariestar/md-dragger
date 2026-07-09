@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { DocLikeWithRange } from '../markdown/document-types';
-import {
-    planBlockTypeConversionChanges,
-    type BlockTypeConversionChange,
-} from './block-type-conversion';
+import type { Doc } from '../markdown/document-types';
+import { planBlockTypeConversionChanges, type BlockTypeConversionChange } from './block-type-conversion';
 import { BlockType } from './block-types';
 
 describe('block type conversion planner', () => {
@@ -87,7 +84,7 @@ function applyPlannedConversion(
     return applyChanges(source, changes);
 }
 
-function createDoc(source: string): DocLikeWithRange {
+function createDoc(source: string): Doc {
     const lineTexts = source.split('\n');
     const starts: number[] = [];
     let offset = 0;

@@ -1,13 +1,13 @@
-import type { DocLikeWithRange } from '../markdown/document-types';
+import type { Doc } from '../markdown/document-types';
 import { normalizeCompositeRanges } from '../selection/selection-ranges';
 import type { BlockSelection } from '../selection/block-selection';
-import type { BlockTransaction, TextChange } from './block-transaction';
+import type { DocEdit, TextChange } from './block-transaction';
 import { rejectCommand, type CommandReject } from './command-reject';
 
 export function planDeleteBlocksTransaction(params: {
-    doc: DocLikeWithRange;
+    doc: Doc;
     selection: BlockSelection;
-}): BlockTransaction | CommandReject {
+}): DocEdit | CommandReject {
     const { doc, selection } = params;
     const ranges = normalizeCompositeRanges(selection.ranges, doc.lines);
     if (ranges.length === 0) return rejectCommand('empty_selection');
@@ -33,5 +33,5 @@ export function planDeleteBlocksTransaction(params: {
         .sort((a, b) => b.from - a.from);
 
     if (changes.length === 0) return rejectCommand('empty_selection');
-    return { changes };
+    return { doc, changes };
 }

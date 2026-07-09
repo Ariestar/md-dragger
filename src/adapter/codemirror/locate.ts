@@ -1,20 +1,9 @@
 import { EditorView } from '@codemirror/view';
 import type { Point, PressInput } from '../../runtime';
-import {
-  BlockType,
-  computeListIntent,
-  getLineMap,
-  type BlockSelection,
-  type DropTarget,
-  type ListDropTarget,
-} from '../../domain';
+import { BlockType, computeListIntent, getLineMap, type BlockSelection, type DropTarget, type ListDropTarget } from '../../domain';
 import { createLineParsingContext } from '../../domain/markdown/line-parsing-service';
 import type { ParsedLine } from '../../domain/markdown/document-types';
-import {
-  HANDLE_CLASS,
-  resolveTabSize,
-  type MdDraggerCodeMirrorOptions,
-} from './config';
+import { HANDLE_CLASS, resolveTabSize, type MdDraggerCodeMirrorOptions } from './config';
 import { nativePointerEvent } from './pointer-input';
 
 export function sourceLineFromInput(view: EditorView, input: PressInput): number | null {
@@ -45,6 +34,7 @@ export function resolveDropTarget(
   if (targetLineNumber === null) return null;
 
   return {
+    targetDoc: view.state.doc,
     targetLineNumber,
     placement: 'before',
     listIntent: resolveListIntent(view, point, selection, targetLineNumber, options),
@@ -66,7 +56,7 @@ function resolveListIntent(
   const tabSize = resolveTabSize(options);
   const lineParsing = createLineParsingContext(tabSize);
   const doc = view.state.doc;
-  const lineMap = getLineMap({ doc }, { tabSize });
+  const lineMap = getLineMap(doc, { tabSize });
 
   const referenceLineNumber = nearestListLineAtOrBefore(view, targetLineNumber, lineMap);
   if (referenceLineNumber === null) {

@@ -1,11 +1,11 @@
 import type { BlockInfo } from '../block/block-types';
-import type { DocLikeWithRange } from '../markdown/document-types';
+import type { Doc } from '../markdown/document-types';
 import type { ListDropTarget } from '../command/drop-target';
 import { resolveDeleteRange, resolveInsertionChange } from '../mutation/document-change';
 import { normalizeCompositeRanges, type CompositeLineRange } from '../selection/selection-ranges';
 import type { BlockSelection } from '../selection/block-selection';
 import type { MoveDeps, MovePlan } from '../move/move-plan';
-import type { BlockTransaction, TextChange } from './block-transaction';
+import type { DocEdit, TextChange } from './block-transaction';
 import { rejectCommand, type CommandReject } from './command-reject';
 
 export type MoveSourceSegment = {
@@ -28,7 +28,7 @@ export type CapturedMoveSource = {
     payload: MoveSourcePayload;
 };
 
-export function captureMoveSource(doc: DocLikeWithRange, selection: BlockSelection): CapturedMoveSource | null {
+export function captureMoveSource(doc: Doc, selection: BlockSelection): CapturedMoveSource | null {
     const payload = captureMoveSourcePayload(doc, selection);
     if (!payload) return null;
 
@@ -50,7 +50,7 @@ export function captureMoveSource(doc: DocLikeWithRange, selection: BlockSelecti
     };
 }
 
-export function captureMoveSourcePayload(doc: DocLikeWithRange, selection: BlockSelection): MoveSourcePayload | null {
+export function captureMoveSourcePayload(doc: Doc, selection: BlockSelection): MoveSourcePayload | null {
     const ranges = normalizeCompositeRanges(selection.ranges, doc.lines);
     if (ranges.length === 0) return null;
 
@@ -76,21 +76,17 @@ export function captureMoveSourcePayload(doc: DocLikeWithRange, selection: Block
     return { content, ranges, segments };
 }
 
-export type MoveTxResult =
-    | BlockTransaction
-    | { source: BlockTransaction; target: BlockTransaction };
-
 export function moveTx(params: {
-    sourceDoc: DocLikeWithRange;
-    targetDoc: DocLikeWithRange;
+    sourceDoc: Doc;
     plan: MovePlan;
-}): MoveTxResult | CommandReject {
-    const { sourceDoc, targetDoc, plan } = params;
+}): DocEdit[] | CommandReject {
+    const { sourceDoc, plan } = params;
+    const targetDoc = plan.target.targetDoc;
 
     // Cross-document: insert on target, delete on source — two independent
-    // transactions (no insertion_inside_deleted_range conflict, no in-place
-    // merge, no removedLineCountBeforeTarget fixup; the docs are disjoint).
-    if (plan.mode === 'insert-only') {
+    // edits (the docs are disjoint, so no in-place merge or
+    // insertion-inside-deleted-range fixup is needed).
+    if (sourceDoc !== targetDoc) {
         const target = planInsertOnlyTransaction({
             doc: targetDoc,
             sourceBlock: plan.captured.block,
@@ -100,13 +96,15 @@ export function moveTx(params: {
             deps: plan.deps,
         });
         if ('type' in target) return target;
-        const source: BlockTransaction = { changes: planSourceDeletion(plan.captured.payload) };
-        return { source, target };
+        return [
+            target,
+            { doc: sourceDoc, changes: planSourceDeletion(plan.captured.payload) },
+        ];
     }
 
-    // Same-document: sourceDoc === targetDoc — single merged transaction with
-    // the in-place / line-shift optimizations that only hold within one doc.
-    return planInsertionAndDeletionTransaction({
+    // Same-document: a single merged edit with the in-place / line-shift
+    // optimizations that only hold within one doc.
+    const tx = planInsertionAndDeletionTransaction({
         doc: targetDoc,
         sourceBlock: plan.captured.block,
         payload: plan.captured.payload,
@@ -115,6 +113,8 @@ export function moveTx(params: {
         deps: plan.deps,
         allowInPlaceIndentChange: plan.allowIndent,
     });
+    if ('type' in tx) return tx;
+    return [tx];
 }
 
 // Source-side delete changes for a cross-document move: one delete per
@@ -126,14 +126,14 @@ export function planSourceDeletion(payload: MoveSourcePayload): TextChange[] {
 }
 
 function planInsertionAndDeletionTransaction(params: {
-    doc: DocLikeWithRange;
+    doc: Doc;
     sourceBlock: BlockInfo;
     payload: MoveSourcePayload;
     targetLineNumber: number;
     listIntent?: ListDropTarget;
     deps: MoveDeps;
     allowInPlaceIndentChange: boolean;
-}): BlockTransaction | CommandReject {
+}): DocEdit | CommandReject {
     const { doc, sourceBlock, payload, targetLineNumber, listIntent, deps, allowInPlaceIndentChange } = params;
 
     const insertText = deps.insertText(
@@ -171,6 +171,7 @@ function planInsertionAndDeletionTransaction(params: {
     }
 
     return {
+        doc,
         changes,
         effects: [
             { type: 'restore-fold-state', lineNumber: finalInsertedStartLineNumber },
@@ -180,13 +181,13 @@ function planInsertionAndDeletionTransaction(params: {
 }
 
 function planInsertOnlyTransaction(params: {
-    doc: DocLikeWithRange;
+    doc: Doc;
     sourceBlock: BlockInfo;
     payload: MoveSourcePayload;
     targetLineNumber: number;
     listIntent?: ListDropTarget;
     deps: MoveDeps;
-}): BlockTransaction | CommandReject {
+}): DocEdit | CommandReject {
     const { doc, sourceBlock, payload, targetLineNumber, listIntent, deps } = params;
     const insertText = deps.insertText(
         doc,
@@ -202,6 +203,7 @@ function planInsertOnlyTransaction(params: {
     });
     const changes = [{ from: insertion.pos, to: insertion.pos, insert: insertion.text }];
     return {
+        doc,
         changes,
         effects: [
             { type: 'restore-fold-state', lineNumber: targetLineNumber },

@@ -1,5 +1,5 @@
 import { parseLineWithQuote } from './line-parser';
-import { DocLike, StateWithDoc } from './document-types';
+import { Doc } from './document-types';
 import { isHorizontalRuleLine, isCalloutLine } from '../block/block-guards';
 import { normalizeTabSize } from './indent-calculator';
 
@@ -21,7 +21,7 @@ export interface LineMeta {
 }
 
 export interface LineMap {
-    doc: DocLike;
+    doc: Doc;
     lineMeta: LineMeta[];
     prevNonEmpty: Int32Array;
     nextNonEmpty: Int32Array;
@@ -47,11 +47,6 @@ type LineMapChangeDescLike = {
             inserted: unknown
         ) => void
     ) => void;
-};
-
-type DocLikeWithOffsets = DocLike & {
-    length: number;
-    lineAt: (pos: number) => { number: number };
 };
 
 const EMPTY_LINE_META: LineMeta = {
@@ -92,7 +87,7 @@ function createLineMetaFromText(text: string, tabSize: number): LineMeta {
     };
 }
 
-function createLineMetaArray(doc: DocLike, tabSize: number): LineMeta[] {
+function createLineMetaArray(doc: Doc, tabSize: number): LineMeta[] {
     const lineMeta = Array<LineMeta>(doc.lines + 1);
     lineMeta[0] = EMPTY_LINE_META;
     for (let i = 1; i <= doc.lines; i++) {
@@ -175,7 +170,7 @@ function buildLineMapIndexes(
     };
 }
 
-function createLineMapFromMeta(doc: DocLike, tabSize: number, lineMeta: LineMeta[]): LineMap {
+function createLineMapFromMeta(doc: Doc, tabSize: number, lineMeta: LineMeta[]): LineMap {
     const indexes = buildLineMapIndexes(lineMeta, doc.lines);
     return {
         doc,
@@ -190,21 +185,20 @@ function createLineMapFromMeta(doc: DocLike, tabSize: number, lineMeta: LineMeta
 }
 
 export function buildLineMap(
-    state: StateWithDoc,
+    doc: Doc,
     options: { tabSize: number }
 ): LineMap {
-    const doc = state.doc;
     const tabSize = normalizeTabSize(options.tabSize);
     const lineMeta = createLineMetaArray(doc, tabSize);
     return createLineMapFromMeta(doc, tabSize, lineMeta);
 }
 
-function getCachedLineMapForDoc(doc: DocLike | null | undefined, tabSize: number): LineMap | null {
+function getCachedLineMapForDoc(doc: Doc | null | undefined, tabSize: number): LineMap | null {
     if (!doc || typeof doc !== 'object') return null;
     return lineMapCache.get(doc)?.get(tabSize) ?? null;
 }
 
-function setCachedLineMapForDoc(doc: DocLike, tabSize: number, lineMap: LineMap): void {
+function setCachedLineMapForDoc(doc: Doc, tabSize: number, lineMap: LineMap): void {
     const byTabSize = lineMapCache.get(doc);
     if (byTabSize) {
         byTabSize.set(tabSize, lineMap);
@@ -213,18 +207,18 @@ function setCachedLineMapForDoc(doc: DocLike, tabSize: number, lineMap: LineMap)
     lineMapCache.set(doc, new Map<number, LineMap>([[tabSize, lineMap]]));
 }
 
-function clampDocPos(doc: DocLikeWithOffsets, pos: number): number {
+function clampDocPos(doc: Doc, pos: number): number {
     if (pos <= 0) return 0;
     if (pos >= doc.length) return doc.length;
     return pos;
 }
 
-function lineNumberAtPosInclusive(doc: DocLikeWithOffsets, pos: number): number {
+function lineNumberAtPosInclusive(doc: Doc, pos: number): number {
     const clamped = clampDocPos(doc, pos);
     return doc.lineAt(clamped).number;
 }
 
-function lineNumberAtPosExclusive(doc: DocLikeWithOffsets, fromPos: number, toPos: number): number {
+function lineNumberAtPosExclusive(doc: Doc, fromPos: number, toPos: number): number {
     if (toPos <= fromPos) {
         return lineNumberAtPosInclusive(doc, fromPos);
     }
@@ -243,8 +237,8 @@ function isLineMetaEqual(a: LineMeta, b: LineMeta): boolean {
 }
 
 function collectChangedLinePairs(
-    oldDoc: DocLikeWithOffsets,
-    newDoc: DocLikeWithOffsets,
+    oldDoc: Doc,
+    newDoc: Doc,
     changes: LineMapChangeDescLike
 ): Array<{ oldLine: number; newLine: number }> | null {
     if (oldDoc.lines !== newDoc.lines) return null;
@@ -275,12 +269,12 @@ function collectChangedLinePairs(
 
 function tryReuseUnchangedIndexes(
     previousLineMap: LineMap,
-    nextState: StateWithDoc,
+    nextDoc: Doc,
     changes: LineMapChangeDescLike,
     tabSize: number
 ): LineMap | null {
-    const oldDoc = previousLineMap.doc as Partial<DocLikeWithOffsets>;
-    const newDoc = nextState.doc as Partial<DocLikeWithOffsets>;
+    const oldDoc = previousLineMap.doc as Partial<Doc>;
+    const newDoc = nextDoc as Partial<Doc>;
     if (
         typeof oldDoc.lineAt !== 'function'
         || typeof oldDoc.length !== 'number'
@@ -289,8 +283,8 @@ function tryReuseUnchangedIndexes(
     ) {
         return null;
     }
-    const oldDocTyped = oldDoc as DocLikeWithOffsets;
-    const newDocTyped = newDoc as DocLikeWithOffsets;
+    const oldDocTyped = oldDoc as Doc;
+    const newDocTyped = newDoc as Doc;
     const pairs = collectChangedLinePairs(oldDocTyped, newDocTyped, changes);
     if (!pairs) return null;
 
@@ -306,7 +300,7 @@ function tryReuseUnchangedIndexes(
     }
 
     return {
-        doc: nextState.doc,
+        doc: nextDoc,
         lineMeta: previousLineMap.lineMeta,
         prevNonEmpty: previousLineMap.prevNonEmpty,
         nextNonEmpty: previousLineMap.nextNonEmpty,
@@ -319,12 +313,12 @@ function tryReuseUnchangedIndexes(
 
 function buildLineMapIncremental(
     previousLineMap: LineMap,
-    nextState: StateWithDoc,
+    nextDoc: Doc,
     changes: LineMapChangeDescLike,
     tabSize: number
 ): LineMap | null {
-    const oldDoc = previousLineMap.doc as DocLikeWithOffsets;
-    const newDoc = nextState.doc as DocLikeWithOffsets;
+    const oldDoc = previousLineMap.doc as Doc;
+    const newDoc = nextDoc as Doc;
     const lineMeta = Array<LineMeta>(newDoc.lines + 1);
     lineMeta[0] = EMPTY_LINE_META;
 
@@ -394,70 +388,69 @@ function buildLineMapIncremental(
 }
 
 export function primeLineMapFromTransition(params: {
-    previousState: StateWithDoc;
-    nextState: StateWithDoc;
+    previousDoc: Doc;
+    nextDoc: Doc;
     changes: LineMapChangeDescLike;
     tabSize: number;
 }): LineMap {
     const startedAt = nowMs();
     const tabSize = normalizeTabSize(params.tabSize);
-    const previousDoc = params.previousState.doc as Partial<DocLikeWithOffsets>;
-    const nextDoc = params.nextState.doc as Partial<DocLikeWithOffsets>;
+    const previousDoc = params.previousDoc as Partial<Doc>;
+    const nextDoc = params.nextDoc as Partial<Doc>;
     const hasOffsetHelpers = typeof previousDoc.lineAt === 'function'
         && typeof previousDoc.length === 'number'
         && typeof nextDoc.lineAt === 'function'
         && typeof nextDoc.length === 'number';
     if (!hasOffsetHelpers) {
         const rebuildStartedAt = nowMs();
-        const rebuilt = buildLineMap(params.nextState, { tabSize });
+        const rebuilt = buildLineMap(params.nextDoc, { tabSize });
         recordLineMapPerf('line_map_build', nowMs() - rebuildStartedAt);
-        setCachedLineMapForDoc(params.nextState.doc, tabSize, rebuilt);
+        setCachedLineMapForDoc(params.nextDoc, tabSize, rebuilt);
         recordLineMapPerf('line_map_get', nowMs() - startedAt);
         return rebuilt;
     }
-    const previousCached = getCachedLineMapForDoc(params.previousState.doc, tabSize)
-        ?? buildLineMap(params.previousState, { tabSize });
+    const previousCached = getCachedLineMapForDoc(params.previousDoc, tabSize)
+        ?? buildLineMap(params.previousDoc, { tabSize });
     const fastReuseStartedAt = nowMs();
-    const fastReused = tryReuseUnchangedIndexes(previousCached, params.nextState, params.changes, tabSize);
+    const fastReused = tryReuseUnchangedIndexes(previousCached, params.nextDoc, params.changes, tabSize);
     if (fastReused) {
         recordLineMapPerf('line_map_build', nowMs() - fastReuseStartedAt);
-        setCachedLineMapForDoc(params.nextState.doc, tabSize, fastReused);
+        setCachedLineMapForDoc(params.nextDoc, tabSize, fastReused);
         recordLineMapPerf('line_map_get', nowMs() - startedAt);
         return fastReused;
     }
     const incrementalStartedAt = nowMs();
-    const incremental = buildLineMapIncremental(previousCached, params.nextState, params.changes, tabSize);
+    const incremental = buildLineMapIncremental(previousCached, params.nextDoc, params.changes, tabSize);
     let result: LineMap;
     if (incremental) {
         result = incremental;
         recordLineMapPerf('line_map_build', nowMs() - incrementalStartedAt);
     } else {
         const rebuildStartedAt = nowMs();
-        result = buildLineMap(params.nextState, { tabSize });
+        result = buildLineMap(params.nextDoc, { tabSize });
         recordLineMapPerf('line_map_build', nowMs() - rebuildStartedAt);
     }
-    setCachedLineMapForDoc(params.nextState.doc, tabSize, result);
+    setCachedLineMapForDoc(params.nextDoc, tabSize, result);
     recordLineMapPerf('line_map_get', nowMs() - startedAt);
     return result;
 }
 
 export function getLineMap(
-    state: StateWithDoc,
+    doc: Doc,
     options: { tabSize: number }
 ): LineMap {
     const startedAt = nowMs();
     const tabSize = normalizeTabSize(options.tabSize);
-    if (!state || typeof state !== 'object') {
+    if (!doc || typeof doc !== 'object') {
         const buildStartedAt = nowMs();
-        const built = buildLineMap(state, { tabSize });
+        const built = buildLineMap(doc, { tabSize });
         recordLineMapPerf('line_map_build', nowMs() - buildStartedAt);
         recordLineMapPerf('line_map_get', nowMs() - startedAt);
         return built;
     }
-    const doc = state.doc;
     if (!doc || typeof doc !== 'object') {
         const buildStartedAt = nowMs();
-        const built = buildLineMap(state, { tabSize });
+        const built = buildLineMap(doc, { tabSize });
         recordLineMapPerf('line_map_build', nowMs() - buildStartedAt);
         recordLineMapPerf('line_map_get', nowMs() - startedAt);
         return built;
@@ -469,7 +462,7 @@ export function getLineMap(
     }
 
     const buildStartedAt = nowMs();
-    const built = buildLineMap(state, { tabSize });
+    const built = buildLineMap(doc, { tabSize });
     recordLineMapPerf('line_map_build', nowMs() - buildStartedAt);
     setCachedLineMapForDoc(doc, tabSize, built);
     recordLineMapPerf('line_map_get', nowMs() - startedAt);
@@ -477,12 +470,11 @@ export function getLineMap(
 }
 
 export function peekCachedLineMap(
-    state: StateWithDoc,
+    doc: Doc,
     options: { tabSize: number }
 ): LineMap | null {
     const tabSize = normalizeTabSize(options.tabSize);
-    if (!state || typeof state !== 'object') return null;
-    const doc = state.doc;
+    if (!doc || typeof doc !== 'object') return null;
     if (!doc || typeof doc !== 'object') return null;
     return getCachedLineMapForDoc(doc, tabSize);
 }

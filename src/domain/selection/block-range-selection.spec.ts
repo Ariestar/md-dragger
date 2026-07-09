@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BlockType, type BlockInfo } from '../block/block-types';
-import type { DocLikeWithRange } from '../markdown/document-types';
+import type { Doc } from '../markdown/document-types';
 import { createBlockRangeSelectionState, updateBlockRangeSelectionState } from './block-range-selection';
 
 function block(startLine: number, endLine = startLine): BlockInfo {
@@ -23,7 +23,7 @@ function boundaryFromBlock(blockInfo: BlockInfo) {
     };
 }
 
-const doc: DocLikeWithRange = {
+const doc: Doc = {
     lines: 8,
     length: 80,
     line: (lineNumber) => ({

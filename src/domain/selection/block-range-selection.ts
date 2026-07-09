@@ -1,16 +1,7 @@
-import type { DocLikeWithRange } from '../markdown/document-types';
+import type { Doc } from '../markdown/document-types';
 import type { RangeSelectionOperation } from './block-selection';
-import {
-    isSelectedBlockCoveredByBlocks,
-    mergeSelectedBlocks,
-    subtractSelectedBlocks,
-    type SelectedBlockRange,
-} from './block-ranges';
-import {
-    collectSelectedBlocksBetween,
-    type RangeSelectionBoundary,
-    type RangeSelectionBoundaryResolver,
-} from './range-selection';
+import { isSelectedBlockCoveredByBlocks, mergeSelectedBlocks, subtractSelectedBlocks, type SelectedBlockRange } from './block-ranges';
+import { collectSelectedBlocksBetween, type RangeSelectionBoundary, type RangeSelectionBoundaryResolver } from './range-selection';
 
 export type BlockRangeSelectionState = {
     anchorStartLineNumber: number;
@@ -22,7 +13,7 @@ export type BlockRangeSelectionState = {
 };
 
 export function createBlockRangeSelectionState(options: {
-    doc: DocLikeWithRange;
+    doc: Doc;
     anchorBoundary: RangeSelectionBoundary;
     initialBoundary?: RangeSelectionBoundary;
     selectedBlocks: SelectedBlockRange[];

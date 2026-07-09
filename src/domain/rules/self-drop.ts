@@ -1,14 +1,10 @@
 import { BlockType } from '../block/block-types';
 import type { BlockSelection } from '../selection/block-selection';
 import type { ListDropTarget } from '../command/drop-target';
-import {
-    InsertionRuleRejectReason,
-    InsertionSlotContext,
-    resolveInsertionRule,
-} from './insertion-rules';
+import { InsertionRuleRejectReason, InsertionSlotContext, resolveInsertionRule } from './insertion-rules';
 import { getLineMetaAt, LineMap } from '../markdown/line-map';
 import { computeListIndentPlan } from '../mutation/list-mutation';
-import { DocLike, ListContext, ParsedLine } from '../markdown/document-types';
+import { Doc, ListContext, ParsedLine } from '../markdown/document-types';
 import { normalizeCompositeRanges } from '../selection/selection-ranges';
 
 export type SelfDropRejectReason =
@@ -26,7 +22,7 @@ export type SelfDropResult = {
 };
 
 function sourceRangesAreListStructured(params: {
-    doc: DocLike;
+    doc: Doc;
     source: BlockSelection;
     parseLineWithQuote: (line: string) => ParsedLine;
     ranges: Array<{ startLine: number; endLine: number }>;
@@ -49,11 +45,11 @@ function sourceRangesAreListStructured(params: {
 }
 
 export function selfDrop(params: {
-    doc: DocLike;
+    doc: Doc;
     source: BlockSelection;
     targetLineNumber: number;
     parseLineWithQuote: (line: string) => ParsedLine;
-    getListContext: (doc: DocLike, lineNumber: number) => ListContext;
+    getListContext: (doc: Doc, lineNumber: number) => ListContext;
     getIndentUnitWidth: (sample: string) => number;
     slotContext?: InsertionSlotContext;
     lineMap?: LineMap;

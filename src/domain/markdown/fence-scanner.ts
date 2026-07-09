@@ -1,4 +1,4 @@
-import type { DocLike } from './document-types';
+import type { Doc } from './document-types';
 import { isMathFenceLine, isCodeFenceLine } from '../block/block-guards';
 
 export type FenceRange = { startLine: number; endLine: number };
@@ -12,7 +12,7 @@ type FenceLazyScanState = {
     mathRangeByLine: Map<number, FenceRange>;
 };
 
-const fenceLazyScanCache = new WeakMap<DocLike, FenceLazyScanState>();
+const fenceLazyScanCache = new WeakMap<Doc, FenceLazyScanState>();
 
 function isSingleLineMathFence(lineText: string): boolean {
     const trimmed = lineText.trimStart();
@@ -38,7 +38,7 @@ function createFenceLazyScanState(): FenceLazyScanState {
     };
 }
 
-function getFenceLazyScanState(doc: DocLike): FenceLazyScanState {
+function getFenceLazyScanState(doc: Doc): FenceLazyScanState {
     const cached = fenceLazyScanCache.get(doc);
     if (cached) return cached;
     const created = createFenceLazyScanState();
@@ -98,7 +98,7 @@ function finalizeFenceStateAtDocEnd(state: FenceLazyScanState): void {
     state.fullyScanned = true;
 }
 
-function ensureFenceScanComplete(doc: DocLike): FenceLazyScanState {
+function ensureFenceScanComplete(doc: Doc): FenceLazyScanState {
     const state = getFenceLazyScanState(doc);
     if (state.fullyScanned) return state;
 
@@ -118,17 +118,17 @@ function ensureFenceScanComplete(doc: DocLike): FenceLazyScanState {
  * Pre-warm fence scan for a document to ensure code/math block boundaries
  * are fully computed before interaction. Call this during idle time.
  */
-export function prewarmFenceScan(doc: DocLike): void {
+export function prewarmFenceScan(doc: Doc): void {
     ensureFenceScanComplete(doc);
 }
 
-export function findMathBlockRange(doc: DocLike, lineNumber: number): FenceRange | null {
+export function findMathBlockRange(doc: Doc, lineNumber: number): FenceRange | null {
     if (lineNumber < 1 || lineNumber > doc.lines) return null;
     const state = ensureFenceScanComplete(doc);
     return state.mathRangeByLine.get(lineNumber) ?? null;
 }
 
-export function findCodeBlockRange(doc: DocLike, lineNumber: number): FenceRange | null {
+export function findCodeBlockRange(doc: Doc, lineNumber: number): FenceRange | null {
     if (lineNumber < 1 || lineNumber > doc.lines) return null;
     const state = ensureFenceScanComplete(doc);
     return state.codeRangeByLine.get(lineNumber) ?? null;

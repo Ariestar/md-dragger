@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-    getBlockquoteDepthFromLine,
-    getIndentWidthFromIndentRaw,
-    parseLineWithQuote,
-    parseListLine,
-    splitBlockquotePrefix,
-} from './line-parser';
+import { getBlockquoteDepthFromLine, getIndentWidthFromIndentRaw, parseLineWithQuote, parseListLine, splitBlockquotePrefix } from './line-parser';
 
 describe('line-parsing', () => {
     it('parses task list lines with quote prefix', () => {

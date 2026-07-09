@@ -1,14 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { BlockInfo, BlockType } from '../block/block-types';
-import {
-    resolveDropRuleContextAtInsertion,
-    resolveSlotContextAtInsertion,
-    type DetectBlockFn,
-} from './container-policy';
+import { resolveDropRuleContextAtInsertion, resolveSlotContextAtInsertion, type DetectBlockFn } from './container-policy';
 import { getLineMap } from '../markdown/line-map';
-import { DocLike, StateWithDoc } from '../markdown/document-types';
+import { Doc } from '../markdown/document-types';
 
-function createDoc(lines: string[]): DocLike {
+function createDoc(lines: string[]): Doc {
     const fromOffsets: number[] = [];
     let offset = 0;
     for (const line of lines) {
@@ -24,11 +20,11 @@ function createDoc(lines: string[]): DocLike {
             const from = fromOffsets[idx] ?? 0;
             return { text, from, to: from + text.length };
         },
-    };
+    } as Doc;
 }
 
-function createState(lines: string[]): StateWithDoc {
-    return { doc: createDoc(lines) };
+function createState(lines: string[]): Doc {
+    return createDoc(lines);
 }
 
 function createBlock(type: BlockType, startLine: number, endLine: number, content: string): BlockInfo {

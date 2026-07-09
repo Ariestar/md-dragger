@@ -1,18 +1,15 @@
 import { EditorView } from '@codemirror/view';
-import type { CrossDocDropCommit, DropCommit } from '../../runtime';
+import type { DocEdit, TextChange } from '../../domain';
 
-export function applyCommit(view: EditorView, commit: DropCommit | CrossDocDropCommit): void {
-  if ('source' in commit && 'target' in commit) {
-    // Cross-document: both sides land on this single view in the reference
-    // adapter. A real cross-editor host dispatches each side to its own view.
-    dispatchChanges(view, commit.source.changes);
-    dispatchChanges(view, commit.target.changes);
-    return;
+// Reference adapter: applies every edit to the single view. A real
+// cross-editor host dispatches each edit to the view that owns its doc.
+export function applyCommit(view: EditorView, edits: DocEdit[]): void {
+  for (const edit of edits) {
+    dispatchChanges(view, edit.changes);
   }
-  dispatchChanges(view, commit.changes);
 }
 
-function dispatchChanges(view: EditorView, changes: DropCommit['changes']): void {
+function dispatchChanges(view: EditorView, changes: TextChange[]): void {
   if (changes.length === 0) return;
   view.dispatch({ changes });
 }

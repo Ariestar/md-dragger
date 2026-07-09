@@ -1,15 +1,7 @@
 import type { PipelineEvent } from './pipeline-event';
-import {
-    buildIdleLifecycleEvent,
-    buildPressPendingLifecycleEvent,
-    type PipelineOutput,
-} from './pipeline-output';
+import type { PipelineOutput } from './pipeline-output';
 import type { BlockSelection } from '../domain/selection/block-selection';
-import {
-    createBlockRangeSelectionState,
-    updateBlockRangeSelectionState,
-    type BlockRangeSelectionState,
-} from '../domain/selection/block-range-selection';
+import { createBlockRangeSelectionState, updateBlockRangeSelectionState, type BlockRangeSelectionState } from '../domain/selection/block-range-selection';
 import { drop, dragOver, startDragDrop } from './pipeline-drop';
 import { clearSelection, cancelPipeline, destroyPipeline, exitForUnavailableGuard } from './pipeline-exit';
 import { withGuardDeps } from './pipeline-guard';
@@ -33,8 +25,6 @@ export function transitionPipelineState<TPreview>(
             return onSelectionStart(state, event);
         case 'selection_change':
             return onSelectionChange(state, event);
-        case 'selection_finish':
-            return onSelectionFinish(state);
         case 'selection_clear':
             return clearSelection(state);
         case 'drag_start':
@@ -60,18 +50,14 @@ function onHoldStart<TPreview>(
         type: 'holding',
         hold: {
             sessionId: event.sessionId,
-            target: event.target,
+            selection: event.selection,
             guardDeps: withGuardDeps(event.guardDeps),
-            ...(state.type === 'selecting' && state.selection.phase === 'passive'
-                ? { retainedSelection: state.selection }
-                : {}),
         },
     };
     return {
         state: next,
         outputs: [
             { type: 'state_changed', state: next },
-            { type: 'lifecycle', event: buildPressPendingLifecycleEvent(event.target.selection, event.pointerType ?? null, false) },
         ],
     };
 }
@@ -91,7 +77,6 @@ function onHoldReady<TPreview>(
         state: next,
         outputs: [
             { type: 'state_changed', state: next },
-            { type: 'lifecycle', event: buildPressPendingLifecycleEvent(state.hold.target.selection, event.pointerType ?? null, true) },
         ],
     };
 }
@@ -112,7 +97,6 @@ function onSelectionStart<TPreview>(
         type: 'selecting',
         selection: {
             selection,
-            phase: 'adjusting',
             guardDeps: withGuardDeps(event.guardDeps),
             rangeState: selectionRangeState,
         },
@@ -155,7 +139,6 @@ function onSelectionChange<TPreview>(
         selection: {
             ...state.selection,
             selection,
-            phase: 'adjusting',
             rangeState,
         },
     };
@@ -181,26 +164,6 @@ function buildSelectionFromRangeState(
     };
 }
 
-function onSelectionFinish<TPreview>(state: PipelineState): PipelineTransitionResult<TPreview> {
-    if (state.type !== 'selecting') {
-        return { state, outputs: [] };
-    }
-    const next: PipelineState = {
-        type: 'selecting',
-        selection: {
-            ...state.selection,
-            phase: 'passive',
-        },
-    };
-    return {
-        state: next,
-        outputs: [
-            { type: 'state_changed', state: next },
-            { type: 'selection_changed', selection: next.selection.selection },
-        ],
-    };
-}
-
 function onDragStart<TPreview>(
     state: PipelineState,
     event: Extract<PipelineEvent<TPreview>, { type: 'drag_start' }>
@@ -212,7 +175,7 @@ function onDragStart<TPreview>(
         type: 'dragging',
         drag: {
             sessionId: event.sessionId,
-            selection: state.hold.target.selection,
+            selection: state.hold.selection,
             drop: event.drop,
             guardDeps: state.hold.guardDeps,
         },
@@ -273,7 +236,6 @@ function onDrop<TPreview>(
                 resolution: event.resolution,
                 pointerType: event.pointerType ?? null,
             }),
-            { type: 'lifecycle', event: buildIdleLifecycleEvent() },
         ],
     };
 }

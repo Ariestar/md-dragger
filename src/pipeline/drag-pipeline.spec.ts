@@ -43,13 +43,12 @@ describe('drag pipeline object', () => {
         const result = pipeline.enter({
             type: 'hold_start',
             sessionId: 's1',
-            target: { selection },
+            selection,
         });
 
         expect(result.current.type).toBe('holding');
         expect(observed).toContain('holding');
         expect(observed).toContain('state_changed');
-        expect(observed).toContain('lifecycle');
     });
 
     it('moves a single block selection through the unified drag path', () => {
@@ -58,7 +57,7 @@ describe('drag pipeline object', () => {
         const hold = pipeline.enter({
             type: 'hold_start',
             sessionId: 's1',
-            target: { selection },
+            selection,
         });
         expect(hold.current.type).toBe('holding');
 
@@ -83,7 +82,7 @@ describe('drag pipeline object', () => {
         pipeline.enter({
             type: 'hold_start',
             sessionId: 's1',
-            target: { selection: multiSelection },
+            selection: multiSelection,
         });
         pipeline.enter({ type: 'hold_ready', sessionId: 's1' });
         const dragging = pipeline.enter({
@@ -105,7 +104,7 @@ describe('drag pipeline object', () => {
         pipeline.enter({
             type: 'hold_start',
             sessionId: 's1',
-            target: { selection },
+            selection,
         });
         pipeline.enter({ type: 'hold_ready', sessionId: 's1' });
         pipeline.enter({
@@ -124,19 +123,17 @@ describe('drag pipeline object', () => {
         expect(drop.outputs).toContainEqual({ type: 'terminal', reason: 'drop' });
     });
 
-    it('keeps selection as a passive pipeline state after finish', () => {
+    it('holds the selection in the selecting state', () => {
         const pipeline = new DragPipeline();
-        pipeline.enter({
+        const started = pipeline.enter({
             type: 'selection_start',
             seed: { selection },
         });
-        const finish = pipeline.enter({ type: 'selection_finish' });
 
-        expect(finish.current).toEqual({
+        expect(started.current).toEqual({
             type: 'selecting',
             selection: {
                 selection,
-                phase: 'passive',
                 guardDeps: [],
             },
         } satisfies PipelineState);
@@ -184,38 +181,26 @@ describe('drag pipeline object', () => {
         expect(changed.outputs.some((output) => output.type === 'selection_changed')).toBe(true);
     });
 
-    it('retains passive selection while held and clears it when dragging starts', () => {
+    it('clears the selection visual when a press leaves the selecting state', () => {
         const pipeline = new DragPipeline();
         pipeline.enter({
             type: 'selection_start',
             seed: { selection: multiSelection },
             guardDeps: ['text-drag-mode'],
         });
-        pipeline.enter({ type: 'selection_finish' });
 
         const hold = pipeline.enter({
             type: 'hold_start',
             sessionId: 's1',
-            target: { selection: multiSelection },
+            selection: multiSelection,
             guardDeps: ['text-drag-mode'],
         });
 
         expect(hold.current.type).toBe('holding');
-        if (hold.current.type === 'holding') {
-            expect(hold.current.hold.retainedSelection?.selection).toEqual(multiSelection);
-        }
-        expect(hold.outputs).not.toContainEqual({ type: 'selection_changed', selection: null });
-
-        pipeline.enter({ type: 'hold_ready', sessionId: 's1' });
-        const dragging = pipeline.enter({
-            type: 'drag_start',
-            sessionId: 's1',
-            drop: { target: null, rejectReason: 'no_target' },
-        });
-
-        expect(dragging.current.type).toBe('dragging');
-        expect(dragging.outputs).toContainEqual({ type: 'selection_changed', selection: null });
-        expect(dragging.outputs).toContainEqual({ type: 'drag_source_changed', selection: multiSelection });
+        // Leaving selecting clears the visual outright — there is no retained
+        // selection anymore; preserving one across a cancelled press is the
+        // platform's concern, not the pipeline's.
+        expect(hold.outputs).toContainEqual({ type: 'selection_changed', selection: null });
     });
 
     it('clears guard-dependent states when guard becomes unavailable', () => {
@@ -225,7 +210,6 @@ describe('drag pipeline object', () => {
             seed: { selection },
             guardDeps: ['text-drag-mode'],
         });
-        pipeline.enter({ type: 'selection_finish' });
 
         expect(pipeline.enter({ type: 'guard_unavailable', guardId: 'other' }).current.type).toBe('selecting');
         const unavailable = pipeline.enter({ type: 'guard_unavailable', guardId: 'text-drag-mode' });

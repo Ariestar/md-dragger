@@ -1,5 +1,5 @@
 import type { DragCancelReason, GuardId } from './pipeline-event';
-import { buildIdleLifecycleEvent, type PipelineOutput } from './pipeline-output';
+import type { PipelineOutput } from './pipeline-output';
 import { cancelDrop, type DragDropSnapshot } from './pipeline-drop';
 import { dependsOnGuard } from './pipeline-guard';
 import { IDLE_PIPELINE_STATE, type PipelineState } from './pipeline-state';
@@ -18,27 +18,8 @@ export function cancelPipeline<TPreview>(
         return { state, outputs: [] };
     }
 
-    if (
-        reason !== 'guard_unavailable'
-        && (state.type === 'holding' || state.type === 'ready_to_drag')
-        && state.hold.retainedSelection
-    ) {
-        const next: PipelineState = {
-            type: 'selecting',
-            selection: state.hold.retainedSelection,
-        };
-        return {
-            state: next,
-            outputs: [
-                { type: 'state_changed', state: next },
-                { type: 'selection_changed', selection: next.selection.selection },
-                { type: 'lifecycle', event: buildIdleLifecycleEvent() },
-            ],
-        };
-    }
-
     const source = state.type === 'holding' || state.type === 'ready_to_drag'
-        ? state.hold.target.selection
+        ? state.hold.selection
         : state.type === 'selecting'
             ? state.selection.selection
             : state.drag.selection;
@@ -54,7 +35,6 @@ export function cancelPipeline<TPreview>(
                 reason,
                 pointerType,
             }),
-            { type: 'lifecycle', event: buildIdleLifecycleEvent() },
         ],
     };
 }
@@ -68,7 +48,6 @@ export function clearSelection<TPreview>(state: PipelineState): PipelineExitResu
         outputs: [
             { type: 'selection_changed', selection: null },
             { type: 'state_changed', state: IDLE_PIPELINE_STATE },
-            { type: 'lifecycle', event: buildIdleLifecycleEvent() },
         ],
     };
 }
@@ -88,7 +67,6 @@ export function destroyPipeline<TPreview>(): PipelineExitResult<TPreview> {
         state: IDLE_PIPELINE_STATE,
         outputs: [
             { type: 'state_changed', state: IDLE_PIPELINE_STATE },
-            { type: 'lifecycle', event: buildIdleLifecycleEvent() },
         ],
     };
 }

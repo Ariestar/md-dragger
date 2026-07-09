@@ -1,4 +1,4 @@
-import type { DocLikeWithRange, MarkerType } from '../markdown/document-types';
+import type { Doc, MarkerType } from '../markdown/document-types';
 import { isCodeFenceLine, isMathFenceLine } from './block-guards';
 import { BlockType } from './block-types';
 
@@ -17,7 +17,7 @@ export type BlockTypeConversionChange = {
 };
 
 export function planBlockTypeConversionChanges(
-    doc: DocLikeWithRange,
+    doc: Doc,
     startLineNumber: number,
     endLineNumber: number,
     conversion: BlockTypeConversion
@@ -55,7 +55,7 @@ function isFencedBlockConversion(conversion: BlockTypeConversion): conversion is
 }
 
 function readFencedBlockContentLines(
-    doc: DocLikeWithRange,
+    doc: Doc,
     startLineNumber: number,
     endLineNumber: number
 ): FencedBlockContent | null {
@@ -84,7 +84,7 @@ function readFencedBlockContentLines(
     return null;
 }
 
-function readInnerLines(doc: DocLikeWithRange, startLineNumber: number, endLineNumber: number): string[] {
+function readInnerLines(doc: Doc, startLineNumber: number, endLineNumber: number): string[] {
     return Array.from({ length: endLineNumber - startLineNumber - 1 }, (_, index) => (
         doc.line(startLineNumber + index + 1).text
     ));
@@ -97,7 +97,7 @@ function readSingleLineMathContent(text: string): string | null {
 }
 
 function planFencedBlockUnwrapChanges(
-    doc: DocLikeWithRange,
+    doc: Doc,
     startLineNumber: number,
     endLineNumber: number,
     contentLines: string[],
@@ -112,7 +112,7 @@ function planFencedBlockUnwrapChanges(
 }
 
 function planFencedBlockChanges(
-    doc: DocLikeWithRange,
+    doc: Doc,
     startLineNumber: number,
     endLineNumber: number,
     conversion: FencedBlockConversion,

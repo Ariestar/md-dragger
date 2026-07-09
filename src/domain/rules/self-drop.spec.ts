@@ -73,7 +73,7 @@ describe('selfDrop', () => {
             getListContext: () => ({ indentWidth: 0, indentRaw: '', markerType: 'unordered' }),
             getIndentUnitWidth: () => 2,
             slotContext: 'inside_list',
-            lineMap: getLineMap(state, { tabSize: TAB_SIZE }),
+            lineMap: getLineMap(state.doc, { tabSize: TAB_SIZE }),
             listIntent: {
                 mode: 'sibling',
                 contextLineNumber: 1,

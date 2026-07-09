@@ -74,17 +74,14 @@ export {
   checkDrop,
   type MovePlan,
   type MoveResult,
-  type MovePlanInput,
   type MoveDeps,
   type DropInput,
   type DropRejectReason,
   type MoveRejectReason,
-  type DragScope,
-  type DocRelation,
 } from './move/move-plan';
 
 // --- transaction (result types + top-level builders) ---
-export { type TextChange, type BlockEffect, type BlockTransaction } from './transaction/block-transaction';
+export { type TextChange, type BlockEffect, type DocEdit } from './transaction/block-transaction';
 export {
   moveTx,
   planSourceDeletion,
@@ -92,7 +89,6 @@ export {
   type CapturedMoveSource,
   type MoveSourcePayload,
   type MoveSourceSegment,
-  type MoveTxResult,
 } from './transaction/move-blocks';
 export { type CommandReject, type CommandRejectReason, rejectCommand } from './transaction/command-reject';
 export {
@@ -107,11 +103,8 @@ export {
   type ListContext,
   type ListContextValue,
   type MarkerType,
-  type DocLike,
-  type DocLineLike,
-  type DocLikeWithRange,
-  type DocLineWithRange,
-  type StateWithDoc,
+  type Doc,
+  type DocLine,
 } from './markdown/document-types';
 export { type LineParsingContext, createLineParsingContext } from './markdown/line-parsing-service';
 export {

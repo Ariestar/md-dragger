@@ -1,22 +1,18 @@
 import { BlockInfo, BlockType } from '../block/block-types';
 import { detectBlock } from '../block/block-detector';
 import { getLineMap, getLineMetaAt, LineMap } from '../markdown/line-map';
-import {
-    InsertionRuleDecision,
-    InsertionSlotContext,
-    resolveInsertionRule,
-} from './insertion-rules';
-import { DocLike, StateWithDoc } from '../markdown/document-types';
+import { InsertionRuleDecision, InsertionSlotContext, resolveInsertionRule } from './insertion-rules';
+import { Doc } from '../markdown/document-types';
 import { isBlockquoteLine, isHorizontalRuleLine } from '../block/block-guards';
 
 type ContainerType = BlockType.ListItem | BlockType.Blockquote | BlockType.Callout;
 export type DetectBlockFn = (
-    state: StateWithDoc,
+    doc: Doc,
     lineNumber: number,
     options: { tabSize: number }
 ) => BlockInfo | null;
 
-const defaultDetectBlock: DetectBlockFn = (state, lineNumber, options) => detectBlock(state, lineNumber, options);
+const defaultDetectBlock: DetectBlockFn = (doc, lineNumber, options) => detectBlock(doc, lineNumber, options);
 
 export interface DropRuleContext {
     slotContext: InsertionSlotContext;
@@ -28,26 +24,26 @@ export interface ContainerPolicyResolveOptions {
     tabSize: number;
 }
 
-function clampInsertionLineNumber(doc: DocLike, lineNumber: number): number {
+function clampInsertionLineNumber(doc: Doc, lineNumber: number): number {
     if (lineNumber < 1) return 1;
     if (lineNumber > doc.lines + 1) return doc.lines + 1;
     return lineNumber;
 }
 
-function getImmediateLineText(doc: DocLike, lineNumber: number): string | null {
+function getImmediateLineText(doc: Doc, lineNumber: number): string | null {
     if (lineNumber < 1 || lineNumber > doc.lines) return null;
     return doc.line(lineNumber).text;
 }
 
 function getActiveLineMap(
-    state: StateWithDoc,
+    doc: Doc,
     options: ContainerPolicyResolveOptions
 ): LineMap {
-    return options.lineMap ?? getLineMap(state, { tabSize: options.tabSize });
+    return options.lineMap ?? getLineMap(doc, { tabSize: options.tabSize });
 }
 
 export function getPreviousNonEmptyLineNumber(
-    doc: DocLike,
+    doc: Doc,
     lineNumber: number,
     lineMap?: LineMap
 ): number | null {
@@ -66,7 +62,7 @@ export function getPreviousNonEmptyLineNumber(
 }
 
 export function getNextNonEmptyLineNumber(
-    doc: DocLike,
+    doc: Doc,
     lineNumber: number,
     lineMap?: LineMap
 ): number | null {
@@ -85,14 +81,13 @@ export function getNextNonEmptyLineNumber(
 }
 
 export function findEnclosingListBlock(
-    state: StateWithDoc,
+    doc: Doc,
     lineNumber: number,
     detectBlockFn: DetectBlockFn | undefined,
     options: ContainerPolicyResolveOptions
 ): BlockInfo | null {
-    const doc = state.doc;
     if (lineNumber < 1 || lineNumber > doc.lines) return null;
-    const lineMap = getActiveLineMap(state, options);
+    const lineMap = getActiveLineMap(doc, options);
     const activeDetectBlockFn = detectBlockFn ?? defaultDetectBlock;
 
     const radius = 8;
@@ -104,7 +99,7 @@ export function findEnclosingListBlock(
         const meta = getLineMetaAt(lineMap, ln);
         if (meta && !meta.isList) continue;
 
-        const block = activeDetectBlockFn(state, ln, { tabSize: options.lineMap?.tabSize ?? options.tabSize });
+        const block = activeDetectBlockFn(doc, ln, { tabSize: options.lineMap?.tabSize ?? options.tabSize });
         if (!block || block.type !== BlockType.ListItem) continue;
         const blockStart = block.startLine + 1;
         const blockEnd = block.endLine + 1;
@@ -119,54 +114,53 @@ export function findEnclosingListBlock(
 }
 
 function isTableBlockStartAtLine(
-    state: StateWithDoc,
+    doc: Doc,
     lineNumber: number,
     detectBlockFn: DetectBlockFn,
     options: { tabSize: number }
 ): boolean {
-    if (lineNumber < 1 || lineNumber > state.doc.lines) return false;
-    const block = detectBlockFn(state, lineNumber, options);
+    if (lineNumber < 1 || lineNumber > doc.lines) return false;
+    const block = detectBlockFn(doc, lineNumber, options);
     return !!block && block.type === BlockType.Table && block.startLine + 1 === lineNumber;
 }
 
 function isHorizontalRuleAtLine(
-    state: StateWithDoc,
+    doc: Doc,
     lineNumber: number,
     detectBlockFn: DetectBlockFn,
     options: { tabSize: number }
 ): boolean {
-    if (lineNumber < 1 || lineNumber > state.doc.lines) return false;
-    const block = detectBlockFn(state, lineNumber, options);
+    if (lineNumber < 1 || lineNumber > doc.lines) return false;
+    const block = detectBlockFn(doc, lineNumber, options);
     if (block) {
         return block.type === BlockType.HorizontalRule && block.startLine + 1 === lineNumber;
     }
-    return isHorizontalRuleLine(state.doc.line(lineNumber).text);
+    return isHorizontalRuleLine(doc.line(lineNumber).text);
 }
 
 function isCalloutAfterBoundary(
-    state: StateWithDoc,
+    doc: Doc,
     prevImmediateLine: number,
     nextIsQuoteLike: boolean,
     detectBlockFn: DetectBlockFn,
     options: { tabSize: number }
 ): boolean {
-    if (prevImmediateLine < 1 || prevImmediateLine > state.doc.lines) return false;
+    if (prevImmediateLine < 1 || prevImmediateLine > doc.lines) return false;
     if (nextIsQuoteLike) return false;
-    const prevBlock = detectBlockFn(state, prevImmediateLine, options);
+    const prevBlock = detectBlockFn(doc, prevImmediateLine, options);
     return !!prevBlock
         && prevBlock.type === BlockType.Callout
         && prevBlock.endLine + 1 === prevImmediateLine;
 }
 
 function resolveListContextAtInsertion(
-    state: StateWithDoc,
+    doc: Doc,
     targetLineNumber: number,
     detectBlockFn: DetectBlockFn | undefined,
     options: ContainerPolicyResolveOptions
 ): { type: ContainerType; block: BlockInfo } | null {
-    const doc = state.doc;
     if (doc.lines <= 0) return null;
-    const lineMap = getActiveLineMap(state, options);
+    const lineMap = getActiveLineMap(doc, options);
 
     const candidates = [
         targetLineNumber - 1,
@@ -184,7 +178,7 @@ function resolveListContextAtInsertion(
         const lineMeta = getLineMetaAt(lineMap, line);
         if (lineMeta && !lineMeta.isList) continue;
 
-        const block = findEnclosingListBlock(state, line, detectBlockFn, {
+        const block = findEnclosingListBlock(doc, line, detectBlockFn, {
             lineMap,
             tabSize: options.tabSize,
         });
@@ -206,13 +200,12 @@ function resolveListContextAtInsertion(
 }
 
 export function resolveSlotContextAtInsertion(
-    state: StateWithDoc,
+    doc: Doc,
     targetLineNumber: number,
     detectBlockFn: DetectBlockFn | undefined,
     options: ContainerPolicyResolveOptions
 ): InsertionSlotContext {
-    const doc = state.doc;
-    const lineMap = getActiveLineMap(state, options);
+    const lineMap = getActiveLineMap(doc, options);
     const clampedTarget = clampInsertionLineNumber(doc, targetLineNumber);
     const prevImmediateLine = clampedTarget - 1;
     const nextImmediateLine = clampedTarget <= doc.lines ? clampedTarget : null;
@@ -230,20 +223,20 @@ export function resolveSlotContextAtInsertion(
 
     const activeDetectBlockFn = detectBlockFn ?? defaultDetectBlock;
 
-    if (isCalloutAfterBoundary(state, prevImmediateLine, nextIsQuoteLike, activeDetectBlockFn, detectOptions)) {
+    if (isCalloutAfterBoundary(doc, prevImmediateLine, nextIsQuoteLike, activeDetectBlockFn, detectOptions)) {
         return 'callout_after';
     }
 
     if (
         nextImmediateLine !== null
-        && isTableBlockStartAtLine(state, nextImmediateLine, activeDetectBlockFn, detectOptions)
+        && isTableBlockStartAtLine(doc, nextImmediateLine, activeDetectBlockFn, detectOptions)
     ) {
         return 'table_before';
     }
 
     if (
         nextImmediateLine !== null
-        && isHorizontalRuleAtLine(state, nextImmediateLine, activeDetectBlockFn, detectOptions)
+        && isHorizontalRuleAtLine(doc, nextImmediateLine, activeDetectBlockFn, detectOptions)
     ) {
         return 'hr_before';
     }
@@ -259,7 +252,7 @@ export function resolveSlotContextAtInsertion(
     }
 
     const listContext = resolveListContextAtInsertion(
-        state,
+        doc,
         clampedTarget,
         activeDetectBlockFn,
         { lineMap, tabSize: options.tabSize }
@@ -272,13 +265,13 @@ export function resolveSlotContextAtInsertion(
 }
 
 export function resolveDropRuleContextAtInsertion(
-    state: StateWithDoc,
+    doc: Doc,
     sourceBlock: BlockInfo,
     targetLineNumber: number,
     detectBlockFn: DetectBlockFn | undefined,
     options: ContainerPolicyResolveOptions
 ): DropRuleContext {
-    const slotContext = resolveSlotContextAtInsertion(state, targetLineNumber, detectBlockFn, options);
+    const slotContext = resolveSlotContextAtInsertion(doc, targetLineNumber, detectBlockFn, options);
     const decision = resolveInsertionRule({
         sourceType: sourceBlock.type,
         slotContext,

@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BlockType } from '../block/block-types';
-import {
-    resolveInsertionRule,
-} from './insertion-rules';
+import { resolveInsertionRule } from './insertion-rules';
 
 describe('insertion-rule-matrix', () => {
     it('blocks non-list blocks inside list context', () => {

@@ -30,28 +30,23 @@ export interface ParsedLine {
     content: string;
 }
 
-export interface DocLineLike {
+// A line in a document — text plus its character span.
+export interface DocLine {
     text: string;
-    from?: number;
-    to?: number;
-}
-
-export interface DocLike {
-    lines: number;
-    line: (n: number) => DocLineLike;
-}
-
-export interface DocLineWithRange extends DocLineLike {
     from: number;
     to: number;
 }
 
-export interface DocLikeWithRange extends DocLike {
+// The single document shape every doc satisfies (CodeMirror's editor doc in
+// production). Inspection (block detection, line maps) and mutation (move/delete
+// transactions) both use it — the old Doc/Doc split only
+// fragmented capability and forced ad-hoc `& {...}` extensions wherever a
+// function actually needed offsets or `lineAt`.
+export interface Doc {
+    lines: number;
     length: number;
-    line: (n: number) => DocLineWithRange;
+    line: (n: number) => DocLine;
+    lineAt: (pos: number) => { number: number };
     sliceString: (from: number, to: number) => string;
 }
 
-export interface StateWithDoc {
-    doc: DocLike;
-}

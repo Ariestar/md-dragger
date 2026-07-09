@@ -1,6 +1,6 @@
-import type { TextChange, BlockEffect } from '../domain/transaction/block-transaction';
+import type { DocEdit } from '../domain/transaction/block-transaction';
 import type { BlockSelection } from '../domain/selection/block-selection';
-import type { DocLikeWithRange } from '../domain/markdown/document-types';
+import type { Doc } from '../domain/markdown/document-types';
 import type { DropTarget } from '../domain/command/drop-target';
 import type { DragCancelReason } from '../pipeline/pipeline-event';
 import type { Change } from '../pipeline/drag-pipeline';
@@ -77,12 +77,11 @@ export type InputSource = {
 // --- document axis (host -> rt, pull, read-only) ---
 
 export type DocumentHost = {
-    // Single-doc host: getDoc covers both source and target.
-    getDoc(): DocLikeWithRange;
-    // Cross-doc host: override to distinguish the drag's source and target
-    // documents. When omitted, both resolve to getDoc() (single-doc case).
-    getSourceDoc?(): DocLikeWithRange;
-    getTargetDoc?(): DocLikeWithRange;
+    // The source document a drag originates from — the runtime's home doc.
+    // The target document is NOT resolved here: it rides on each DropTarget
+    // the locate axis produces, so cross-document drops need no extra host
+    // method and no opt-in flag.
+    getDoc(): Doc;
 };
 
 // --- locate axis (host -> rt, pull, coordinate translation) ---
@@ -92,37 +91,17 @@ export type LocateHost = {
     resolveDropTarget(point: Point, context: { selection: BlockSelection }): DropTarget | null;
 };
 
-// --- commit axis (rt -> host, hands back the whole transaction) ---
+// --- commit axis (rt -> host, hands back the edits to land) ---
 
-// Structurally equivalent to the domain transaction shape, but defined here so
-// headless runtime code never couples to the domain transaction type identity.
-export type DropCommit = {
-    changes: TextChange[];
-    effects?: BlockEffect[];
-    selectionAfter?: BlockSelection | null;
-};
+// Re-exported so a CommitHost implementer gets the edit type from the same
+// place as CommitHost itself.
+export type { DocEdit } from '../domain/transaction/block-transaction';
 
-// Cross-document drop yields two commits: source-side deletes and target-side
-// inserts. Single-document drops use the flat DropCommit above.
-export type CrossDocDropCommit = {
-    source: DropCommit;
-    target: DropCommit;
-};
-
-export type DropCommitContext = {
-    selection: BlockSelection;
-    target: DropTarget;
-};
-
+// One DocEdit per affected document: a single edit for an in-file drop, two
+// (source deletes, target inserts) for a cross-file drop. The host iterates
+// and routes each to the view owning its doc — same shape either way.
 export type CommitHost = {
-    apply(commit: DropCommit | CrossDocDropCommit, context: DropCommitContext): void;
-};
-
-// --- scheduler axis (injected timers) ---
-
-export type SchedulerHost = {
-    setTimer(callback: () => void, delayMs: number): TimerToken;
-    clearTimer(token: TimerToken): void;
+    apply(edits: DocEdit[]): void;
 };
 
 // --- config ---
@@ -134,34 +113,11 @@ export type ResolvedConfig = {
     dragCancelMoveThresholdPx: number;
 };
 
-// A single `Config` name that accepts either a partial object or a thunk;
-// the runtime resolves it against defaults internally.
+// A single `Config` that accepts either a partial object or a thunk; the
+// runtime resolves it against defaults internally.
 export type Config = Partial<ResolvedConfig> | (() => Partial<ResolvedConfig>);
 
-// --- input stage (gesture recognition + input wiring, swappable) ---
-
-export type RuntimeController = {
-    readonly input: InputSource;
-    handlePress(input: PressInput): void;
-    handleMove(input: MoveInput): void;
-    handleRelease(input: ReleaseInput): void;
-    handleCancel(pointer: Pointer, releaseCapture?: () => void): void;
-    handleSelectionChange(input: SelectionChangeInput): void;
-    finishSelection(): void;
-    clearSelectionOrCancel(): void;
-};
-
-export type RuntimeUx = {
-    mount(runtime: RuntimeController): Disposable | void;
-};
-
-export type UxOption =
-    | 'default'
-    | 'none'
-    | RuntimeUx
-    | (() => RuntimeUx);
-
-// --- runtime options: IO axes + swappable input stage ---
+// --- runtime options: IO axes ---
 
 export type RuntimeOptions = {
     input: InputSource;
@@ -173,7 +129,5 @@ export type RuntimeOptions = {
     // observation point — it projects ux (drop preview, selection highlight,
     // handle-tap, …) from `output`. Shallow: observe + derive, not intercept.
     onChange?(output: Change): void;
-    scheduler?: SchedulerHost;
-    ux?: UxOption;
     config?: Config;
 };

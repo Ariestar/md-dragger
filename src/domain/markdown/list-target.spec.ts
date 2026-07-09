@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { computeListIntent, getListAncestorLineNumbers, resolveReferenceListLineNumber } from './list-target';
 import { getLineMap } from './line-map';
-import type { DocLikeWithRange } from './document-types';
+import type { Doc } from './document-types';
 
-function docFrom(text: string): DocLikeWithRange {
+function docFrom(text: string): Doc {
     const lines = text.split('\n');
     const lineText: string[] = [''];
     const lineFrom: number[] = [0];
@@ -31,7 +31,7 @@ describe('computeListIntent', () => {
     it('returns sibling at the marker with base indent', () => {
         // Two sibling list items at indent 0.
         const doc = docFrom('- a\n- b');
-        const lineMap = getLineMap({ doc }, { tabSize: 4 });
+        const lineMap = getLineMap(doc, { tabSize: 4 });
 
         const intent = computeListIntent({
             doc,
@@ -47,7 +47,7 @@ describe('computeListIntent', () => {
 
     it('returns child when cursor is one indent to the right', () => {
         const doc = docFrom('- a\n- b');
-        const lineMap = getLineMap({ doc }, { tabSize: 4 });
+        const lineMap = getLineMap(doc, { tabSize: 4 });
 
         const intent = computeListIntent({
             doc,
@@ -66,7 +66,7 @@ describe('computeListIntent', () => {
     it('returns outdent to the ancestor when cursor is to the left', () => {
         // Nested: item 1 is parent (indent 0), item 2 is child (indent 2).
         const doc = docFrom('- parent\n  - child');
-        const lineMap = getLineMap({ doc }, { tabSize: 4 });
+        const lineMap = getLineMap(doc, { tabSize: 4 });
 
         const intent = computeListIntent({
             doc,
@@ -84,7 +84,7 @@ describe('computeListIntent', () => {
 
     it('forbids child when allowChild is false (self-target)', () => {
         const doc = docFrom('- a\n- b');
-        const lineMap = getLineMap({ doc }, { tabSize: 4 });
+        const lineMap = getLineMap(doc, { tabSize: 4 });
 
         const intent = computeListIntent({
             doc,
@@ -102,7 +102,7 @@ describe('computeListIntent', () => {
 
     it('returns null when the reference line is not a list item', () => {
         const doc = docFrom('# heading\n\nplain paragraph');
-        const lineMap = getLineMap({ doc }, { tabSize: 4 });
+        const lineMap = getLineMap(doc, { tabSize: 4 });
 
         const intent = computeListIntent({
             doc,
@@ -120,7 +120,7 @@ describe('computeListIntent', () => {
 describe('getListAncestorLineNumbers', () => {
     it('walks up the parent chain to the root', () => {
         const doc = docFrom('- a\n  - b\n    - c');
-        const lineMap = getLineMap({ doc }, { tabSize: 4 });
+        const lineMap = getLineMap(doc, { tabSize: 4 });
 
         const ancestors = getListAncestorLineNumbers(doc, 3, lineMap);
 
@@ -136,7 +136,7 @@ describe('getListAncestorLineNumbers', () => {
 describe('resolveReferenceListLineNumber', () => {
     it('returns a list line at or above the input', () => {
         const doc = docFrom('- a\n  - b\n  - c');
-        const lineMap = getLineMap({ doc }, { tabSize: 4 });
+        const lineMap = getLineMap(doc, { tabSize: 4 });
 
         // Line 3 is a list line inside line 1's subtree.
         const ref = resolveReferenceListLineNumber(3, lineMap);

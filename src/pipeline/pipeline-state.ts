@@ -12,18 +12,12 @@ export type PipelineState =
 
 export type HoldContext = {
     sessionId: string;
-    target: HoldTarget;
-    guardDeps: GuardId[];
-    retainedSelection?: SelectionContext;
-};
-
-export type HoldTarget = {
     selection: BlockSelection;
+    guardDeps: GuardId[];
 };
 
 export type SelectionContext = {
     selection: BlockSelection;
-    phase: 'passive' | 'adjusting';
     guardDeps: GuardId[];
     rangeState?: BlockRangeSelectionState;
 };

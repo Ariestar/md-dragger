@@ -1,4 +1,4 @@
-import type { DocLikeWithRange } from './document-types';
+import type { Doc } from './document-types';
 import type { LineMap } from './line-map';
 import { getLineMetaAt, getNearestListLineAtOrBefore } from './line-map';
 
@@ -19,7 +19,7 @@ export type ListIntent = {
 };
 
 export type ComputeListIntentParams = {
-    doc: DocLikeWithRange;
+    doc: Doc;
     lineMap: LineMap;
     referenceLineNumber: number;
     /** Cursor position in columns relative to the reference line's marker start. */
@@ -97,7 +97,7 @@ export function resolveReferenceListLineNumber(lineNumber: number, lineMap: Line
 }
 
 // Ancestor list lines above `lineNumber` (the chain of enclosing list items).
-export function getListAncestorLineNumbers(doc: DocLikeWithRange, lineNumber: number, lineMap: LineMap): number[] {
+export function getListAncestorLineNumbers(doc: Doc, lineNumber: number, lineMap: LineMap): number[] {
     const result: number[] = [];
     const clamped = Math.max(1, Math.min(lineNumber, doc.lines));
     let cursor = resolveReferenceListLineNumber(clamped, lineMap);
@@ -112,7 +112,7 @@ export function getListAncestorLineNumbers(doc: DocLikeWithRange, lineNumber: nu
 // Find the nearest ancestor list line whose indent equals `targetIndent`.
 // Used to locate the highlight/anchor line for an outdent target.
 export function findParentLineNumberByIndent(
-    doc: DocLikeWithRange,
+    doc: Doc,
     startLineNumber: number,
     targetIndent: number,
     lineMap: LineMap

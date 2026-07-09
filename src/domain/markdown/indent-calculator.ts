@@ -1,4 +1,4 @@
-import { DocLike, ParsedLine } from './document-types';
+import { Doc, ParsedLine } from './document-types';
 import { parseLineWithQuote as parseLineWithQuoteByTabSize } from './line-parser';
 
 const indentUnitWidthCache = new WeakMap<object, number>();
@@ -32,7 +32,7 @@ export function getIndentUnitWidth(sample: string, tabSize: number): number {
 }
 
 export function getIndentUnitWidthFromDoc(
-    doc: DocLike,
+    doc: Doc,
     parseLine: (line: string) => ParsedLine,
     fallbackTabSize?: number
 ): number | undefined {
@@ -57,7 +57,7 @@ export function getIndentUnitWidthFromDoc(
 }
 
 export function getIndentUnitWidthForDoc(
-    doc: DocLike,
+    doc: Doc,
     parseLine: (line: string) => ParsedLine,
     fallbackTabSize?: number
 ): number {

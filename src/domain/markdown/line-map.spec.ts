@@ -1,19 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { DocLikeWithRange, StateWithDoc } from './document-types';
-import {
-    buildLineMap,
-    getLineMap,
-    getLineMetaAt,
-    primeLineMapFromTransition,
-} from './line-map';
+import type { Doc } from './document-types';
+import { buildLineMap, getLineMap, getLineMetaAt, primeLineMapFromTransition } from './line-map';
 
-type TestDoc = DocLikeWithRange & {
-    lineAt: (pos: number) => { number: number };
+type TestDoc = Doc & {
     text: string;
-};
-
-type TestState = StateWithDoc & {
-    doc: TestDoc;
 };
 
 type TestChangeDesc = {
@@ -64,17 +54,17 @@ function createDoc(text: string): TestDoc {
     };
 }
 
-function createState(docText: string): TestState {
-    return { doc: createDoc(docText) };
+function createState(docText: string): TestDoc {
+    return createDoc(docText);
 }
 
 const TAB_SIZE = 4;
 
 function updateState(
-    state: TestState,
+    doc: TestDoc,
     change: { from: number; to: number; insert: string }
-): { state: TestState; changes: TestChangeDesc } {
-    const nextText = `${state.doc.text.slice(0, change.from)}${change.insert}${state.doc.text.slice(change.to)}`;
+): { state: TestDoc; changes: TestChangeDesc } {
+    const nextText = `${doc.text.slice(0, change.from)}${change.insert}${doc.text.slice(change.to)}`;
     return {
         state: createState(nextText),
         changes: {
@@ -167,7 +157,7 @@ describe('line-map', () => {
     it('reuses cached line map across states sharing the same doc', () => {
         const stateA = createState('- item');
         const first = getLineMap(stateA, { tabSize: TAB_SIZE });
-        const stateB = { doc: stateA.doc };
+        const stateB = stateA;
         const second = getLineMap(stateB, { tabSize: TAB_SIZE });
         const stateC = createState('- item\n- next');
 
@@ -181,21 +171,21 @@ describe('line-map', () => {
         expect(previousMap.doc.lines).toBe(3);
 
         const tr = updateState(previousState, {
-            from: previousState.doc.line(2).to,
-            to: previousState.doc.line(2).to,
+            from: previousState.line(2).to,
+            to: previousState.line(2).to,
             insert: '\n  - child',
         });
         const nextState = tr.state;
 
         const primed = primeLineMapFromTransition({
-            previousState,
-            nextState,
+            previousDoc: previousState,
+            nextDoc: nextState,
             changes: tr.changes,
             tabSize: TAB_SIZE,
         });
         const rebuilt = buildLineMap(nextState, { tabSize: TAB_SIZE });
 
-        expect(primed.doc).toBe(nextState.doc);
+        expect(primed.doc).toBe(nextState);
         expect(primed.lineMeta).toEqual(rebuilt.lineMeta);
         expect(Array.from(primed.prevNonEmpty)).toEqual(Array.from(rebuilt.prevNonEmpty));
         expect(Array.from(primed.nextNonEmpty)).toEqual(Array.from(rebuilt.nextNonEmpty));
@@ -209,13 +199,13 @@ describe('line-map', () => {
         const previousState = createState('- item\nplain text\n> quote');
         const previous = getLineMap(previousState, { tabSize: TAB_SIZE });
         const tr = updateState(previousState, {
-            from: previousState.doc.line(2).to,
-            to: previousState.doc.line(2).to,
+            from: previousState.line(2).to,
+            to: previousState.line(2).to,
             insert: '!',
         });
         const next = primeLineMapFromTransition({
-            previousState,
-            nextState: tr.state,
+            previousDoc: previousState,
+            nextDoc: tr.state,
             changes: tr.changes,
             tabSize: TAB_SIZE,
         });
@@ -253,7 +243,7 @@ describe('line-map', () => {
 
         for (let i = 0; i < iterations; i++) {
             const lineNumber = 1 + (i % docLines);
-            const line = state.doc.line(lineNumber);
+            const line = state.line(lineNumber);
             const insert = i % 2 === 0 ? 'a' : 'b';
             const totalStartedAt = nowMs();
             const tr = updateState(state, {
@@ -264,8 +254,8 @@ describe('line-map', () => {
 
             const primeStartedAt = nowMs();
             const primed = primeLineMapFromTransition({
-                previousState: state,
-                nextState: tr.state,
+                previousDoc: state,
+                nextDoc: tr.state,
                 changes: tr.changes,
                 tabSize: TAB_SIZE,
             });

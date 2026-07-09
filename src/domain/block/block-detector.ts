@@ -1,10 +1,7 @@
-import type { DocLike, StateWithDoc } from '../markdown/document-types';
+import type { Doc } from '../markdown/document-types';
 import { BlockType, BlockInfo } from './block-types';
 import { getLineMap, getLineMetaAt, peekCachedLineMap } from '../markdown/line-map';
-import {
-    isHorizontalRuleLine,
-    isTableLine,
-} from './block-guards';
+import { isHorizontalRuleLine, isTableLine } from './block-guards';
 import { splitBlockquotePrefix, getBlockquoteDepthFromLine } from '../markdown/line-parser';
 import { findCodeBlockRange, findMathBlockRange } from '../markdown/fence-scanner';
 import { normalizeTabSize } from '../markdown/indent-calculator';
@@ -25,7 +22,7 @@ export function getHeadingLevel(lineText: string): number | null {
 }
 
 
-export function getHeadingSectionRange(doc: DocLike, lineNumber: number): { startLine: number; endLine: number } | null {
+export function getHeadingSectionRange(doc: Doc, lineNumber: number): { startLine: number; endLine: number } | null {
     if (lineNumber < 1 || lineNumber > doc.lines) return null;
     const currentHeadingLevel = getHeadingLevel(doc.line(lineNumber).text);
     if (!currentHeadingLevel) return null;
@@ -143,7 +140,7 @@ function isCalloutHeader(restText: string): boolean {
     return restText.trimStart().startsWith('[!');
 }
 
-function isInsideCalloutContainer(doc: DocLike, lineNumber: number, depth: number): boolean {
+function isInsideCalloutContainer(doc: Doc, lineNumber: number, depth: number): boolean {
     for (let i = lineNumber; i >= 1; i--) {
         const text = doc.line(i).text;
         const lineDepth = getBlockquoteDepthFromLine(text);
@@ -154,7 +151,7 @@ function isInsideCalloutContainer(doc: DocLike, lineNumber: number, depth: numbe
     return false;
 }
 
-function getBlockquoteContainerRange(doc: DocLike, lineNumber: number, depth: number): { startLine: number; endLine: number } {
+function getBlockquoteContainerRange(doc: Doc, lineNumber: number, depth: number): { startLine: number; endLine: number } {
     let startLine = lineNumber;
     for (let i = lineNumber - 1; i >= 1; i--) {
         const d = getBlockquoteDepthFromLine(doc.line(i).text);
@@ -171,7 +168,7 @@ function getBlockquoteContainerRange(doc: DocLike, lineNumber: number, depth: nu
     return { startLine, endLine };
 }
 
-function getListItemSubtreeRange(doc: DocLike, lineNumber: number, tabSize: number): { startLine: number; endLine: number } {
+function getListItemSubtreeRange(doc: Doc, lineNumber: number, tabSize: number): { startLine: number; endLine: number } {
     const lineText = doc.line(lineNumber).text;
     const currentInfo = parseListMarker(lineText, tabSize);
     const currentIndent = currentInfo.indentWidth;
@@ -207,7 +204,7 @@ function getListItemSubtreeRange(doc: DocLike, lineNumber: number, tabSize: numb
     return { startLine: lineNumber, endLine };
 }
 
-function findNextNonEmptyLine(doc: DocLike, fromLine: number, tabSize: number): { isListItem: boolean; indentWidth: number } | null {
+function findNextNonEmptyLine(doc: Doc, fromLine: number, tabSize: number): { isListItem: boolean; indentWidth: number } | null {
     for (let i = fromLine; i <= doc.lines; i++) {
         const text = doc.line(i).text;
         if (text.trim().length === 0) continue;
@@ -217,13 +214,13 @@ function findNextNonEmptyLine(doc: DocLike, fromLine: number, tabSize: number): 
     return null;
 }
 
-const blockDetectionCache = new WeakMap<DocLike, Map<number, Map<number, BlockInfo | null>>>();
+const blockDetectionCache = new WeakMap<Doc, Map<number, Map<number, BlockInfo | null>>>();
 const LIST_LINE_MAP_COLD_BUILD_MAX_LINES = 30_000;
 
 const YAML_FENCE_RE = /^-{3}\s*$/;
-const yamlFrontmatterEndLineCache = new WeakMap<DocLike, number>();
+const yamlFrontmatterEndLineCache = new WeakMap<Doc, number>();
 
-function getYamlFrontmatterEndLine(doc: DocLike): number {
+function getYamlFrontmatterEndLine(doc: Doc): number {
     const cached = yamlFrontmatterEndLineCache.get(doc);
     if (cached !== undefined) return cached;
 
@@ -240,7 +237,7 @@ function getYamlFrontmatterEndLine(doc: DocLike): number {
     return endLine;
 }
 
-function isInsideYamlFrontmatter(doc: DocLike, lineNumber: number): boolean {
+function isInsideYamlFrontmatter(doc: Doc, lineNumber: number): boolean {
     const endLine = getYamlFrontmatterEndLine(doc);
     return endLine > 0 && lineNumber >= 1 && lineNumber <= endLine;
 }
@@ -264,8 +261,7 @@ export function setDetectBlockPerfRecorder(
 /**
  * 检测块的完整范围（包括多行块如代码块）
  */
-function detectBlockUncached(state: StateWithDoc, lineNumber: number, tabSize: number): BlockInfo | null {
-    const doc = state.doc;
+function detectBlockUncached(doc: Doc, lineNumber: number, tabSize: number): BlockInfo | null {
 
     if (lineNumber < 1 || lineNumber > doc.lines) {
         return null;
@@ -311,9 +307,9 @@ function detectBlockUncached(state: StateWithDoc, lineNumber: number, tabSize: n
 
     // 列表项：包含其子项
     if (blockType === BlockType.ListItem) {
-        let lineMap = peekCachedLineMap(state, { tabSize });
+        let lineMap = peekCachedLineMap(doc, { tabSize });
         if (!lineMap && doc.lines <= LIST_LINE_MAP_COLD_BUILD_MAX_LINES) {
-            lineMap = getLineMap(state, { tabSize });
+            lineMap = getLineMap(doc, { tabSize });
         }
 
         const lineMeta = lineMap ? getLineMetaAt(lineMap, lineNumber) : null;
@@ -404,11 +400,10 @@ function nowMs(): number {
 }
 
 export function detectBlock(
-    state: StateWithDoc,
+    doc: Doc,
     lineNumber: number,
     options: { tabSize: number }
 ): BlockInfo | null {
-    const doc = state.doc;
     const tabSize = normalizeTabSize(options.tabSize);
 
     let cacheByTabSize = blockDetectionCache.get(doc);
@@ -427,7 +422,7 @@ export function detectBlock(
     }
 
     const startedAt = nowMs();
-    const detected = detectBlockUncached(state, lineNumber, tabSize);
+    const detected = detectBlockUncached(doc, lineNumber, tabSize);
     recordDetectBlockPerf('detect_block_uncached', nowMs() - startedAt);
     perDocCache.set(lineNumber, detected);
     return detected;

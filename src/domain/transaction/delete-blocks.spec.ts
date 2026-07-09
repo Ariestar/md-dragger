@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { BlockType, type BlockInfo } from '../block/block-types';
 import { createDeleteCommand } from '../command/delete-command';
-import type { DocLikeWithRange } from '../markdown/document-types';
+import type { Doc } from '../markdown/document-types';
 import { createBlockSelection } from '../selection/block-selection';
 import { planBlockCommandTransaction } from './block-command-transaction';
 import type { BlockTransaction } from './block-transaction';
 
-function createDoc(text: string): DocLikeWithRange {
+function createDoc(text: string): Doc {
     const lines = text.split('\n');
     const starts: number[] = [];
     let offset = 0;

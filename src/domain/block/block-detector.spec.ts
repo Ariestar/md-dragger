@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { StateWithDoc } from '../markdown/document-types';
+import type { Doc } from '../markdown/document-types';
 import { BlockType } from './block-types';
 import { detectBlock, getHeadingSectionRange } from './block-detector';
 import { peekCachedLineMap } from '../markdown/line-map';
 
-function createState(docText: string): StateWithDoc & { tabSize: number } {
+function createState(docText: string): Doc {
     const lines = docText.split('\n');
     const starts: number[] = [];
     let offset = 0;
@@ -14,26 +14,26 @@ function createState(docText: string): StateWithDoc & { tabSize: number } {
     }
 
     return {
-        tabSize: 2,
-        doc: {
-            lines: lines.length,
-            line: (n: number) => {
-                const index = n - 1;
-                const text = lines[index] ?? '';
-                const from = starts[index] ?? docText.length;
-                return {
-                    text,
-                    from,
-                    to: from + text.length,
-                };
-            },
+        lines: lines.length,
+        length: docText.length,
+        line: (n: number) => {
+            const index = n - 1;
+            const text = lines[index] ?? '';
+            const from = starts[index] ?? docText.length;
+            return {
+                text,
+                from,
+                to: from + text.length,
+            };
         },
+        lineAt: () => ({ number: 1 }),
+        sliceString: (from: number, to: number) => docText.slice(from, to),
     };
 }
 
 const TAB_SIZE = 4;
 
-function detect(state: StateWithDoc, lineNumber: number, tabSize = TAB_SIZE) {
+function detect(state: Doc, lineNumber: number, tabSize = TAB_SIZE) {
     return detectBlock(state, lineNumber, { tabSize });
 }
 
@@ -206,14 +206,14 @@ describe('block-detector', () => {
 
     it('returns heading section range until next same-or-higher heading', () => {
         const state = createState('# H1\nparagraph\n## H2\nsub\n# H1-2\ntail');
-        const range = getHeadingSectionRange(state.doc, 1);
+        const range = getHeadingSectionRange(state, 1);
 
         expect(range).toEqual({ startLine: 1, endLine: 4 });
     });
 
     it('returns nested heading section range for child heading', () => {
         const state = createState('# H1\nintro\n## H2\ndetail\n### H3\ndeep\n## H2 next');
-        const range = getHeadingSectionRange(state.doc, 3);
+        const range = getHeadingSectionRange(state, 3);
 
         expect(range).toEqual({ startLine: 3, endLine: 6 });
     });

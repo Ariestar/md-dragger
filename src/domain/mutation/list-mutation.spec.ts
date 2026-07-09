@@ -1,14 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { DocLike } from '../markdown/document-types';
+import type { Doc } from '../markdown/document-types';
 import { buildIndentStringFromSample } from '../markdown/indent-calculator';
 import { parseLineWithQuote } from '../markdown/line-parser';
-import {
-    adjustListToTargetContext,
-    computeListIndentPlan,
-    getListContextNearLine,
-} from './list-mutation';
+import { adjustListToTargetContext, computeListIndentPlan, getListContextNearLine } from './list-mutation';
 
-function createDoc(lines: string[]): DocLike {
+function createDoc(lines: string[]): Doc {
     return {
         lines: lines.length,
         line: (n: number) => ({ text: lines[n - 1] ?? '' }),

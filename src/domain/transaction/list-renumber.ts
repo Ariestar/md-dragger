@@ -1,8 +1,8 @@
-import type { ParsedLine, DocLikeWithRange } from '../markdown/document-types';
+import type { ParsedLine, Doc } from '../markdown/document-types';
 import type { TextChange } from './block-transaction';
 
 export function planOrderedListRenumberChanges(
-    doc: DocLikeWithRange,
+    doc: Doc,
     parseLineWithQuote: (line: string) => ParsedLine,
     lineNumber: number
 ): TextChange[] {

@@ -1,21 +1,18 @@
 import { BlockInfo } from '../block/block-types';
-import type { StateWithDoc } from '../markdown/document-types';
+import type { Doc } from '../markdown/document-types';
 import { getLineMap, LineMap } from '../markdown/line-map';
 
-import {
-    resolveDropRuleContextAtInsertion,
-    type DropRuleContext,
-} from './container-policy';
+import { resolveDropRuleContextAtInsertion, type DropRuleContext } from './container-policy';
 
 export function resolveDropRuleAtInsertion(
-    state: StateWithDoc,
+    doc: Doc,
     sourceBlock: BlockInfo,
     targetLineNumber: number,
     options: { lineMap?: LineMap; tabSize: number }
 ): DropRuleContext {
-    const lineMap = options.lineMap ?? getLineMap(state, { tabSize: options.tabSize });
+    const lineMap = options.lineMap ?? getLineMap(doc, { tabSize: options.tabSize });
     return resolveDropRuleContextAtInsertion(
-        state,
+        doc,
         sourceBlock,
         targetLineNumber,
         undefined,
