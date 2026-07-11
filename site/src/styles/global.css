@@ -2,6 +2,7 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
+@import "katex/dist/katex.min.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -204,4 +205,18 @@
   pointer-events: none;
   background: var(--md-dragger-indicator);
   box-shadow: 0 0 0 1px var(--md-dragger-indicator-shadow);
+}
+
+/* Hybrid markdown polish for ink-mde blocks that are present as source. */
+.ink-mde .cm-line:has(> .cm-hr),
+.ink-mde .cm-line:has(.cm-hr) {
+  color: var(--muted-foreground);
+}
+
+.ink-mde .ink-mde-katex-target {
+  overflow-x: auto;
+}
+
+.ink-mde .ink-mde-katex-target .katex-display {
+  margin: 0.25rem 0;
 }

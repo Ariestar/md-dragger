@@ -24,9 +24,8 @@ import '@/styles/global.css';
     </div>
 
     <script>
-        import { ink, plugin, pluginTypes } from 'ink-mde';
-        import { demoDraggerExtensions } from '@/lib/editor-bootstrap';
-        
+        import { mountDemoEditor } from '@/lib/ink-demo';
+
         const sampleDoc = `# Dragger Playground
 
 Welcome! This is a full-screen editor with drag & drop enabled. Grab any block by its left-edge handle and move it.
@@ -105,20 +104,7 @@ In Obsidian, you can drag blocks between open editors, into internal links, or o
 That's it! Try rearranging this document to see how it feels.
 `;
 
-        ink(document.getElementById('editor')!, {
-            doc: sampleDoc,
-            plugins: [
-                plugin({
-                    type: pluginTypes.default,
-                    value: () => demoDraggerExtensions(),
-                }),
-            ],
-            interface: {
-                appearance: 'dark',
-                toolbar: true,
-                attribution: false,
-            },
-        });
+        void mountDemoEditor(document.getElementById('editor')!, { doc: sampleDoc });
     </script>
     <style is:global>
         #editor .ink-mde { height: 100%; display: flex; flex-direction: column; border: none; border-radius: 0; }
