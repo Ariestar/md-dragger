@@ -129,9 +129,10 @@ export class DefaultUx implements Ux {
             return;
         }
 
-        // First entry into multi-select must wait for long-press. Do NOT beginHold
-        // here — that would put pipeline in `holding` and make a short click look
-        // like multi-select (and project a selection visual) before commitment.
+        // First entry into multi-select waits for long-press before becoming
+        // `selecting`. We still beginHold so a short click can cancel with
+        // press_cancelled (platform handle-tap menu). Platform must not paint
+        // `holding` as multi-select — only `selecting` commits the mode.
         if (cfg.multiSelectEnabled) {
             const timer = cfg.longPressMs > 0
                 ? this.deps.scheduler.setTimer(
@@ -153,6 +154,7 @@ export class DefaultUx implements Ux {
                 timer,
                 releaseCapture: input.releaseCapture,
             };
+            this.runtime().beginHold(sessionId, selection, input.pointer.type);
             if (cfg.longPressMs <= 0) this.startRangeSweep(this.pressSession);
             return;
         }
@@ -224,7 +226,9 @@ export class DefaultUx implements Ux {
 
         // Waiting for multi-select long-press: cancel the arm if the pointer drifts.
         if (!session.ready && !session.rangeActive && cfg.multiSelectEnabled) {
-            if (distance > cfg.dragCancelMoveThresholdPx) this.clearPress();
+            if (distance > cfg.dragCancelMoveThresholdPx) {
+                this.cancelPress('press_cancelled', input.pointer.type);
+            }
             return;
         }
 
@@ -272,12 +276,8 @@ export class DefaultUx implements Ux {
             return;
         }
 
-        // Short click while arming multi-select long-press: no pipeline state yet.
-        if (this.runtime().state.type === 'idle') {
-            this.clearPress();
-            return;
-        }
-
+        // Short click while arming multi-select long-press (still holding):
+        // cancel so hosts can open the handle-tap menu from press_cancelled.
         this.cancelPress('press_cancelled', input.pointer.type);
     }
 
@@ -287,11 +287,7 @@ export class DefaultUx implements Ux {
         if (this.runtime().isGestureActive()) {
             this.runtime().cancel('pointer_cancelled', pointer.type);
         } else if (session && samePointer(session.pointer, pointer)) {
-            if (this.runtime().state.type === 'idle') {
-                this.clearPress();
-            } else {
-                this.cancelPress('pointer_cancelled', pointer.type);
-            }
+            this.cancelPress('pointer_cancelled', pointer.type);
         }
     }
 
