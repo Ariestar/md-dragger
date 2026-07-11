@@ -1,16 +1,15 @@
 import { ink, plugin, pluginTypes, type Options } from 'ink-mde';
+import type { Extension } from '@codemirror/state';
 import { demoDraggerExtensions } from './editor-bootstrap';
-import { tableAndRulePreview } from './table-hr-preview';
 
 // Website editor mount.
 //
-// Math: ink-mde's katex plugins are gated on options.katex (default false).
-// Table/HR: host-owned text-scan preview (table-hr-preview), registered as its
-// own default plugin so it is not buried inside a nested Extension[] from
-// the dragger bootstrap.
-//
-// plugins: [...] replaces the whole default array — mount with katex defaults
-// first, then reconfigure to append host plugins.
+// katex: true turns on ink-mde's built-in math plugins (gated by options.katex).
+// Passing plugins: [...] replaces the default array, so we mount with defaults
+// first, then reconfigure to append our extensions as individual default
+// plugins (one Extension each). A single plugin value that returns Extension[]
+// can fail to install under ink-mde's compartment wiring — which made handles
+// disappear while katex (separate plugins) still worked.
 export type DemoEditorOptions = {
   doc: string;
   ink?: Options;
@@ -38,18 +37,25 @@ export async function mountDemoEditor(
   });
 
   const current = instance.options();
+  const hostExtensions = flattenExtensions(demoDraggerExtensions());
+
   await instance.reconfigure({
     katex: true,
     plugins: [
       ...current.plugins,
-      plugin({
-        type: pluginTypes.default,
-        value: () => tableAndRulePreview(),
-      }),
-      plugin({
-        type: pluginTypes.default,
-        value: () => demoDraggerExtensions(),
-      }),
+      ...hostExtensions.map((extension) =>
+        plugin({
+          type: pluginTypes.default,
+          value: () => extension,
+        }),
+      ),
     ],
   });
+}
+
+function flattenExtensions(extension: Extension): Extension[] {
+  if (Array.isArray(extension)) {
+    return extension.flatMap((item) => flattenExtensions(item as Extension));
+  }
+  return [extension];
 }

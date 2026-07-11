@@ -9,8 +9,7 @@ import type { PressInput } from 'md-dragger/runtime';
 import { dropIndicator, dropIndicatorOnChange } from './drop-indicator';
 import { selectionHighlight, selectionHighlightOnChange } from './selection-highlight';
 
-// Platform-neutral host wiring for the website demo.
-// Table/HR preview is a separate ink-mde plugin (see ink-demo.ts).
+// Host wiring for the website demo: gesture config, locate, drop line, selection paint.
 export type DemoUxOptions = {
   multiSelectMs?: number;
   dragArmMs?: number;
