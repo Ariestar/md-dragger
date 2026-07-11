@@ -1,54 +1,41 @@
 import { ink, plugin, pluginTypes, type Options } from 'ink-mde';
 import { demoDraggerExtensions } from './editor-bootstrap';
+import { hybridMarkdownInkPlugins } from './hybrid-markdown';
 
 // Shared ink-mde host setup for the website demos.
 //
-// Critical: ink-mde deep-assigns options and *replaces* the plugins array when
-// one is provided. The blank default includes katex() (math grammar + widgets).
-// Passing only our dragger plugin used to wipe katex, so $$ blocks stopped
-// rendering. We mount without plugins first, then reconfigure to *append*
-// our extension on top of the defaults.
+// Explicit plugin list — do not rely on ink-mde blank defaults surviving a
+// host plugins: [...] override (deep-assign replaces the array):
+//   1. math grammar (host-owned)
+//   2. dragger + hybrid widgets (CM extensions)
 export type DemoEditorOptions = {
   doc: string;
-  /** Extra ink-mde options merged on top of the demo defaults. */
   ink?: Options;
 };
 
-export async function mountDemoEditor(
+export function mountDemoEditor(
   target: HTMLElement,
   options: DemoEditorOptions,
-): Promise<void> {
-  const instance = await ink(target, {
+): ReturnType<typeof ink> {
+  const { plugins: _ignored, interface: interfaceOverride, ...rest } = options.ink ?? {};
+  return ink(target, {
     doc: options.doc,
-    // Keep default plugins (katex). Do NOT pass plugins here.
-    interface: {
-      appearance: 'dark',
-      toolbar: true,
-      attribution: false,
-      // Hybrid image previews + list markers.
-      images: true,
-      lists: true,
-      ...(options.ink?.interface ?? {}),
-    },
-    lists: true,
-    ...stripPlugins(options.ink),
-  });
-
-  const current = instance.options();
-  await instance.reconfigure({
     plugins: [
-      // Preserve whatever the blank default installed (katex grammar + widgets).
-      ...current.plugins,
+      ...hybridMarkdownInkPlugins(),
       plugin({
         type: pluginTypes.default,
         value: () => demoDraggerExtensions(),
       }),
     ],
+    interface: {
+      appearance: 'dark',
+      toolbar: true,
+      attribution: false,
+      images: true,
+      lists: true,
+      ...interfaceOverride,
+    },
+    lists: true,
+    ...rest,
   });
-}
-
-function stripPlugins(options: Options | undefined): Options {
-  if (!options) return {};
-  const { plugins: _ignored, ...rest } = options;
-  return rest;
 }

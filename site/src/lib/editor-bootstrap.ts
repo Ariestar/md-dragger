@@ -7,16 +7,14 @@ import {
 } from 'md-dragger/adapter/codemirror';
 import type { PressInput } from 'md-dragger/runtime';
 import { dropIndicator, dropIndicatorOnChange } from './drop-indicator';
-
+import { hybridMarkdown } from './hybrid-markdown';
 import { selectionHighlight, selectionHighlightOnChange } from './selection-highlight';
-
 
 // Platform-neutral host wiring for the website demo.
 // Same package seams Obsidian uses, with no Obsidian code:
 //   gestureConfig  — host numbers for DefaultUx
 //   locate         — handle always; touch/pen also arms on the content row
-//   visuals        — drop line + selection paint (drop line via onChange)
-
+//   visuals        — drop line + selection paint + hybrid math/table/hr
 export type DemoUxOptions = {
   multiSelectMs?: number;
   dragArmMs?: number;
@@ -44,7 +42,6 @@ export function demoDraggerExtensions(options: DemoUxOptions = {}): Extension[] 
         multiSelectMs,
         multiSelectEnabled: true,
         dragStartMoveThresholdPx: 4,
-        // Jitter while arming must not cancel the press.
         dragCancelMoveThresholdPx: Number.POSITIVE_INFINITY,
       },
       // Direct callback — avoids dual-instance StateEffect under Vite source
@@ -53,9 +50,6 @@ export function demoDraggerExtensions(options: DemoUxOptions = {}): Extension[] 
         dropIndicatorOnChange(result);
         selectionHighlightOnChange(result);
       },
-      // Factory form closes over the live EditorView — the package resolves
-
-      // this inside dragRuntime's ViewPlugin constructor.
       locate: rowPressOnTouch
         ? (view) => ({
             sourceLineFromInput: (input: PressInput) => {
@@ -68,7 +62,6 @@ export function demoDraggerExtensions(options: DemoUxOptions = {}): Extension[] 
               const event = input.native instanceof PointerEvent ? input.native : null;
               const target = event?.target instanceof Element ? event.target : null;
               if (target && !view.dom.contains(target)) return null;
-              // Prefer content presses; allow empty gutter space via point map.
               if (
                 target
                 && !view.contentDOM.contains(target)
@@ -82,6 +75,7 @@ export function demoDraggerExtensions(options: DemoUxOptions = {}): Extension[] 
           })
         : undefined,
     }),
+    hybridMarkdown(),
     dropIndicator(),
     selectionHighlight(),
   ];
