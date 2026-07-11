@@ -1,70 +1,80 @@
-import type { Extension } from '@codemirror/state';
+import { StateField, type EditorState, type Extension, type Range } from '@codemirror/state';
 import { syntaxTree } from '@codemirror/language';
 import {
   Decoration,
   EditorView,
-  ViewPlugin,
   WidgetType,
   type DecorationSet,
-  type ViewUpdate,
 } from '@codemirror/view';
 
-// Minimal host preview for GFM nodes ink-mde already parses but does not paint:
-// Table and HorizontalRule. Math is handled by ink-mde's own katex plugins
-// (enabled with katex: true) — do not reimplement it here.
+// Preview for GFM Table / HorizontalRule.
+// StateField rebuilds on reconfigure (language load) — same as ink-mde katex.
+// A ViewPlugin that only watched docChanged stayed empty after grammar load.
 
 export function tableAndRulePreview(): Extension {
-  return [
-    ViewPlugin.fromClass(
-      class {
-        decorations: DecorationSet;
-        constructor(view: EditorView) {
-          this.decorations = build(view);
-        }
-        update(update: ViewUpdate) {
-          if (update.docChanged || update.viewportChanged) {
-            this.decorations = build(update.view);
-          }
-        }
-      },
-      { decorations: (v) => v.decorations },
-    ),
-    theme,
-  ];
+  return [tableHrField, theme];
 }
 
-function build(view: EditorView): DecorationSet {
-  const ranges: ReturnType<ReturnType<typeof Decoration.widget>['range']>[] = [];
-  for (const { from, to } of view.visibleRanges) {
-    syntaxTree(view.state).iterate({
-      from,
-      to,
-      enter(node) {
-        if (node.name === 'Table') {
-          ranges.push(
-            Decrations.widget({
-              widget: new TableWidget(view.state.doc.sliceString(node.from, node.to)),
-              block: true,
-              side: -1,
-            }).range(node.from),
-          );
-          return false;
-        }
-        if (node.name === 'HorizontalRule') {
-          ranges.push(
-            Decrations.widget({
-              widget: new RuleWidget(),
-              block: true,
-              side: -1,
-            }).range(node.from),
-          );
-          return false;
-        }
-      },
-    });
-  }
-  return Decoration.set(ranges, true);
+const tableHrField = StateField.define<DecorationsSet>({
+  create: (state) => build(state),
+  update(deco, tr) {
+    if (tr.docChanged || tr.reconfigured) return build(tr.state);
+    return deco;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+
+function build(state: EditorState): DecorationSet {
+  const out: Range<Decorations>[] = [];
+
+  syntaxTree(state).iterate({
+    enter(node) {
+      if (node.name === 'Table') {
+        out.push(
+          Decrations.widget({
+            widget: new TableWidget(state.doc.sliceString(node.from, node.to)),
+            block: true,
+            side: -1,
+          }).range(node.from),
+        );
+        markSourceLines(state, node.from, node.to, 'md-table-source', out);
+        return false;
+      }
+      if (node.name === 'HorizontalRule') {
+        out.push(
+          Decrations.widget({
+            widget: new RuleWidget(),
+            block: true,
+            side: -1,
+          }).range(node.from),
+        );
+        markSourceLines(state, node.from, node.to, 'md-rule-source', out);
+        return false;
+      }
+    },
+  });
+
+  out.sort((a, b) => a.from - b.from || a.value.startSide - b.value.startSide);
+  return Decoration.set(out, true);
 }
+
+function markSourceLines(
+  state: EditorState,
+  from: number,
+  to: number,
+  className: string,
+  out: Range<Decorations>[],
+): void {
+  let pos = from;
+  while (pos < to) {
+    const line = state.doc.lineAt(pos);
+    out.push(Decorations.line({ class: className }).range(line.from));
+    if (line.to >= state.doc.length) break;
+    pos = line.to + 1;
+  }
+}
+
+type Align = 'left' | 'center' | 'right';
 
 class TableWidget extends WidgetType {
   constructor(readonly source: string) {
@@ -78,24 +88,30 @@ class TableWidget extends WidgetType {
     wrap.className = 'md-table-preview';
     wrap.contentEditable = 'false';
     const table = document.createElement('table');
-    let headerDone = false;
-    for (const line of this.source.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      if (isAlign(trimmed)) {
-        headerDone = true;
+
+    const lines = this.source.split('\n').map((l) => l.trim()).filter(Boolean);
+    let aligns: Align[] = [];
+    let body = false;
+
+    for (const line of lines) {
+      if (isAlignRow(line)) {
+        aligns = parseAligns(line);
+        body = true;
         continue;
       }
       const tr = document.createElement('tr');
-      const tag = headerDone ? 'td' : 'th';
-      for (const cell of cells(trimmed)) {
+      const tag = body ? 'td' : 'th';
+      splitCells(line).forEach((cell, i) => {
         const el = document.createElement(tag);
         el.textContent = cell.trim();
+        const align = aligns[i] ?? 'left';
+        if (align !== 'left') el.style.textAlign = align;
         tr.appendChild(el);
-      }
+      });
       table.appendChild(tr);
-      headerDone = true;
+      body = true;
     }
+
     wrap.appendChild(table);
     return wrap;
   }
@@ -119,17 +135,29 @@ class RuleWidget extends WidgetType {
   }
 }
 
-function isAlign(line: string): boolean {
-  return cells(line).every((c) => /^:?-{3,}:?$/.test(c.trim()));
+function isAlignRow(line: string): boolean {
+  const parts = splitCells(line);
+  return parts.length > 0 && parts.every((c) => /^:?-{3,}:?$/.test(c.trim()));
 }
 
-function cells(line: string): string[] {
+function parseAligns(line: string): Align[] {
+  return splitCells(line).map((c) => {
+    const t = c.trim();
+    const left = t.startsWith(':');
+    const right = t.endsWith(':');
+    if (left && right) return 'center';
+    if (right) return 'right';
+    return 'left';
+  });
+}
+
+function splitCells(line: string): string[] {
   return line.replace(/^\|/, '').replace(/\|$/, '').split('|');
 }
 
 const theme = EditorView.baseTheme({
   '.md-table-preview': {
-    padding: '0.4rem 0',
+    padding: '0.35rem 0 0.15rem',
     overflowX: 'auto',
   },
   '.md-table-preview table': {
@@ -140,16 +168,19 @@ const theme = EditorView.baseTheme({
   '.md-table-preview th, .md-table-preview td': {
     border: '1px solid color-mix(in oklch, currentColor 18%, transparent)',
     padding: '0.35rem 0.6rem',
-    textAlign: 'left',
   },
   '.md-table-preview th': {
     background: 'color-mix(in oklch, currentColor 8%, transparent)',
     fontWeight: '600',
   },
+  '.md-table-source, .md-rule-source': {
+    opacity: '0.4',
+    fontSize: '0.85em',
+  },
   '.md-rule-preview': {
     border: '0',
     height: '1px',
-    margin: '0.75rem 0',
+    margin: '0.6rem 0 0.15rem',
     background: 'color-mix(in oklch, currentColor 22%, transparent)',
   },
 });
