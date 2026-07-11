@@ -16,10 +16,13 @@ export default defineConfig({
     resolve: {
       alias: {
         '@codemirror/state': fromSiteRoot('./node_modules/@codemirror/state/dist/index.js'),
-        '@codemirror/view': fromSiteRoot('./node_modules/@codemirror/view/dist/index.js')
+        '@codemirror/view': fromSiteRoot('./node_modules/@codemirror/view/dist/index.js'),
+        // Same physical language module as ink-mde, otherwise syntaxTree()
+        // from a second copy cannot see Table/HR nodes for host previews.
+        '@codemirror/language': fromSiteRoot('./node_modules/@codemirror/language/dist/index.js'),
       },
       conditions: ['source'],
-      dedupe: ['@codemirror/state', '@codemirror/view']
+      dedupe: ['@codemirror/state', '@codemirror/view', '@codemirror/language'],
     }
   }
 });
