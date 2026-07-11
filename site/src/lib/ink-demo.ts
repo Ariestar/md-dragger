@@ -1,41 +1,50 @@
 import { ink, plugin, pluginTypes, type Options } from 'ink-mde';
 import { demoDraggerExtensions } from './editor-bootstrap';
-import { hybridMarkdownInkPlugins } from './hybrid-markdown';
 
-// Shared ink-mde host setup for the website demos.
+// Website editor mount.
 //
-// Explicit plugin list — do not rely on ink-mde blank defaults surviving a
-// host plugins: [...] override (deep-assign replaces the array):
-//   1. math grammar (host-owned)
-//   2. dragger + hybrid widgets (CM extensions)
+// Root cause of missing math: ink-mde ships katex() in its default plugins, but
+// filterPlugins only loads plugins whose `key` is truthy on options. The default
+// is katex: false, so math never activates. Setting katex: true is enough.
+//
+// Root cause of wiping math: passing plugins: [dragger] replaces the whole
+// default array (deep-assign replaces arrays). Mount with defaults first, then
+// reconfigure to append the dragger extension.
 export type DemoEditorOptions = {
   doc: string;
   ink?: Options;
 };
 
-export function mountDemoEditor(
+export async function mountDemoEditor(
   target: HTMLElement,
   options: DemoEditorOptions,
-): ReturnType<typeof ink> {
-  const { plugins: _ignored, interface: interfaceOverride, ...rest } = options.ink ?? {};
-  return ink(target, {
+): Promise<void> {
+  const { plugins: _drop, interface: iface, ...rest } = options.ink ?? {};
+
+  const instance = await ink(target, {
     doc: options.doc,
-    plugins: [
-      ...hybridMarkdownInkPlugins(),
-      plugin({
-        type: pluginTypes.default,
-        value: () => demoDraggerExtensions(),
-      }),
-    ],
+    katex: true,
+    lists: true,
     interface: {
       appearance: 'dark',
       toolbar: true,
       attribution: false,
       images: true,
       lists: true,
-      ...interfaceOverride,
+      ...iface,
     },
-    lists: true,
     ...rest,
+  });
+
+  const current = instance.options();
+  await instance.reconfigure({
+    katex: true,
+    plugins: [
+      ...current.plugins,
+      plugin({
+        type: pluginTypes.default,
+        value: () => demoDraggerExtensions(),
+      }),
+    ],
   });
 }
