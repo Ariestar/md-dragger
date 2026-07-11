@@ -18,9 +18,6 @@ import {
     DEFAULT_GESTURE_CONFIG,
 } from './dragger-runtime-types';
 
-// A ux stage turns raw pointer events into semantic commands on the runtime.
-// Platform-agnostic: long-press timing and thresholds live here; the runtime
-// only sees semantic transitions.
 export type Ux = {
     mount(): void;
     destroy(): void;
@@ -40,13 +37,16 @@ export type UxDeps = {
     };
 };
 
-// multi-select on:
-//   long-press handle → enter selecting (persistent)
-//   later sweeps toggle; second long-press on selected block → group drag
-// multi-select off:
-//   press → hold → ready → move past threshold → drag
+// multiSelect off:
+//   press → hold → (dragArmMs) ready → move past threshold → drag
+//   short release → press_cancelled
 //
-// External entry (no long-press): enterRangeSelectionMode(line).
+// multiSelect on:
+//   press → hold
+//   short release before multiSelectMs → press_cancelled (host menu)
+//   hold to dragArmMs → ready (move past threshold → drag)
+//   hold to multiSelectMs → selecting (persistent multi-select)
+//   later sweeps toggle; long-press (dragArmMs) on selected block → group drag
 export class DefaultUx implements Ux {
     private readonly disposables: Disposable[] = [];
     private pressSession: PressSession | null = null;
@@ -67,7 +67,7 @@ export class DefaultUx implements Ux {
     }
 
     destroy(): void {
-        this.clearPressTimer();
+        this.clearTimers();
         this.pressSession?.releaseCapture?.();
         this.pressSession = null;
         for (const dispose of this.disposables) dispose();
@@ -102,13 +102,13 @@ export class DefaultUx implements Ux {
         const inSelecting = cfg.multiSelectEnabled && this.runtime().state.type === 'selecting';
         const selectedDragCandidate = inSelecting && isBlockSelected(block, existingSelectedBlocks);
 
-        // Already selecting: arm group-drag long-press on a selected block, or
-        // start a toggle sweep on an unselected block immediately.
+        // Already selecting: arm group-drag on a selected block, or toggle-sweep.
         if (inSelecting) {
-            const timer = selectedDragCandidate && cfg.longPressMs > 0
+            const armMs = cfg.dragArmMs;
+            const timer = selectedDragCandidate && armMs > 0
                 ? this.deps.scheduler.setTimer(
                     () => this.markSelectedDragReady(sessionId, input.pointer),
-                    cfg.longPressMs,
+                    armMs,
                 )
                 : null;
             this.pressSession = {
@@ -120,24 +120,32 @@ export class DefaultUx implements Ux {
                 ready: false,
                 rangeActive: false,
                 selectedDragCandidate,
-                selectedDragReady: selectedDragCandidate && cfg.longPressMs <= 0,
+                selectedDragReady: selectedDragCandidate && armMs <= 0,
                 selectedBlocksAtPress: existingSelectedBlocks,
-                timer,
+                armTimer: timer,
+                multiSelectTimer: null,
                 releaseCapture: input.releaseCapture,
             };
             if (!selectedDragCandidate) this.startRangeSweep(this.pressSession);
             return;
         }
 
-        // First entry into multi-select waits for long-press before becoming
-        // `selecting`. We still beginHold so a short click can cancel with
-        // press_cancelled (platform handle-tap menu). Platform must not paint
-        // `holding` as multi-select — only `selecting` commits the mode.
+        // Fresh press: hold first so short release can cancel → host menu.
+        this.runtime().beginHold(sessionId, selection, input.pointer.type);
+
         if (cfg.multiSelectEnabled) {
-            const timer = cfg.longPressMs > 0
+            const multiMs = Math.max(0, cfg.multiSelectMs);
+            const armMs = Math.max(0, cfg.dragArmMs);
+            const multiSelectTimer = multiMs > 0
                 ? this.deps.scheduler.setTimer(
                     () => this.startRangeSweepIfCurrent(sessionId, input.pointer),
-                    cfg.longPressMs,
+                    multiMs,
+                )
+                : null;
+            const armTimer = armMs > 0
+                ? this.deps.scheduler.setTimer(
+                    () => this.markReady(sessionId, input.pointer),
+                    armMs,
                 )
                 : null;
             this.pressSession = {
@@ -146,24 +154,26 @@ export class DefaultUx implements Ux {
                 start: input.point,
                 anchorBlock: block,
                 selection,
-                ready: false,
+                ready: armMs <= 0,
                 rangeActive: false,
                 selectedDragCandidate: false,
                 selectedDragReady: false,
                 selectedBlocksAtPress: [],
-                timer,
+                armTimer,
+                multiSelectTimer,
                 releaseCapture: input.releaseCapture,
             };
-            this.runtime().beginHold(sessionId, selection, input.pointer.type);
-            if (cfg.longPressMs <= 0) this.startRangeSweep(this.pressSession);
+            if (armMs <= 0) this.runtime().markHoldReady(sessionId, input.pointer.type);
+            if (multiMs <= 0) this.startRangeSweep(this.pressSession);
             return;
         }
 
-        // Single-block drag path.
-        const timer = cfg.longPressMs > 0
+        // Single-block only.
+        const armMs = Math.max(0, cfg.dragArmMs);
+        const armTimer = armMs > 0
             ? this.deps.scheduler.setTimer(
                 () => this.markReady(sessionId, input.pointer),
-                cfg.longPressMs,
+                armMs,
             )
             : null;
         this.pressSession = {
@@ -172,16 +182,16 @@ export class DefaultUx implements Ux {
             start: input.point,
             anchorBlock: block,
             selection,
-            ready: cfg.longPressMs <= 0,
+            ready: armMs <= 0,
             rangeActive: false,
             selectedDragCandidate: false,
             selectedDragReady: false,
             selectedBlocksAtPress: [],
-            timer,
+            armTimer,
+            multiSelectTimer: null,
             releaseCapture: input.releaseCapture,
         };
-        this.runtime().beginHold(sessionId, selection, input.pointer.type);
-        if (cfg.longPressMs <= 0) this.markReady(sessionId, input.pointer);
+        if (armMs <= 0) this.markReady(sessionId, input.pointer);
     }
 
     private handleMove(input: MoveInput): void {
@@ -201,6 +211,7 @@ export class DefaultUx implements Ux {
             const state = this.runtime().state;
             if (state.type !== 'selecting' || state.selection.selection.ranges.length === 0) return;
             input.claim?.();
+            this.clearTimers();
             this.runtime().beginDrag(
                 session.sessionId,
                 state.selection.selection,
@@ -212,7 +223,6 @@ export class DefaultUx implements Ux {
             return;
         }
 
-        // Selected block moved before long-press matured → toggle sweep instead.
         if (session.selectedDragCandidate && !session.rangeActive) {
             if (distance < cfg.dragStartMoveThresholdPx) return;
             this.startRangeSweep(session);
@@ -224,17 +234,23 @@ export class DefaultUx implements Ux {
             return;
         }
 
-        // Waiting for multi-select long-press: a real drag intent (move past the
-        // start threshold) must win over multi-select entry. Otherwise every
-        // handle press+move becomes multi-select after longPressMs and never
-        // starts a drag — including cross-file moves.
-        if (!session.ready && !session.rangeActive && cfg.multiSelectEnabled) {
+        // Armed for multi-select or single drag: moving past threshold starts a
+        // drag once ready (dragArmMs elapsed, or dragArmMs=0).
+        if (!session.rangeActive) {
+            if (!session.ready) {
+                // Not armed yet: cancel if the pointer drifts too far.
+                if (distance > cfg.dragCancelMoveThresholdPx) {
+                    this.cancelPress('press_cancelled', input.pointer.type);
+                }
+                return;
+            }
             if (distance < cfg.dragStartMoveThresholdPx) return;
             input.claim?.();
-            this.clearPressTimer();
-            // Pipeline only accepts drag_start from ready_to_drag|selecting.
-            // We are still in holding from beginHold on press.
-            this.runtime().markHoldReady(session.sessionId, input.pointer.type);
+            this.clearTimers();
+            // Ensure pipeline is ready_to_drag before drag_start.
+            if (this.runtime().state.type === 'holding') {
+                this.runtime().markHoldReady(session.sessionId, input.pointer.type);
+            }
             this.runtime().beginDrag(
                 session.sessionId,
                 session.selection,
@@ -245,23 +261,6 @@ export class DefaultUx implements Ux {
             );
             return;
         }
-
-        if (!session.ready) {
-            if (distance > cfg.dragCancelMoveThresholdPx) this.cancelPress('press_cancelled', input.pointer.type);
-            return;
-        }
-        if (distance < cfg.dragStartMoveThresholdPx) return;
-
-        input.claim?.();
-        this.runtime().beginDrag(
-            session.sessionId,
-            session.selection,
-            input.point,
-            input.pointer,
-            input.pointer.type,
-            session.releaseCapture,
-        );
-        this.clearPressTimer();
     }
 
     private handleRelease(input: ReleaseInput): void {
@@ -273,7 +272,6 @@ export class DefaultUx implements Ux {
         }
         if (!(session && samePointer(session.pointer, input.pointer))) return;
 
-        // Finished a range sweep: keep persistent selecting.
         if (session.rangeActive && this.runtime().state.type === 'selecting') {
             this.runtime().finishSelection();
             this.clearPress();
@@ -281,7 +279,6 @@ export class DefaultUx implements Ux {
         }
 
         if (session.selectedDragCandidate) {
-            // Short press on selected block: toggle it off.
             if (!session.selectedDragReady) {
                 this.startRangeSweep(session);
                 this.runtime().finishSelection();
@@ -290,8 +287,7 @@ export class DefaultUx implements Ux {
             return;
         }
 
-        // Short click while arming multi-select long-press (still holding):
-        // cancel so hosts can open the handle-tap menu from press_cancelled.
+        // Short press: cancel → host may open handle-tap menu.
         this.cancelPress('press_cancelled', input.pointer.type);
     }
 
@@ -309,7 +305,10 @@ export class DefaultUx implements Ux {
         const session = this.pressSession;
         if (!session || session.sessionId !== sessionId || !samePointer(session.pointer, pointer)) return;
         session.ready = true;
-        this.clearPressTimer();
+        if (session.armTimer !== null) {
+            this.deps.scheduler.clearTimer(session.armTimer);
+            session.armTimer = null;
+        }
         this.runtime().markHoldReady(sessionId, pointer.type);
     }
 
@@ -317,7 +316,10 @@ export class DefaultUx implements Ux {
         const session = this.pressSession;
         if (!session || session.sessionId !== sessionId || !samePointer(session.pointer, pointer)) return;
         if (!session.selectedDragCandidate) return;
-        this.clearPressTimer();
+        if (session.armTimer !== null) {
+            this.deps.scheduler.clearTimer(session.armTimer);
+            session.armTimer = null;
+        }
         session.selectedDragReady = true;
     }
 
@@ -329,9 +331,10 @@ export class DefaultUx implements Ux {
 
     private startRangeSweep(session: PressSession): void {
         if (session.rangeActive) return;
-        this.clearPressTimer();
+        this.clearTimers();
         session.rangeActive = true;
         session.selectedDragReady = false;
+        session.ready = false;
         this.runtime().startRangeSelection(session.anchorBlock, session.selectedBlocksAtPress);
     }
 
@@ -351,16 +354,22 @@ export class DefaultUx implements Ux {
 
     private clearPress(): void {
         if (!this.pressSession) return;
-        this.clearPressTimer();
+        this.clearTimers();
         this.pressSession.releaseCapture?.();
         this.pressSession = null;
     }
 
-    private clearPressTimer(): void {
+    private clearTimers(): void {
         const session = this.pressSession;
-        if (!session || session.timer === null) return;
-        this.deps.scheduler.clearTimer(session.timer);
-        session.timer = null;
+        if (!session) return;
+        if (session.armTimer !== null) {
+            this.deps.scheduler.clearTimer(session.armTimer);
+            session.armTimer = null;
+        }
+        if (session.multiSelectTimer !== null) {
+            this.deps.scheduler.clearTimer(session.multiSelectTimer);
+            session.multiSelectTimer = null;
+        }
     }
 }
 
@@ -375,7 +384,8 @@ type PressSession = {
     selectedDragCandidate: boolean;
     selectedDragReady: boolean;
     selectedBlocksAtPress: SelectedBlockRange[];
-    timer: TimerToken | null;
+    armTimer: TimerToken | null;
+    multiSelectTimer: TimerToken | null;
     releaseCapture?: () => void;
 };
 

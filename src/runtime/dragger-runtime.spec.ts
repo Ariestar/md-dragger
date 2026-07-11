@@ -65,7 +65,8 @@ describe('DraggerRuntime pipeline result + commit', () => {
             commit: { apply: () => {} },
             onChange: (result) => { results.push(result); },
             gestureConfig: {
-                longPressMs: 0,
+                dragArmMs: 0,
+                multiSelectMs: 500,
                 dragStartMoveThresholdPx: 4,
                 dragCancelMoveThresholdPx: 12,
                 multiSelectEnabled: false,
@@ -114,7 +115,8 @@ describe('DraggerRuntime pipeline result + commit', () => {
             },
             onChange: (result) => { results.push(result); },
             gestureConfig: {
-                longPressMs: 0,
+                dragArmMs: 0,
+                multiSelectMs: 500,
                 dragStartMoveThresholdPx: 4,
                 dragCancelMoveThresholdPx: 12,
                 multiSelectEnabled: false,
@@ -155,7 +157,8 @@ describe('DraggerRuntime pipeline result + commit', () => {
             },
             onChange: (result) => { results.push(result); },
             gestureConfig: {
-                longPressMs: 0,
+                dragArmMs: 0,
+                multiSelectMs: 500,
                 dragStartMoveThresholdPx: 4,
                 dragCancelMoveThresholdPx: 12,
                 multiSelectEnabled: false,
@@ -200,7 +203,7 @@ describe('DraggerRuntime pipeline result + commit', () => {
                 },
                 commit: { apply: () => {} },
                 gestureConfig: {
-                    longPressMs: 0,
+                    dragArmMs: 0, multiSelectMs: 0,
                     dragStartMoveThresholdPx: 4,
                     dragCancelMoveThresholdPx: 12,
                     multiSelectEnabled: false,
@@ -228,7 +231,7 @@ describe('DraggerRuntime pipeline result + commit', () => {
                 },
                 commit: { apply: () => {} },
                 gestureConfig: {
-                    longPressMs: 0,
+                    dragArmMs: 0, multiSelectMs: 0,
                     dragStartMoveThresholdPx: 4,
                     dragCancelMoveThresholdPx: 12,
                     multiSelectEnabled: false,
@@ -257,7 +260,7 @@ describe('DraggerRuntime pipeline result + commit', () => {
                 },
                 commit: { apply: () => {} },
                 gestureConfig: {
-                    longPressMs: 0,
+                    dragArmMs: 0, multiSelectMs: 0,
                     dragStartMoveThresholdPx: 4,
                     dragCancelMoveThresholdPx: 12,
                     multiSelectEnabled: false,

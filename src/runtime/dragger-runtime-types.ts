@@ -67,37 +67,22 @@ export type InputSource = {
     onEscape?: (handler: () => void) => Disposable;
 };
 
-// --- document axis (host -> rt, pull, read-only) ---
-
 export type DocumentHost = {
-    // Source document a drag originates from. Target docs ride on each
-    // DropTarget from the locate axis — no separate host method needed.
     getDoc(): Doc;
 };
-
-// --- locate axis (host -> rt, pull, coordinate translation) ---
 
 export type LocateHost = {
     sourceLineFromInput(input: PressInput): number | null;
     resolveDropTarget(point: Point, context: { selection: BlockSelection }): DropTarget | null;
-    // Map a live pointer position to a 1-indexed line number (DefaultUx range-select).
     lineFromPoint?(point: Point): number | null;
 };
 
-// --- commit axis (rt -> host) ---
-
 export type { DocEdit } from '../domain/transaction/block-transaction';
 
-// apply (default): runtime plans the move, emits platform_commit, then calls apply(edits).
-// command: runtime plans the move, emits command_ready + dropped, does not mutate the doc.
-// Hosts that own their own transaction/history system use command mode and apply from
-// the command_ready output.
 export type CommitHost = {
     mode?: 'apply' | 'command';
     apply?(edits: DocEdit[]): void;
 };
-
-// --- config ---
 
 export type ResolvedConfig = {
     tabSize: number;
@@ -105,10 +90,18 @@ export type ResolvedConfig = {
 
 export type Config = Partial<ResolvedConfig> | (() => Partial<ResolvedConfig>);
 
-// Gesture knobs for DefaultUx only. Runtime core is platform-agnostic; a custom
-// Ux may ignore these entirely.
+// Gesture knobs for DefaultUx only.
+//
+// Timing ladder (multiSelectEnabled):
+//   short release before multiSelectMs → press_cancelled (host may open a menu)
+//   hold to dragArmMs → ready_to_drag (move past threshold starts a drag)
+//   hold to multiSelectMs → selecting (persistent multi-select)
+//
+// dragArmMs = 0 means a move past threshold can start a drag immediately after
+// press (desktop). multiSelectMs is ignored when multiSelectEnabled is false.
 export type GestureConfig = {
-    longPressMs: number;
+    dragArmMs: number;
+    multiSelectMs: number;
     dragStartMoveThresholdPx: number;
     dragCancelMoveThresholdPx: number;
     multiSelectEnabled: boolean;
@@ -117,7 +110,8 @@ export type GestureConfig = {
 export type ResolvedGestureConfig = GestureConfig;
 
 export const DEFAULT_GESTURE_CONFIG: ResolvedGestureConfig = {
-    longPressMs: 250,
+    dragArmMs: 0,
+    multiSelectMs: 500,
     dragStartMoveThresholdPx: 4,
     dragCancelMoveThresholdPx: 12,
     multiSelectEnabled: false,
@@ -135,8 +129,6 @@ export type Ux = {
     destroy(): void;
 };
 
-// Full pipeline transition: previous/current state + outputs + triggering event.
-// This is the runtime's primary observation surface — not a second event system.
 export type PipelineResult = Change;
 
 export type RuntimeOptions = {
@@ -144,7 +136,6 @@ export type RuntimeOptions = {
     document: DocumentHost;
     locate: LocateHost;
     commit: CommitHost;
-    // Primary output. Every pipeline.enter result lands here intact.
     onChange?(result: PipelineResult): void;
     config?: Config;
     gestureConfig?: Partial<GestureConfig> | (() => Partial<GestureConfig>);
