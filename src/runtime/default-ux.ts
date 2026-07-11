@@ -224,11 +224,25 @@ export class DefaultUx implements Ux {
             return;
         }
 
-        // Waiting for multi-select long-press: cancel the arm if the pointer drifts.
+        // Waiting for multi-select long-press: a real drag intent (move past the
+        // start threshold) must win over multi-select entry. Otherwise every
+        // handle press+move becomes multi-select after longPressMs and never
+        // starts a drag — including cross-file moves.
         if (!session.ready && !session.rangeActive && cfg.multiSelectEnabled) {
-            if (distance > cfg.dragCancelMoveThresholdPx) {
-                this.cancelPress('press_cancelled', input.pointer.type);
-            }
+            if (distance < cfg.dragStartMoveThresholdPx) return;
+            input.claim?.();
+            this.clearPressTimer();
+            // Pipeline only accepts drag_start from ready_to_drag|selecting.
+            // We are still in holding from beginHold on press.
+            this.runtime().markHoldReady(session.sessionId, input.pointer.type);
+            this.runtime().beginDrag(
+                session.sessionId,
+                session.selection,
+                input.point,
+                input.pointer,
+                input.pointer.type,
+                session.releaseCapture,
+            );
             return;
         }
 
