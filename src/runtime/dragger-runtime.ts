@@ -2,6 +2,7 @@ import { detectBlock } from '../domain/block/block-detector';
 import type { BlockInfo } from '../domain/block/block-types';
 import type { DropTarget } from '../domain/command/drop-target';
 import { createSingleBlockSelection, type BlockSelection } from '../domain/selection/block-selection';
+import type { SelectedBlockRange } from '../domain/selection/block-ranges';
 import { buildSelectedBlockRangeFromBlockInfo, type RangeSelectionBoundary, type RangeSelectionBoundaryResolver } from '../domain/selection/range-selection';
 import { createLineParsingContext } from '../domain/markdown/line-parsing-service';
 import { getListContext } from '../domain/mutation/list-mutation';
@@ -45,7 +46,7 @@ export type RuntimeController = {
     beginDrag(sessionId: string, selection: BlockSelection, point: Point, pointer: Pointer, pointerType: string | null, releaseCapture?: () => void): void;
     moveDrag(sessionId: string, point: Point, pointer: Pointer, pointerType: string | null): void;
     commitDrop(sessionId: string, point: Point, pointer: Pointer, pointerType: string | null): void;
-    startRangeSelection(block: BlockInfo): void;
+    startRangeSelection(block: BlockInfo, selectedBlocks?: SelectedBlockRange[]): void;
     extendSelection(lineNumber: number): void;
     finishSelection(): void;
     // Resolve a block at a line and enter range-select there. Semantic entry
@@ -199,7 +200,7 @@ export class DraggerRuntime implements RuntimeController {
         this.activeDragSession = null;
     }
 
-    startRangeSelection(block: BlockInfo): void {
+    startRangeSelection(block: BlockInfo, selectedBlocks: SelectedBlockRange[] = []): void {
         const doc = this.options.document.getDoc();
         const anchorBoundary = boundaryFromBlock(block);
         this.pipeline.enter({
@@ -211,7 +212,7 @@ export class DraggerRuntime implements RuntimeController {
                     doc,
                     anchorBoundary,
                     initialBoundary: anchorBoundary,
-                    selectedBlocks: [],
+                    selectedBlocks,
                     resolveBoundary: this.createBoundaryResolver(),
                 },
             },

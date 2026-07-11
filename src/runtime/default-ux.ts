@@ -1,6 +1,7 @@
 import { detectBlock } from '../domain/block/block-detector';
 import type { BlockInfo } from '../domain/block/block-types';
 import { createSingleBlockSelection, type BlockSelection } from '../domain/selection/block-selection';
+import type { SelectedBlockRange } from '../domain/selection/block-ranges';
 import type { Doc } from '../domain/markdown/document-types';
 import type { DragCancelReason } from '../pipeline/pipeline-event';
 import type { RuntimeController } from './dragger-runtime';
@@ -46,13 +47,10 @@ export type UxDeps = {
     };
 };
 
-// The default, batteries-included gesture recognizer. Not bound to any editor
-// — only to the UxDeps abstractions above.
-//
-// Gesture model (multi-select on): long-press a handle → range-select submode;
-// keep holding + drag to draw a multi-block range; drag past the start
-// threshold → drag the whole drawn range. Single-block drag (multi-select off):
-// long-press → ready; drag past threshold → drag the one block.
+// Gesture model (multi-select on): long-press a handle → persistent
+// range-select submode; keep holding + drag to toggle blocks. Release keeps the
+// selection so later handle sweeps can toggle more blocks. To drag the group,
+// long-press an already selected block, then move.
 //
 // External range-select entry (no long-press): enterRangeSelectionMode(line),
 // used e.g. by a mobile toolbar command.
@@ -106,11 +104,42 @@ export class DefaultUx implements Ux {
         const cfg = this.cfg();
         const sessionId = this.runtime().createSessionId();
         const selection = createSingleBlockSelection(block);
+        const existingSelectedBlocks = this.currentSelectedBlocks();
+        const inSelecting = cfg.multiSelectEnabled && this.runtime().state.type === 'selecting';
+        const selectedDragCandidate = inSelecting && isBlockSelected(block, existingSelectedBlocks);
+
+        // Already in persistent multi-select: either arm a second long-press to
+        // drag the group, or start another toggle sweep immediately.
+        if (inSelecting) {
+            const timer = selectedDragCandidate && cfg.longPressMs > 0
+                ? this.deps.scheduler.setTimer(
+                    () => this.markSelectedDragReady(sessionId, input.pointer),
+                    cfg.longPressMs,
+                )
+                : null;
+            this.pressSession = {
+                sessionId,
+                pointer: input.pointer,
+                start: input.point,
+                anchorBlock: block,
+                selection,
+                ready: false,
+                rangeActive: false,
+                selectedDragCandidate,
+                selectedDragReady: selectedDragCandidate && cfg.longPressMs <= 0,
+                selectedBlocksAtPress: existingSelectedBlocks,
+                timer,
+                releaseCapture: input.releaseCapture,
+            };
+            if (!selectedDragCandidate) this.startRangeSweep(this.pressSession);
+            return;
+        }
+
         const rangeMode = cfg.multiSelectEnabled;
         const timer = cfg.longPressMs > 0
             ? this.deps.scheduler.setTimer(
                 () => rangeMode
-                    ? this.enterRangeSelect(sessionId, input.pointer, block)
+                    ? this.startRangeSweepIfCurrent(sessionId, input.pointer)
                     : this.markReady(sessionId, input.pointer),
                 cfg.longPressMs,
             )
@@ -119,24 +148,26 @@ export class DefaultUx implements Ux {
             sessionId,
             pointer: input.pointer,
             start: input.point,
+            anchorBlock: block,
             selection,
             ready: cfg.longPressMs <= 0 && !rangeMode,
             rangeActive: false,
+            selectedDragCandidate: false,
+            selectedDragReady: false,
+            selectedBlocksAtPress: [],
             timer,
             releaseCapture: input.releaseCapture,
         };
         this.runtime().beginHold(sessionId, selection, input.pointer.type);
         if (cfg.longPressMs <= 0 && !rangeMode) this.markReady(sessionId, input.pointer);
-        if (cfg.longPressMs <= 0 && rangeMode) this.enterRangeSelect(sessionId, input.pointer, block);
+        if (cfg.longPressMs <= 0 && rangeMode) this.startRangeSweep(this.pressSession);
     }
 
     private handleMove(input: MoveInput): void {
         const session = this.pressSession;
         if (!session || !samePointer(session.pointer, input.pointer)) return;
 
-        // Drag in progress (this same press already promoted to a drag): forward
-        // every move to the runtime so drag_over fires and the drop indicator
-        // follows. The session stays alive across the whole press→drag gesture.
+        // Drag in progress: forward every move so drag_over / drop indicator track.
         if (this.runtime().isGestureActive()) {
             this.runtime().moveDrag(session.sessionId, input.point, input.pointer, input.pointer.type);
             return;
@@ -145,15 +176,31 @@ export class DefaultUx implements Ux {
         const distance = distanceBetween(session.start, input.point);
         const cfg = this.cfg();
 
-        // Range-select submode: the long-press has fired and the runtime is
-        // selecting. Draw the range on every move; past the start threshold,
-        // upgrade the drawn range into a drag of the whole selection.
+        if (session.selectedDragReady) {
+            if (distance < cfg.dragStartMoveThresholdPx) return;
+            const state = this.runtime().state;
+            if (state.type !== 'selecting' || state.selection.selection.ranges.length === 0) return;
+            input.claim?.();
+            this.runtime().beginDrag(
+                session.sessionId,
+                state.selection.selection,
+                input.point,
+                input.pointer,
+                input.pointer.type,
+                session.releaseCapture,
+            );
+            return;
+        }
+
+        // Pressed a selected block but moved before long-press matured → toggle sweep instead.
+        if (session.selectedDragCandidate && !session.rangeActive) {
+            if (distance < cfg.dragStartMoveThresholdPx) return;
+            this.startRangeSweep(session);
+        }
+
         if (session.rangeActive && this.runtime().state.type === 'selecting') {
             const lineNumber = this.deps.lineFromPoint(input.point);
             if (lineNumber !== null) this.runtime().extendSelection(lineNumber);
-            if (distance >= cfg.dragStartMoveThresholdPx) {
-                this.upgradeRangeToDrag(session, input);
-            }
             return;
         }
 
@@ -178,22 +225,28 @@ export class DefaultUx implements Ux {
     private handleRelease(input: ReleaseInput): void {
         const session = this.pressSession;
         if (this.runtime().isGestureActive() && session && samePointer(session.pointer, input.pointer)) {
-            // An active drag session originated from this press: commit the drop.
             this.runtime().commitDrop(session.sessionId, input.point, input.pointer, input.pointer.type);
             this.pressSession = null;
             return;
         }
-        if (session && samePointer(session.pointer, input.pointer)) {
-            // Press released without becoming a drag. A drawn range that never
-            // upgraded is discarded (the pipeline holds no cross-press
-            // selection); a bare hold just cancels.
-            if (session.rangeActive && this.runtime().state.type === 'selecting') {
-                this.runtime().clearSelectionOrCancel();
-            } else {
-                this.cancelPress('press_cancelled', input.pointer.type);
-            }
-            this.pressSession = null;
+        if (!(session && samePointer(session.pointer, input.pointer))) return;
+
+        // Persistent multi-select: keep ranges across presses.
+        if (session.rangeActive && this.runtime().state.type === 'selecting') {
+            this.runtime().finishSelection();
+            this.clearPress();
+            return;
         }
+        if (session.selectedDragCandidate) {
+            // Short press on a selected block without long-press maturity: treat as toggle.
+            if (!session.selectedDragReady) {
+                this.startRangeSweep(session);
+                this.runtime().finishSelection();
+            }
+            this.clearPress();
+            return;
+        }
+        this.cancelPress('press_cancelled', input.pointer.type);
     }
 
     private handleCancel(pointer: Pointer, releaseCapture?: () => void): void {
@@ -206,8 +259,6 @@ export class DefaultUx implements Ux {
         }
     }
 
-    // --- sub-gestures ---
-
     private markReady(sessionId: string, pointer: Pointer): void {
         const session = this.pressSession;
         if (!session || session.sessionId !== sessionId || !samePointer(session.pointer, pointer)) return;
@@ -216,27 +267,35 @@ export class DefaultUx implements Ux {
         this.runtime().markHoldReady(sessionId, pointer.type);
     }
 
-    private enterRangeSelect(sessionId: string, pointer: Pointer, anchorBlock: BlockInfo): void {
+    private markSelectedDragReady(sessionId: string, pointer: Pointer): void {
         const session = this.pressSession;
         if (!session || session.sessionId !== sessionId || !samePointer(session.pointer, pointer)) return;
+        if (!session.selectedDragCandidate) return;
         this.clearPressTimer();
-        session.rangeActive = true;
-        this.runtime().startRangeSelection(anchorBlock);
+        session.selectedDragReady = true;
     }
 
-    private upgradeRangeToDrag(session: PressSession, input: MoveInput): void {
+    private startRangeSweepIfCurrent(sessionId: string, pointer: Pointer): void {
+        const session = this.pressSession;
+        if (!session || session.sessionId !== sessionId || !samePointer(session.pointer, pointer)) return;
+        this.startRangeSweep(session);
+    }
+
+    private startRangeSweep(session: PressSession): void {
+        if (session.rangeActive) return;
+        this.clearPressTimer();
+        session.rangeActive = true;
+        session.selectedDragReady = false;
+        this.runtime().startRangeSelection(session.anchorBlock, session.selectedBlocksAtPress);
+    }
+
+    private currentSelectedBlocks(): SelectedBlockRange[] {
         const state = this.runtime().state;
-        if (state.type !== 'selecting') return;
-        const selection = state.selection.selection;
-        if (selection.ranges.length === 0) return;
-        this.runtime().beginDrag(
-            session.sessionId,
-            selection,
-            input.point,
-            input.pointer,
-            input.pointer.type,
-            session.releaseCapture,
-        );
+        if (state.type !== 'selecting') return [];
+        return state.selection.selection.ranges.map((range) => ({
+            startLineNumber: range.startLine + 1,
+            endLineNumber: range.endLine + 1,
+        }));
     }
 
     private cancelPress(reason: DragCancelReason, pointerType: string | null): void {
@@ -263,11 +322,14 @@ type PressSession = {
     sessionId: string;
     pointer: Pointer;
     start: Point;
+    anchorBlock: BlockInfo;
     selection: BlockSelection;
     ready: boolean;
-    // True once the long-press fired into range-select submode; subsequent
-    // moves draw the range and a past-threshold move upgrades to a drag.
+    // True while this press is actively drawing/toggling a range.
     rangeActive: boolean;
+    selectedDragCandidate: boolean;
+    selectedDragReady: boolean;
+    selectedBlocksAtPress: SelectedBlockRange[];
     timer: TimerToken | null;
     releaseCapture?: () => void;
 };
@@ -278,4 +340,11 @@ function samePointer(a: Pointer, b: Pointer): boolean {
 
 function distanceBetween(a: Point, b: Point): number {
     return Math.hypot(b.x - a.x, b.y - a.y);
+}
+
+function isBlockSelected(block: BlockInfo, selectedBlocks: SelectedBlockRange[]): boolean {
+    return selectedBlocks.some((selected) => (
+        selected.startLineNumber === block.startLine + 1
+        && selected.endLineNumber === block.endLine + 1
+    ));
 }
