@@ -1,21 +1,35 @@
 import type { Extension } from '@codemirror/state';
 import { EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view';
 import type { DropTarget } from 'md-dragger/domain';
-import type { Transition } from 'md-dragger/runtime';
-import { dragTransitionEffect } from 'md-dragger/adapter/codemirror';
+import type { PipelineResult } from 'md-dragger/runtime';
 
-// Demo-only drop indicator: derives a drop line from the pipeline's drag_over
-// output (broadcast via dragTransitionEffect). The package ships no visuals —
-// this is the playground's own rendering, here as a reference for how a
-// consumer projects the stream.
+// Demo-only drop indicator.
+//
+// Driven by options.onChange from dragRuntime — NOT by dragTransitionEffect.
+// Vite's `conditions: ['source']` can load the adapter twice (source + bundled),
+// which creates two StateEffect identities so effect.is(dragTransitionEffect)
+// never matches. The onChange callback is a plain function reference and
+// cannot dual-instance.
 type IndicatorTarget = {
   target: DropTarget | null;
   targetLineNumber: number;
   allowed: boolean;
 };
 
+type DropIndicatorHost = {
+  consume(outputs: PipelineResult['outputs']): void;
+  destroy(): void;
+};
+
+// Shared sink so mdDragger({ onChange }) can push into the ViewPlugin instance.
+let activeHost: DropIndicatorHost | null = null;
+
+export function dropIndicatorOnChange(result: PipelineResult): void {
+  activeHost?.consume(result.outputs);
+}
+
 export function dropIndicator(): Extension {
-  return ViewPlugin.fromClass(class {
+  return ViewPlugin.fromClass(class implements DropIndicatorHost {
     private readonly indicator: HTMLDivElement;
     private current: IndicatorTarget | null = null;
     private refreshFrame: number | null = null;
@@ -23,24 +37,29 @@ export function dropIndicator(): Extension {
     constructor(private readonly view: EditorView) {
       this.indicator = document.createElement('div');
       this.indicator.className = 'md-dragger-cm-drop-indicator';
+      this.indicator.setAttribute('aria-hidden', 'true');
       this.indicator.hidden = true;
+      // Inline critical styles so the line is visible even if CSS is purged
+      // or not yet applied. Theme CSS can still override via class rules.
+      this.indicator.style.position = 'fixed';
+      this.indicator.style.zIndex = '1000';
+      this.indicator.style.height = '2px';
+      this.indicator.style.pointerEvents = 'none';
+      this.indicator.style.background = 'var(--md-dragger-indicator, #60a5fa)';
+      this.indicator.style.boxShadow = '0 0 0 1px var(--md-dragger-indicator-shadow, rgba(96,165,250,0.35))';
       document.body.appendChild(this.indicator);
+      activeHost = this;
     }
 
     update(update: ViewUpdate): void {
-      for (const transaction of update.transactions) {
-        for (const effect of transaction.effects) {
-          if (effect.is(dragTransitionEffect)) {
-            this.consume(effect.value.outputs);
-          }
-        }
-      }
+      // Geometry-only refresh — pipeline pushes arrive via dropIndicatorOnChange.
       if (update.docChanged || update.geometryChanged || update.viewportChanged) {
         this.scheduleRefresh();
       }
     }
 
     destroy(): void {
+      if (activeHost === this) activeHost = null;
       if (this.refreshFrame !== null) {
         window.cancelAnimationFrame(this.refreshFrame);
         this.refreshFrame = null;
@@ -48,15 +67,22 @@ export function dropIndicator(): Extension {
       this.indicator.remove();
     }
 
-    private consume(outputs: Transition['outputs']): void {
+    consume(outputs: PipelineResult['outputs']): void {
       for (const output of outputs) {
         if (output.type === 'drag_over') {
+          // Still show the line when the drop is rejected (e.g. self-drop) —
+          // the host can style it differently later; hiding it entirely made
+          // the demo look like the indicator was broken.
           this.render({
             target: output.drop.target,
             targetLineNumber: output.drop.target?.targetLineNumber ?? -1,
-            allowed: output.drop.rejectReason == null,
+            allowed: true,
           });
-        } else if (output.type === 'dropped' || output.type === 'cancelled' || output.type === 'terminal') {
+        } else if (
+          output.type === 'dropped'
+          || output.type === 'cancelled'
+          || output.type === 'terminal'
+        ) {
           this.render(null);
         }
       }
@@ -64,7 +90,7 @@ export function dropIndicator(): Extension {
 
     private render(next: IndicatorTarget | null): void {
       this.current = next;
-      if (!next || !next.allowed || next.targetLineNumber < 1) {
+      if (!next || next.targetLineNumber < 1) {
         this.indicator.hidden = true;
         return;
       }
@@ -78,10 +104,13 @@ export function dropIndicator(): Extension {
         return;
       }
 
-      const indentOffset = (next.target?.listIntent?.targetIndentWidth ?? 0) * defaultCharacterWidth(this.view);
+      const indentOffset = (next.target?.listIntent?.targetIndentWidth ?? 0)
+        * defaultCharacterWidth(this.view);
       this.indicator.hidden = false;
       this.indicator.style.left = `${contentRect.left + indentOffset}px`;
-      this.indicator.style.top = `${next.targetLineNumber > this.view.state.doc.lines ? rect.bottom : rect.top}px`;
+      this.indicator.style.top = `${
+        next.targetLineNumber > this.view.state.doc.lines ? rect.bottom : rect.top
+      }px`;
       this.indicator.style.width = `${Math.max(16, contentRect.width - indentOffset)}px`;
     }
 

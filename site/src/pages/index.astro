@@ -98,9 +98,8 @@ import { Badge } from '@/components/ui/badge';
 
     <script>
         import { ink, plugin, pluginTypes } from 'ink-mde';
-        import { mdDragger } from 'md-dragger/adapter/codemirror';
-        import { dropIndicator } from '@/lib/drop-indicator';
-
+        import { demoDraggerExtensions } from '@/lib/editor-bootstrap';
+        
         const sampleDoc = `# Welcome to Dragger
 
 Drag any block by its handle to rearrange content. Try it now!
@@ -150,7 +149,7 @@ $$
             plugins: [
                 plugin({
                     type: pluginTypes.default,
-                    value: () => [...mdDragger(), dropIndicator()],
+                    value: () => demoDraggerExtensions(),
                 }),
             ],
             interface: {

@@ -19,9 +19,12 @@ export {
   EDITOR_CLASS,
   resolveConfig,
   resolveGestureConfig,
+  resolveLocateOptions,
   resolveTabSize,
   type MdDraggerCodeMirrorOptions,
   type HandleOptions,
+  type LocateOptions,
+  type LocateOptionInput,
   type RenderHandle,
 } from './config';
 

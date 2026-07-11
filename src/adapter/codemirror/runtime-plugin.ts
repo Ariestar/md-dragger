@@ -1,7 +1,12 @@
 import type { Extension } from '@codemirror/state';
 import { EditorView, ViewPlugin } from '@codemirror/view';
 import { DraggerRuntime } from '../../runtime';
-import { resolveConfig, resolveGestureConfig, type MdDraggerCodeMirrorOptions } from './config';
+import {
+  resolveConfig,
+  resolveGestureConfig,
+  resolveLocateOptions,
+  type MdDraggerCodeMirrorOptions,
+} from './config';
 import { pointerInput } from './pointer-input';
 import { sourceLineFromInput, resolveDropTarget, lineNumberFromPoint } from './locate';
 import { applyCommit } from './commit';
@@ -15,21 +20,29 @@ export function dragRuntime(options: MdDraggerCodeMirrorOptions = {}): Extension
     private readonly runtime: DraggerRuntime;
 
     constructor(private readonly view: EditorView) {
+      const locateOverride = resolveLocateOptions(options.locate, view);
       this.runtime = new DraggerRuntime({
         input: pointerInput(view),
         document: {
           getDoc: () => view.state.doc,
         },
         locate: {
-          sourceLineFromInput: (input) => sourceLineFromInput(view, input),
-          resolveDropTarget: (point, context) => resolveDropTarget(view, point, context.selection, options),
-          lineFromPoint: (point) => lineNumberFromPoint(view, point),
+          sourceLineFromInput: (input) =>
+            locateOverride?.sourceLineFromInput?.(input)
+            ?? sourceLineFromInput(view, input),
+          resolveDropTarget: (point, context) =>
+            locateOverride?.resolveDropTarget?.(point, context)
+            ?? resolveDropTarget(view, point, context.selection, options),
+          lineFromPoint: (point) =>
+            locateOverride?.lineFromPoint?.(point)
+            ?? lineNumberFromPoint(view, point),
         },
         commit: {
           apply: (commit) => applyCommit(view, commit),
         },
         onChange: (output) => {
           view.dispatch({ effects: dragTransitionEffect.of(output) });
+          options.onChange?.(output);
         },
         config: resolveConfig(options.config),
         gestureConfig: () => resolveGestureConfig(options.gestureConfig) ?? {},

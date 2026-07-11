@@ -1,4 +1,5 @@
-import type { Config, GestureConfig } from '../../runtime';
+import type { EditorView } from '@codemirror/view';
+import type { Config, GestureConfig, LocateHost, PipelineResult } from '../../runtime';
 
 export const HANDLE_CLASS = 'md-dragger-cm-handle';
 export const EDITOR_CLASS = 'md-dragger-cm-editor';
@@ -13,9 +14,25 @@ export type HandleOptions = {
   render?: RenderHandle;
 };
 
+// Host-owned locate overrides. Default adapter only arms on the handle;
+// a consumer (web playground, Obsidian mobile mode, …) can replace
+// sourceLineFromInput / resolveDropTarget without forking the runtime.
+export type LocateOptions = {
+  sourceLineFromInput?: LocateHost['sourceLineFromInput'];
+  resolveDropTarget?: LocateHost['resolveDropTarget'];
+  lineFromPoint?: LocateHost['lineFromPoint'];
+};
+
+// Static overrides, or a factory that closes over the live EditorView
+// (needed for row-as-handle, custom hit-testing, …).
+export type LocateOptionInput = LocateOptions | ((view: EditorView) => LocateOptions);
+
 export type MdDraggerCodeMirrorOptions = {
   config?: Config;
   handle?: HandleOptions;
+  locate?: LocateOptionInput;
+  // Extra host observer for pipeline output (in addition to dragTransitionEffect).
+  onChange?: (result: PipelineResult) => void;
   // Gesture config for the runtime's default ux (long-press ms, thresholds,
   // multi-select toggle). Partial — merged onto the defaults. Omit for defaults.
   gestureConfig?: Partial<GestureConfig> | (() => Partial<GestureConfig>);
@@ -27,6 +44,14 @@ export function resolveConfig(config: Config | undefined) {
 
 export function resolveGestureConfig(gestureConfig: MdDraggerCodeMirrorOptions['gestureConfig']) {
   return typeof gestureConfig === 'function' ? gestureConfig() : gestureConfig;
+}
+
+export function resolveLocateOptions(
+  locate: LocateOptionInput | undefined,
+  view: EditorView,
+): LocateOptions | undefined {
+  if (!locate) return undefined;
+  return typeof locate === 'function' ? locate(view) : locate;
 }
 
 export function resolveTabSize(options: MdDraggerCodeMirrorOptions): number {

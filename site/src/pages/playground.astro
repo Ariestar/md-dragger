@@ -16,7 +16,7 @@ import '@/styles/global.css';
                 <a href="/" class="text-sm text-muted-foreground hover:text-foreground transition-colors">← Back</a>
                 <span class="text-sm font-medium">Dragger Playground</span>
             </div>
-            <span class="text-xs text-muted-foreground">Drag blocks to rearrange</span>
+            <span class="text-xs text-muted-foreground">Handle drag · hold 700ms = multi-select · touch row = arm</span>
         </header>
         <main class="flex-1 overflow-auto">
             <div id="editor" class="h-full w-full"></div>
@@ -25,9 +25,8 @@ import '@/styles/global.css';
 
     <script>
         import { ink, plugin, pluginTypes } from 'ink-mde';
-        import { mdDragger } from 'md-dragger/adapter/codemirror';
-        import { dropIndicator } from '@/lib/drop-indicator';
-
+        import { demoDraggerExtensions } from '@/lib/editor-bootstrap';
+        
         const sampleDoc = `# Dragger Playground
 
 Welcome! This is a full-screen editor with drag & drop enabled. Grab any block by its left-edge handle and move it.
@@ -93,7 +92,9 @@ $$
 
 ## Multi-block Selection
 
-Long-press a handle to enter multi-block selection mode. Then click additional handles to select more blocks and move them all together.
+Desktop: drag a handle to move; hold ~700ms on a handle to enter multi-select, then drag to sweep more blocks.
+
+Mobile: touch a row to arm (row-as-handle). Short release is a no-op here; hold to drag; longer hold enters multi-select.
 
 ## Cross-file Drag
 
@@ -109,7 +110,7 @@ That's it! Try rearranging this document to see how it feels.
             plugins: [
                 plugin({
                     type: pluginTypes.default,
-                    value: () => [...mdDragger(), dropIndicator()],
+                    value: () => demoDraggerExtensions(),
                 }),
             ],
             interface: {
