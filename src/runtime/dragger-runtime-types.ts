@@ -59,13 +59,6 @@ export type CancelInput = {
     releaseCapture?: () => void;
 };
 
-export type SelectionChangeInput = {
-    point?: Point;
-    lineNumber?: number;
-    native?: unknown;
-    claim?: () => void;
-};
-
 export type InputSource = {
     onPress: (handler: (input: PressInput) => void) => Disposable;
     onMove: (handler: (input: MoveInput) => void) => Disposable;
@@ -77,10 +70,8 @@ export type InputSource = {
 // --- document axis (host -> rt, pull, read-only) ---
 
 export type DocumentHost = {
-    // The source document a drag originates from — the runtime's home doc.
-    // The target document is NOT resolved here: it rides on each DropTarget
-    // the locate axis produces, so cross-document drops need no extra host
-    // method and no opt-in flag.
+    // Source document a drag originates from. Target docs ride on each
+    // DropTarget from the locate axis — no separate host method needed.
     getDoc(): Doc;
 };
 
@@ -89,24 +80,21 @@ export type DocumentHost = {
 export type LocateHost = {
     sourceLineFromInput(input: PressInput): number | null;
     resolveDropTarget(point: Point, context: { selection: BlockSelection }): DropTarget | null;
-    // Map a live pointer position to a 1-indexed line number. Used by the
-    // default gesture stage to drive range-select drawing from pointer moves.
-    // Optional: a host that drives selection_change explicitly (via a custom
-    // gesture stage passing lineNumber) can omit it.
+    // Map a live pointer position to a 1-indexed line number (DefaultUx range-select).
     lineFromPoint?(point: Point): number | null;
 };
 
-// --- commit axis (rt -> host, hands back the edits to land) ---
+// --- commit axis (rt -> host) ---
 
-// Re-exported so a CommitHost implementer gets the edit type from the same
-// place as CommitHost itself.
 export type { DocEdit } from '../domain/transaction/block-transaction';
 
-// One DocEdit per affected document: a single edit for an in-file drop, two
-// (source deletes, target inserts) for a cross-file drop. The host iterates
-// and routes each to the view owning its doc — same shape either way.
+// apply (default): runtime plans the move, emits platform_commit, then calls apply(edits).
+// command: runtime plans the move, emits command_ready + dropped, does not mutate the doc.
+// Hosts that own their own transaction/history system use command mode and apply from
+// the command_ready output.
 export type CommitHost = {
-    apply(edits: DocEdit[]): void;
+    mode?: 'apply' | 'command';
+    apply?(edits: DocEdit[]): void;
 };
 
 // --- config ---
@@ -115,29 +103,14 @@ export type ResolvedConfig = {
     tabSize: number;
 };
 
-// A single `Config` that accepts either a partial object or a thunk; the
-// runtime resolves it against defaults internally.
 export type Config = Partial<ResolvedConfig> | (() => Partial<ResolvedConfig>);
 
-// Gesture-recognition knobs for the default ux. These are NOT runtime-core
-// concerns — the runtime is a platform-agnostic semantic orchestrator. They
-// configure DefaultUx (the runtime's default gesture stage); a custom Ux may
-// ignore them entirely. Declared here so the runtime re-exports the type
-// alongside the other public types.
+// Gesture knobs for DefaultUx only. Runtime core is platform-agnostic; a custom
+// Ux may ignore these entirely.
 export type GestureConfig = {
-    // Hold a handle this long before promoting the press. When multiSelectEnabled
-    // is on, the long-press enters range-select submode; otherwise it promotes to
-    // ready-to-drag (single-block drag). 0 = promote synchronously.
     longPressMs: number;
-    // Pointer must move at least this far to start dragging (or to upgrade a
-    // drawn range into a multi-block drag).
     dragStartMoveThresholdPx: number;
-    // While still waiting for the long-press, moving more than this cancels the
-    // press (treats it as a jitter/scroll, not a drag intent).
     dragCancelMoveThresholdPx: number;
-    // When true, long-press on a handle enters range-select submode (draw a
-    // multi-block range, then drag the whole range). When false, long-press goes
-    // straight to ready-to-drag (single-block drag).
     multiSelectEnabled: boolean;
 };
 
@@ -150,16 +123,11 @@ export const DEFAULT_GESTURE_CONFIG: ResolvedGestureConfig = {
     multiSelectEnabled: false,
 };
 
-// Injected timers, so the default ux's long-press timer is testable and
-// destroyable rather than reaching for window.setTimeout directly.
 export type SchedulerHost = {
     setTimer(callback: () => void, delayMs: number): TimerToken;
     clearTimer(token: TimerToken): void;
 };
 
-// A ux stage. The runtime ships a default (DefaultUx); a host that wants a
-// different gesture model supplies its own. factory form lets the ux close over
-// the runtime controller it will drive.
 export type UxFactory = (controller: import('./dragger-runtime').RuntimeController) => Ux;
 
 export type Ux = {
@@ -167,29 +135,19 @@ export type Ux = {
     destroy(): void;
 };
 
-// --- runtime options: IO axes ---
+// Full pipeline transition: previous/current state + outputs + triggering event.
+// This is the runtime's primary observation surface — not a second event system.
+export type PipelineResult = Change;
 
 export type RuntimeOptions = {
-    // Raw pointer source — consumed by the ux stage (default or custom), which
-    // turns pointer events into semantic commands on the runtime.
     input: InputSource;
     document: DocumentHost;
     locate: LocateHost;
     commit: CommitHost;
-    // Broadcast hook: every pipeline change (state transition + the event
-    // that triggered it + outputs) is delivered here. This is the platform's
-    // observation point — it projects ux (drop preview, selection highlight,
-    // handle-tap, …) from `output`. Shallow: observe + derive, not intercept.
-    onChange?(output: Change): void;
+    // Primary output. Every pipeline.enter result lands here intact.
+    onChange?(result: PipelineResult): void;
     config?: Config;
-    // Gesture config for DefaultUx. Partial — the runtime merges it onto the
-    // defaults. Ignored when `ux` is supplied.
     gestureConfig?: Partial<GestureConfig> | (() => Partial<GestureConfig>);
-    // Timers for DefaultUx. Defaults to window.setTimeout/clearTimeout.
     scheduler?: SchedulerHost;
-    // Custom ux stage. When omitted, the runtime uses DefaultUx (which needs
-    // `input`, `locate.sourceLineFromInput`, `locate.lineFromPoint`, `document`,
-    // `gestureConfig` and `scheduler`).
     ux?: UxFactory;
 };
-

@@ -1,6 +1,7 @@
 import { detectBlock } from '../domain/block/block-detector';
 import type { BlockInfo } from '../domain/block/block-types';
 import type { DropTarget } from '../domain/command/drop-target';
+import { createMoveCommand } from '../domain/command/move-command';
 import { createSingleBlockSelection, type BlockSelection } from '../domain/selection/block-selection';
 import type { SelectedBlockRange } from '../domain/selection/block-ranges';
 import { buildSelectedBlockRangeFromBlockInfo, type RangeSelectionBoundary, type RangeSelectionBoundaryResolver } from '../domain/selection/range-selection';
@@ -14,7 +15,14 @@ import { DragPipeline } from '../pipeline/drag-pipeline';
 import type { DragDropSnapshot, DropResolution } from '../pipeline/pipeline-drop';
 import type { DragCancelReason } from '../pipeline/pipeline-event';
 import type { PipelineState } from '../pipeline/pipeline-state';
-import { type Point, type Pointer, type ResolvedConfig, type RuntimeOptions, type Ux } from './dragger-runtime-types';
+import {
+    type Point,
+    type Pointer,
+    type ResolvedConfig,
+    type RuntimeOptions,
+    type Ux,
+    DEFAULT_GESTURE_CONFIG,
+} from './dragger-runtime-types';
 import { DefaultUx } from './default-ux';
 
 const DEFAULT_CONFIG: ResolvedConfig = {
@@ -29,17 +37,12 @@ type ActiveDragSession = {
     releaseCapture?: () => void;
 };
 
-// The semantic command surface a gesture stage (or any host) drives the runtime
-// through. The runtime is platform-agnostic: it never sees raw pointers, timers
-// or pixel thresholds — those live in the gesture stage. Every method below is
-// a semantic transition; the runtime owns pipeline ordering, drop planning and
-// commit, nothing else.
+// Semantic command surface a gesture stage drives. No raw pointers, timers, or
+// pixel thresholds — those live in the Ux. Runtime owns pipeline ordering,
+// drop planning, and commit routing.
 export type RuntimeController = {
     readonly state: PipelineState;
     isGestureActive(): boolean;
-    // Allocate a session id. Kept on the runtime so session numbering is
-    // centralized; the gesture stage borrows it to thread one gesture through
-    // beginHold/beginDrag/commitDrop.
     createSessionId(): string;
     beginHold(sessionId: string, selection: BlockSelection, pointerType: string | null): void;
     markHoldReady(sessionId: string, pointerType: string | null): void;
@@ -49,9 +52,6 @@ export type RuntimeController = {
     startRangeSelection(block: BlockInfo, selectedBlocks?: SelectedBlockRange[]): void;
     extendSelection(lineNumber: number): void;
     finishSelection(): void;
-    // Resolve a block at a line and enter range-select there. Semantic entry
-    // for hosts whose gesture does not start from a pointer press (e.g. a
-    // mobile toolbar command). Equivalent to detectBlock + startRangeSelection.
     enterRangeSelectionMode(anchorLine: number): void;
     cancel(reason: DragCancelReason, pointerType: string | null): void;
     clearSelectionOrCancel(): void;
@@ -60,15 +60,18 @@ export type RuntimeController = {
 };
 
 export class DraggerRuntime implements RuntimeController {
-    private readonly pipeline: DragPipeline = new DragPipeline({
-        onChange: (output) => this.handleChange(output),
-    });
+    private readonly pipeline: DragPipeline;
     private activeDragSession: ActiveDragSession | null = null;
     private mounted = false;
     private nextSessionNumber = 1;
     private ux: Ux | null = null;
 
-    constructor(private readonly options: RuntimeOptions) {}
+    constructor(private readonly options: RuntimeOptions) {
+        // Wire pipeline output straight to the host — no second event system.
+        this.pipeline = new DragPipeline({
+            onChange: (result) => this.options.onChange?.(result),
+        });
+    }
 
     get state(): PipelineState {
         return this.pipeline.state;
@@ -84,35 +87,9 @@ export class DraggerRuntime implements RuntimeController {
     destroy(): void {
         this.ux?.destroy();
         this.ux = null;
-        this.activeDragSession?.releaseCapture?.();
-        this.activeDragSession = null;
+        this.endDragSession();
         this.pipeline.clear();
         this.mounted = false;
-    }
-
-    private buildUx(): Ux {
-        if (this.options.ux) return this.options.ux(this);
-        const scheduler = this.options.scheduler ?? {
-            setTimer: (cb, ms) => setTimeout(cb, ms),
-            clearTimer: (token) => clearTimeout(token),
-        };
-        return new DefaultUx({
-            input: this.options.input,
-            runtime: this,
-            getDoc: () => this.options.document.getDoc(),
-            sourceLineFromInput: (input) => this.options.locate.sourceLineFromInput(input),
-            lineFromPoint: (point) => this.options.locate.lineFromPoint?.(point) ?? null,
-            tabSize: this.config().tabSize,
-            gestureConfig: () => this.resolveGestureConfig(),
-            scheduler,
-        });
-    }
-
-    private resolveGestureConfig(): import('./dragger-runtime-types').GestureConfig {
-        const raw = typeof this.options.gestureConfig === 'function'
-            ? this.options.gestureConfig()
-            : this.options.gestureConfig;
-        return { longPressMs: 250, dragStartMoveThresholdPx: 4, dragCancelMoveThresholdPx: 12, multiSelectEnabled: false, ...raw };
     }
 
     guardUnavailable(guardId: string): void {
@@ -127,7 +104,11 @@ export class DraggerRuntime implements RuntimeController {
         return this.activeDragSession !== null;
     }
 
-    // --- semantic command surface ---
+    createSessionId(): string {
+        const sessionId = `runtime-${this.nextSessionNumber}`;
+        this.nextSessionNumber += 1;
+        return sessionId;
+    }
 
     beginHold(sessionId: string, selection: BlockSelection, pointerType: string | null): void {
         this.pipeline.enter({ type: 'hold_start', sessionId, selection, pointerType });
@@ -139,8 +120,15 @@ export class DraggerRuntime implements RuntimeController {
         this.pipeline.enter({ type: 'hold_ready', sessionId, pointerType });
     }
 
-    beginDrag(sessionId: string, selection: BlockSelection, point: Point, pointer: Pointer, pointerType: string | null, releaseCapture?: () => void): void {
-        this.activeDragSession?.releaseCapture?.();
+    beginDrag(
+        sessionId: string,
+        selection: BlockSelection,
+        point: Point,
+        pointer: Pointer,
+        pointerType: string | null,
+        releaseCapture?: () => void,
+    ): void {
+        this.endDragSession();
         const target = this.resolveTarget(point, selection);
         this.activeDragSession = { sessionId, pointer, selection, target, releaseCapture };
         this.pipeline.enter({
@@ -166,38 +154,57 @@ export class DraggerRuntime implements RuntimeController {
     commitDrop(sessionId: string, point: Point, pointer: Pointer, pointerType: string | null): void {
         const drag = this.activeDragSession;
         if (!drag || drag.sessionId !== sessionId || !samePointer(drag.pointer, pointer)) return;
+
         drag.target = this.resolveTarget(point, drag.selection);
         const dropSnapshot = this.buildDropSnapshot(drag.selection, drag.target);
         const planned = this.plan(drag.selection, drag.target);
-        if (planned.type === 'ok' && drag.target) {
-            const edits = moveTx({ sourceDoc: this.options.document.getDoc(), plan: planned.value });
-            if (!Array.isArray(edits)) {
-                this.pipeline.enter({
-                    type: 'drop',
-                    sessionId: drag.sessionId,
-                    resolution: this.cancelDrop(dropSnapshot, edits.reason),
-                    pointerType,
-                });
-                this.activeDragSession = null;
-                return;
-            }
+
+        if (planned.type !== 'ok' || !drag.target) {
             this.pipeline.enter({
                 type: 'drop',
                 sessionId: drag.sessionId,
-                resolution: { type: 'platform_commit', drop: dropSnapshot },
+                resolution: this.cancelDrop(dropSnapshot, planned.type === 'ok' ? 'no_target' : planned.reason),
                 pointerType,
             });
-            this.activeDragSession = null;
-            this.options.commit.apply(edits);
+            this.endDragSession();
             return;
         }
+
+        if (this.commitMode() === 'command') {
+            this.pipeline.enter({
+                type: 'drop',
+                sessionId: drag.sessionId,
+                resolution: {
+                    type: 'command',
+                    command: createMoveCommand(drag.selection, drag.target),
+                    drop: dropSnapshot,
+                },
+                pointerType,
+            });
+            this.endDragSession();
+            return;
+        }
+
+        const edits = moveTx({ sourceDoc: this.options.document.getDoc(), plan: planned.value });
+        if (!Array.isArray(edits)) {
+            this.pipeline.enter({
+                type: 'drop',
+                sessionId: drag.sessionId,
+                resolution: this.cancelDrop(dropSnapshot, edits.reason),
+                pointerType,
+            });
+            this.endDragSession();
+            return;
+        }
+
         this.pipeline.enter({
             type: 'drop',
             sessionId: drag.sessionId,
-            resolution: this.cancelDrop(dropSnapshot, planned.type === 'ok' ? 'no_target' : planned.reason),
+            resolution: { type: 'platform_commit', drop: dropSnapshot },
             pointerType,
         });
-        this.activeDragSession = null;
+        this.endDragSession();
+        this.options.commit.apply?.(edits);
     }
 
     startRangeSelection(block: BlockInfo, selectedBlocks: SelectedBlockRange[] = []): void {
@@ -247,8 +254,7 @@ export class DraggerRuntime implements RuntimeController {
 
     cancel(reason: DragCancelReason = 'press_cancelled', pointerType: string | null = null): void {
         const sessionId = this.activeDragSession?.sessionId;
-        this.activeDragSession?.releaseCapture?.();
-        this.activeDragSession = null;
+        this.endDragSession();
         this.pipeline.enter({ type: 'cancel', sessionId, reason, pointerType });
     }
 
@@ -262,13 +268,45 @@ export class DraggerRuntime implements RuntimeController {
 
     // --- internals ---
 
-    private resolveTarget(point: Point, selection: BlockSelection): DropTarget | null {
-        const target = this.options.locate.resolveDropTarget(point, { selection });
-        if (target) return this.clampTarget(target);
-        return null;
+    private buildUx(): Ux {
+        if (this.options.ux) return this.options.ux(this);
+        const scheduler = this.options.scheduler ?? {
+            setTimer: (cb, ms) => setTimeout(cb, ms),
+            clearTimer: (token) => clearTimeout(token),
+        };
+        return new DefaultUx({
+            input: this.options.input,
+            runtime: this,
+            getDoc: () => this.options.document.getDoc(),
+            sourceLineFromInput: (input) => this.options.locate.sourceLineFromInput(input),
+            lineFromPoint: (point) => this.options.locate.lineFromPoint?.(point) ?? null,
+            tabSize: this.config().tabSize,
+            gestureConfig: () => this.resolveGestureConfig(),
+            scheduler,
+        });
     }
 
-    private clampTarget(target: DropTarget): DropTarget {
+    private resolveGestureConfig() {
+        const raw = typeof this.options.gestureConfig === 'function'
+            ? this.options.gestureConfig()
+            : this.options.gestureConfig;
+        return { ...DEFAULT_GESTURE_CONFIG, ...raw };
+    }
+
+    private commitMode(): 'apply' | 'command' {
+        return this.options.commit.mode === 'command' ? 'command' : 'apply';
+    }
+
+    // Every terminal drag path (success, reject, cancel, destroy, re-begin) must
+    // release pointer capture. Capture is stored on the session at beginDrag.
+    private endDragSession(): void {
+        this.activeDragSession?.releaseCapture?.();
+        this.activeDragSession = null;
+    }
+
+    private resolveTarget(point: Point, selection: BlockSelection): DropTarget | null {
+        const target = this.options.locate.resolveDropTarget(point, { selection });
+        if (!target) return null;
         return {
             ...target,
             targetLineNumber: Math.max(1, Math.min(target.targetDoc.lines + 1, target.targetLineNumber)),
@@ -289,7 +327,7 @@ export class DraggerRuntime implements RuntimeController {
 
     private moveDeps(
         doc: ReturnType<RuntimeOptions['document']['getDoc']>,
-        lineParsing: ReturnType<typeof createLineParsingContext>
+        lineParsing: ReturnType<typeof createLineParsingContext>,
     ): MoveDeps {
         return {
             tabSize: this.config().tabSize,
@@ -331,12 +369,6 @@ export class DraggerRuntime implements RuntimeController {
         };
     }
 
-    createSessionId(): string {
-        const sessionId = `runtime-${this.nextSessionNumber}`;
-        this.nextSessionNumber += 1;
-        return sessionId;
-    }
-
     private currentSelection(): BlockSelection | null {
         const state = this.pipeline.state;
         if (state.type !== 'selecting') return null;
@@ -363,10 +395,6 @@ export class DraggerRuntime implements RuntimeController {
                 endLineNumber: lineNumber,
             };
         };
-    }
-
-    private handleChange(output: ReturnType<DragPipeline['enter']>): void {
-        this.options.onChange?.(output);
     }
 
     private config(): ResolvedConfig {
