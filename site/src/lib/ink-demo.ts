@@ -1,15 +1,16 @@
 import { ink, plugin, pluginTypes, type Options } from 'ink-mde';
 import { demoDraggerExtensions } from './editor-bootstrap';
+import { tableAndRulePreview } from './table-hr-preview';
 
 // Website editor mount.
 //
-// Root cause of missing math: ink-mde ships katex() in its default plugins, but
-// filterPlugins only loads plugins whose `key` is truthy on options. The default
-// is katex: false, so math never activates. Setting katex: true is enough.
+// Math: ink-mde's katex plugins are gated on options.katex (default false).
+// Table/HR: host-owned text-scan preview (table-hr-preview), registered as its
+// own default plugin so it is not buried inside a nested Extension[] from
+// the dragger bootstrap.
 //
-// Root cause of wiping math: passing plugins: [dragger] replaces the whole
-// default array (deep-assign replaces arrays). Mount with defaults first, then
-// reconfigure to append the dragger extension.
+// plugins: [...] replaces the whole default array — mount with katex defaults
+// first, then reconfigure to append host plugins.
 export type DemoEditorOptions = {
   doc: string;
   ink?: Options;
@@ -41,6 +42,10 @@ export async function mountDemoEditor(
     katex: true,
     plugins: [
       ...current.plugins,
+      plugin({
+        type: pluginTypes.default,
+        value: () => tableAndRulePreview(),
+      }),
       plugin({
         type: pluginTypes.default,
         value: () => demoDraggerExtensions(),

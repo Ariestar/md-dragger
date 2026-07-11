@@ -1,5 +1,9 @@
-import { StateField, type EditorState, type Extension, type Range } from '@codemirror/state';
-import { syntaxTree } from '@codemirror/language';
+import {
+  StateField,
+  type EditorState,
+  type Extension,
+  type Range,
+} from '@codemirror/state';
 import {
   Decoration,
   EditorView,
@@ -7,9 +11,13 @@ import {
   type DecorationSet,
 } from '@codemirror/view';
 
-// Preview for GFM Table / HorizontalRule.
-// StateField rebuilds on reconfigure (language load) — same as ink-mde katex.
-// A ViewPlugin that only watched docChanged stayed empty after grammar load.
+// Host-owned table / HR preview for the rich-text demo.
+//
+// Does NOT use syntaxTree. ink-mde and the site can end up with different
+// @codemirror/language copies under Vite; syntaxTree() then sees an empty tree
+// while ink-mde's own katex widgets (same copy as the language) still work.
+// Scanning the doc text is the reliable host path — same visual idea as math:
+// rendered block above, source lines dimmed below.
 
 export function tableAndRulePreview(): Extension {
   return [tableHrField, theme];
@@ -18,7 +26,7 @@ export function tableAndRulePreview(): Extension {
 const tableHrField = StateField.define<DecorationsSet>({
   create: (state) => build(state),
   update(deco, tr) {
-    if (tr.docChanged || tr.reconfigured) return build(tr.state);
+    if (tr.docChanged) return build(tr.state);
     return deco;
   },
   provide: (f) => EditorView.decorations.from(f),
@@ -26,52 +34,74 @@ const tableHrField = StateField.define<DecorationsSet>({
 
 function build(state: EditorState): DecorationSet {
   const out: Range<Decorations>[] = [];
+  const lines = state.doc;
+  let i = 1;
 
-  syntaxTree(state).iterate({
-    enter(node) {
-      if (node.name === 'Table') {
+  while (i <= lines.lines) {
+    const line = lines.line(i);
+    const text = line.text.trim();
+
+    if (isHorizontalRule(text)) {
+      out.push(
+        Decrations.widget({
+          widget: new RuleWidget(),
+          block: true,
+          side: -1,
+        }).range(line.from),
+      );
+      out.push(Decorations.line({ class: 'md-rule-source' }).range(line.from));
+      i += 1;
+      continue;
+    }
+
+    if (isTableRow(text) && i + 1 <= lines.lines) {
+      const next = lines.line(i + 1).text.trim();
+      if (isAlignRow(next)) {
+        const start = i;
+        let end = i + 1;
+        while (end + 1 <= lines.lines && isTableRow(lines.line(end + 1).text.trim())) {
+          end += 1;
+        }
+        const from = lines.line(start).from;
+        const to = lines.line(end).to;
+        const source = state.doc.sliceString(from, to);
         out.push(
           Decrations.widget({
-            widget: new TableWidget(state.doc.sliceString(node.from, node.to)),
+            widget: new TableWidget(source),
             block: true,
             side: -1,
-          }).range(node.from),
+          }).range(from),
         );
-        markSourceLines(state, node.from, node.to, 'md-table-source', out);
-        return false;
+        for (let n = start; n <= end; n += 1) {
+          out.push(
+            Decorations.line({ class: 'md-table-source' }).range(lines.line(n).from),
+          );
+        }
+        i = end + 1;
+        continue;
       }
-      if (node.name === 'HorizontalRule') {
-        out.push(
-          Decrations.widget({
-            widget: new RuleWidget(),
-            block: true,
-            side: -1,
-          }).range(node.from),
-        );
-        markSourceLines(state, node.from, node.to, 'md-rule-source', out);
-        return false;
-      }
-    },
-  });
+    }
+
+    i += 1;
+  }
 
   out.sort((a, b) => a.from - b.from || a.value.startSide - b.value.startSide);
-  return Decoration.set(out, true);
+  return Decrations.set(out, true);
 }
 
-function markSourceLines(
-  state: EditorState,
-  from: number,
-  to: number,
-  className: string,
-  out: Range<Decorations>[],
-): void {
-  let pos = from;
-  while (pos < to) {
-    const line = state.doc.lineAt(pos);
-    out.push(Decorations.line({ class: className }).range(line.from));
-    if (line.to >= state.doc.length) break;
-    pos = line.to + 1;
-  }
+function isHorizontalRule(text: string): boolean {
+  // --- or *** or ___ (optional spaces), not a table separator
+  return /^(?:-{3,}|\*{3,}|_{3,})$/.test(text);
+}
+
+function isTableRow(text: string): boolean {
+  return text.includes('|') && !isAlignRow(text);
+}
+
+function isAlignRow(text: string): boolean {
+  if (!text.includes('-')) return false;
+  const parts = splitCells(text);
+  return parts.length > 0 && parts.every((c) => /^:?-{3,}:?$/.test(c.trim()));
 }
 
 type Align = 'left' | 'center' | 'right';
@@ -89,19 +119,19 @@ class TableWidget extends WidgetType {
     wrap.contentEditable = 'false';
     const table = document.createElement('table');
 
-    const lines = this.source.split('\n').map((l) => l.trim()).filter(Boolean);
+    const rows = this.source.split('\n').map((l) => l.trim()).filter(Boolean);
     let aligns: Align[] = [];
     let body = false;
 
-    for (const line of lines) {
-      if (isAlignRow(line)) {
-        aligns = parseAligns(line);
+    for (const row of rows) {
+      if (isAlignRow(row)) {
+        aligns = parseAligns(row);
         body = true;
         continue;
       }
       const tr = document.createElement('tr');
       const tag = body ? 'td' : 'th';
-      splitCells(line).forEach((cell, i) => {
+      splitCells(row).forEach((cell, i) => {
         const el = document.createElement(tag);
         el.textContent = cell.trim();
         const align = aligns[i] ?? 'left';
@@ -133,11 +163,6 @@ class RuleWidget extends WidgetType {
   ignoreEvent() {
     return true;
   }
-}
-
-function isAlignRow(line: string): boolean {
-  const parts = splitCells(line);
-  return parts.length > 0 && parts.every((c) => /^:?-{3,}:?$/.test(c.trim()));
 }
 
 function parseAligns(line: string): Align[] {
