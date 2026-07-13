@@ -2,135 +2,115 @@ import type { Doc } from './document-types';
 import type { LineMap } from './line-map';
 import { getLineMetaAt, getNearestListLineAtOrBefore } from './line-map';
 
-// List drop-intent resolution — pure document/column-space logic.
-//
-// No DOM, no CodeMirror, no pixel coordinates from the host. The adapter
-// layer translates pointer pixels into `cursorOffsetColumns` (how many
-// columns the cursor sits from the list marker) and `indentUnit` (columns
-// per indent step); this module then decides child / sibling / outdent by
-// projecting candidate slots in column space and picking the nearest.
+// List drop intent — pure column-space logic.
+// Adapter measures pixels into `offset` + `indentUnit`;
+// this module picks nearest child / sibling / outdent slot.
 
 export type ListIntentMode = 'child' | 'sibling' | 'outdent';
 
 export type ListIntent = {
-    mode: ListIntentMode;
-    contextLineNumber: number;
-    targetIndentWidth: number;
+  mode: ListIntentMode;
+  contextLineNumber: number;
+  targetIndentWidth: number;
 };
 
 export type ComputeListIntentParams = {
-    doc: Doc;
-    lineMap: LineMap;
-    referenceLineNumber: number;
-    /** Cursor position in columns relative to the reference line's marker start. */
-    cursorOffsetColumns: number;
-    /** Columns per indent step (from getIndentUnitWidthForDoc / column pixels). */
-    indentUnit: number;
-    allowChild: boolean;
+  doc: Doc;
+  lineMap: LineMap;
+  /** List line used as the indent baseline. */
+  refLine: number;
+  /** Columns relative to that line's marker start. */
+  offset: number;
+  /** Columns per indent step (host config listIndentUnit). */
+  indentUnit: number;
+  allowChild: boolean;
 };
 
-// Decide list intent by nearest-slot projection.
-//
-// Slots (all in columns relative to the reference marker):
-//   - same:    offset 0,                 indent = baseIndent,        mode sibling
-//   - child:   offset +indentUnit,       indent = baseIndent + unit, mode child   (if allowChild)
-//   - ancestor offsets (baseIndent - ancestorIndent) to the left, each mode outdent,
-//     pointing at the ancestor line with the ancestor's indent.
-//
-// Returns null if the reference line isn't a list item.
+// Slots (columns relative to the reference marker):
+//   sibling  offset 0
+//   child    offset +indentUnit   (if allowChild)
+//   outdent  offset -(base - ancestor) for each ancestor
 export function computeListIntent(params: ComputeListIntentParams): ListIntent | null {
-    const { doc, lineMap, referenceLineNumber, cursorOffsetColumns, indentUnit, allowChild } = params;
-    if (referenceLineNumber < 1 || referenceLineNumber > doc.lines) return null;
+  const { doc, lineMap, refLine, offset, indentUnit, allowChild } = params;
+  if (refLine < 1 || refLine > doc.lines) return null;
 
-    const baseIndent = listIndentWidthAtLine(lineMap, referenceLineNumber);
-    if (baseIndent === undefined) return null;
+  const baseIndent = listIndent(lineMap, refLine);
+  if (baseIndent === undefined) return null;
 
-    type Slot = { offset: number; line: number; indent: number; mode: ListIntentMode };
-    const slots: Slot[] = [];
+  type Slot = { offset: number; line: number; indent: number; mode: ListIntentMode };
+  const slots: Slot[] = [
+    { offset: 0, line: refLine, indent: baseIndent, mode: 'sibling' },
+  ];
 
-    slots.push({ offset: 0, line: referenceLineNumber, indent: baseIndent, mode: 'sibling' });
+  if (allowChild) {
+    slots.push({
+      offset: indentUnit,
+      line: refLine,
+      indent: baseIndent + indentUnit,
+      mode: 'child',
+    });
+  }
 
-    if (allowChild) {
-        const childIndent = baseIndent + indentUnit;
-        slots.push({ offset: indentUnit, line: referenceLineNumber, indent: childIndent, mode: 'child' });
+  for (const ancestor of listAncestors(doc, refLine, lineMap)) {
+    if (ancestor === refLine) continue;
+    const ancestorIndent = listIndent(lineMap, ancestor);
+    if (ancestorIndent === undefined || ancestorIndent >= baseIndent) continue;
+    slots.push({
+      offset: -(baseIndent - ancestorIndent),
+      line: ancestor,
+      indent: ancestorIndent,
+      mode: 'outdent',
+    });
+  }
+
+  let best = slots[0];
+  let bestDist = Math.abs(offset - best.offset);
+  for (let i = 1; i < slots.length; i++) {
+    const dist = Math.abs(offset - slots[i].offset);
+    if (dist < bestDist) {
+      best = slots[i];
+      bestDist = dist;
     }
+  }
 
-    for (const ancestorLine of getListAncestorLineNumbers(doc, referenceLineNumber, lineMap)) {
-        if (ancestorLine === referenceLineNumber) continue;
-        const ancestorIndent = listIndentWidthAtLine(lineMap, ancestorLine);
-        if (ancestorIndent === undefined || ancestorIndent >= baseIndent) continue;
-        const offset = -(baseIndent - ancestorIndent);
-        slots.push({ offset, line: ancestorLine, indent: ancestorIndent, mode: 'outdent' });
-    }
-
-    let best = slots[0];
-    let bestDist = Math.abs(cursorOffsetColumns - best.offset);
-    for (let i = 1; i < slots.length; i++) {
-        const dist = Math.abs(cursorOffsetColumns - slots[i].offset);
-        if (dist < bestDist) {
-            best = slots[i];
-            bestDist = dist;
-        }
-    }
-
-    return {
-        mode: best.mode,
-        contextLineNumber: best.line,
-        targetIndentWidth: best.indent,
-    };
+  return {
+    mode: best.mode,
+    contextLineNumber: best.line,
+    targetIndentWidth: best.indent,
+  };
 }
 
-// Find the list subtree root at or above `lineNumber` (the reference line for
-// intent resolution). Walks listSubtreeEndLine up via listParentLine.
-export function resolveReferenceListLineNumber(lineNumber: number, lineMap: LineMap): number | null {
-    const nearestListLine = getNearestListLineAtOrBefore(lineMap, lineNumber);
-    if (nearestListLine === null) return null;
-    let cursor = nearestListLine;
-    while (cursor > 0) {
-        const subtreeEnd = lineMap.listSubtreeEndLine[cursor];
-        if (subtreeEnd >= lineNumber) {
-            return cursor;
-        }
-        cursor = lineMap.listParentLine[cursor];
-    }
-    return null;
+/** Ancestor list lines above `line` (enclosing items, root last). */
+export function listAncestors(doc: Doc, line: number, lineMap: LineMap): number[] {
+  const result: number[] = [];
+  const clamped = Math.max(1, Math.min(line, doc.lines));
+  let cursor = subtreeRoot(clamped, lineMap);
+  while (cursor !== null && cursor > 0) {
+    result.push(cursor);
+    const parent = lineMap.listParentLine[cursor];
+    cursor = parent > 0 ? parent : null;
+  }
+  return result;
 }
 
-// Ancestor list lines above `lineNumber` (the chain of enclosing list items).
-export function getListAncestorLineNumbers(doc: Doc, lineNumber: number, lineMap: LineMap): number[] {
-    const result: number[] = [];
-    const clamped = Math.max(1, Math.min(lineNumber, doc.lines));
-    let cursor = resolveReferenceListLineNumber(clamped, lineMap);
-    while (cursor !== null && cursor > 0) {
-        result.push(cursor);
-        const parent = lineMap.listParentLine[cursor];
-        cursor = parent > 0 ? parent : null;
-    }
-    return result;
+/** List subtree root covering `line` (or nearest list above). */
+export function listRoot(line: number, lineMap: LineMap): number | null {
+  return subtreeRoot(line, lineMap);
 }
 
-// Find the nearest ancestor list line whose indent equals `targetIndent`.
-// Used to locate the highlight/anchor line for an outdent target.
-export function findParentLineNumberByIndent(
-    doc: Doc,
-    startLineNumber: number,
-    targetIndent: number,
-    lineMap: LineMap
-): number | null {
-    const clamped = Math.max(1, Math.min(startLineNumber, doc.lines));
-    let cursor = resolveReferenceListLineNumber(clamped, lineMap);
-    while (cursor !== null && cursor > 0) {
-        const indent = listIndentWidthAtLine(lineMap, cursor);
-        if (indent === targetIndent) return cursor;
-        if (indent !== undefined && indent < targetIndent) break;
-        const parent = lineMap.listParentLine[cursor];
-        cursor = parent > 0 ? parent : null;
-    }
-    return null;
+function subtreeRoot(line: number, lineMap: LineMap): number | null {
+  const nearest = getNearestListLineAtOrBefore(lineMap, line);
+  if (nearest === null) return null;
+  let cursor = nearest;
+  while (cursor > 0) {
+    if (lineMap.listSubtreeEndLine[cursor] >= line) return cursor;
+    cursor = lineMap.listParentLine[cursor];
+  }
+  return null;
 }
 
-function listIndentWidthAtLine(lineMap: LineMap, lineNumber: number): number | undefined {
-    const meta = getLineMetaAt(lineMap, lineNumber);
-    if (!meta || !meta.isList) return undefined;
-    return meta.indentWidth;
+function listIndent(lineMap: LineMap, line: number): number | undefined {
+  const meta = getLineMetaAt(lineMap, line);
+  if (!meta || !meta.isList) return undefined;
+  return meta.indentWidth;
 }

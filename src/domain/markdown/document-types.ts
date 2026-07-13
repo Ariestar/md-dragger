@@ -37,11 +37,8 @@ export interface DocLine {
     to: number;
 }
 
-// The single document shape every doc satisfies (CodeMirror's editor doc in
-// production). Inspection (block detection, line maps) and mutation (move/delete
-// transactions) both use it — the old Doc/Doc split only
-// fragmented capability and forced ad-hoc `& {...}` extensions wherever a
-// function actually needed offsets or `lineAt`.
+// Host-agnostic document shape. Inspection (block detection, line maps) and
+// mutation (move/delete transactions) both use it.
 export interface Doc {
     lines: number;
     length: number;

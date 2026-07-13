@@ -6,17 +6,23 @@ import { locateDropTarget } from './drop-locate';
 
 function docFrom(text: string): Doc {
     const lines = text.split('\n');
+    let offset = 0;
+    const froms: number[] = [0];
+    for (const line of lines) {
+        offset += line.length + 1;
+        froms.push(offset);
+    }
     return {
         lines: lines.length,
         length: text.length,
         line: (n: number) => ({
             number: n,
-            from: 0,
-            to: (lines[n - 1] ?? '').length,
+            from: froms[n - 1] ?? 0,
+            to: (froms[n - 1] ?? 0) + (lines[n - 1] ?? '').length,
             text: lines[n - 1] ?? '',
             length: (lines[n - 1] ?? '').length,
         }),
-        sliceString: () => text,
+        sliceString: (a: number, b: number) => text.slice(a, b),
     } as Doc;
 }
 
@@ -40,10 +46,10 @@ describe('locateDropTarget', () => {
         const upper = locateDropTarget({
             doc,
             selection,
-            hitLineNumber: 2,
-            belowMidLine: false,
-            pastListContentStart: false,
-            cursorOffsetColumnsFromMarker: () => 0,
+            hitLine: 2,
+            belowMid: false,
+            pastMarker: false,
+            markerOffset: () => 0,
             tabSize: 4,
             indentUnit: 2,
         });
@@ -52,28 +58,27 @@ describe('locateDropTarget', () => {
         const lower = locateDropTarget({
             doc,
             selection,
-            hitLineNumber: 2,
-            belowMidLine: true,
-            pastListContentStart: false,
-            cursorOffsetColumnsFromMarker: () => 0,
+            hitLine: 2,
+            belowMid: true,
+            pastMarker: false,
+            markerOffset: () => 0,
             tabSize: 4,
             indentUnit: 2,
         });
         expect(lower?.targetLineNumber).toBe(3);
     });
 
-    it('nests one level into the hovered list row (not two)', () => {
+    it('nests one level into the hovered list row', () => {
         const doc = docFrom('- a\n- b\n- c');
         const selection = listSelection(doc, 1);
 
         const result = locateDropTarget({
             doc,
             selection,
-            hitLineNumber: 2,
-            belowMidLine: false,
-            pastListContentStart: true,
-            // Far enough right of marker to prefer child slot at +indentUnit.
-            cursorOffsetColumnsFromMarker: () => 2,
+            hitLine: 2,
+            belowMid: false,
+            pastMarker: true,
+            markerOffset: () => 2,
             tabSize: 4,
             indentUnit: 2,
         });
@@ -84,22 +89,48 @@ describe('locateDropTarget', () => {
         expect(result?.listIntent?.contextLineNumber).toBe(2);
     });
 
-    it('does not force nest when pointer is in the lower half', () => {
-        const doc = docFrom('- a\n- b\n- c');
-        const selection = listSelection(doc, 1);
+    it('keeps nested indent when dropping as sibling of an inner list item', () => {
+        // 2-space nest:
+        // 1: - parent
+        // 2:   - child a
+        // 3:   - child b
+        const doc = docFrom('- parent\n  - child a\n  - child b');
+        const selection = listSelection(doc, 3);
 
+        // Hover lower half of child a, at its marker (sibling, not nest).
         const result = locateDropTarget({
             doc,
             selection,
-            hitLineNumber: 2,
-            belowMidLine: true,
-            pastListContentStart: true,
-            cursorOffsetColumnsFromMarker: () => 0,
+            hitLine: 2,
+            belowMid: true,
+            pastMarker: false,
+            markerOffset: () => 0,
             tabSize: 4,
             indentUnit: 2,
         });
 
-        // Lower half of line 2 → target 3; reference is prev non-empty (line 2) via target-1.
         expect(result?.targetLineNumber).toBe(3);
+        expect(result?.listIntent?.targetIndentWidth).toBe(2);
+        expect(result?.listIntent?.mode).toBe('sibling');
+    });
+
+    it('never forces targetIndentWidth 0 when reference is a nested list line', () => {
+        const doc = docFrom('- parent\n  - child\n- other');
+        const selection = listSelection(doc, 3);
+
+        // Measurement fails → must still keep nested indent, not collapse to 0.
+        const result = locateDropTarget({
+            doc,
+            selection,
+            hitLine: 2,
+            belowMid: true,
+            pastMarker: false,
+            markerOffset: () => null,
+            tabSize: 4,
+            indentUnit: 2,
+        });
+
+        expect(result?.listIntent?.targetIndentWidth).toBe(2);
+        expect(result?.listIntent?.contextLineNumber).toBe(2);
     });
 });

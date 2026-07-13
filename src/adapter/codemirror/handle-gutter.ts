@@ -26,7 +26,7 @@ function createHandleMarker(render: RenderHandle | undefined): GutterMarker {
 export function dragHandleGutter(options: MdDraggerCodeMirrorOptions): Extension {
   const marker = createHandleMarker(options.handle?.render);
   return gutter({
-    class: 'md-dragger-cm-gutter',
+    class: 'md-dragger-gutter',
     lineMarker: (view, line) => {
       if (!isDraggableBlockStart(view, line, options)) return null;
       return marker;

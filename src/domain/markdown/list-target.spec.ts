@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeListIntent, getListAncestorLineNumbers, resolveReferenceListLineNumber } from './list-target';
+import { computeListIntent, listAncestors, listRoot } from './list-target';
 import { getLineMap } from './line-map';
 import type { Doc } from './document-types';
 
@@ -29,15 +29,14 @@ function docFrom(text: string): Doc {
 
 describe('computeListIntent', () => {
     it('returns sibling at the marker with base indent', () => {
-        // Two sibling list items at indent 0.
         const doc = docFrom('- a\n- b');
         const lineMap = getLineMap(doc, { tabSize: 4 });
 
         const intent = computeListIntent({
             doc,
             lineMap,
-            referenceLineNumber: 2,
-            cursorOffsetColumns: 0,
+            refLine: 2,
+            offset: 0,
             indentUnit: 2,
             allowChild: true,
         });
@@ -52,8 +51,8 @@ describe('computeListIntent', () => {
         const intent = computeListIntent({
             doc,
             lineMap,
-            referenceLineNumber: 2,
-            cursorOffsetColumns: 2,
+            refLine: 2,
+            offset: 2,
             indentUnit: 2,
             allowChild: true,
         });
@@ -64,15 +63,14 @@ describe('computeListIntent', () => {
     });
 
     it('returns outdent to the ancestor when cursor is to the left', () => {
-        // Nested: item 1 is parent (indent 0), item 2 is child (indent 2).
         const doc = docFrom('- parent\n  - child');
         const lineMap = getLineMap(doc, { tabSize: 4 });
 
         const intent = computeListIntent({
             doc,
             lineMap,
-            referenceLineNumber: 2,
-            cursorOffsetColumns: -2,
+            refLine: 2,
+            offset: -2,
             indentUnit: 2,
             allowChild: true,
         });
@@ -89,14 +87,12 @@ describe('computeListIntent', () => {
         const intent = computeListIntent({
             doc,
             lineMap,
-            referenceLineNumber: 2,
-            cursorOffsetColumns: 2,
+            refLine: 2,
+            offset: 2,
             indentUnit: 2,
             allowChild: false,
         });
 
-        // No child slot, cursor is between sibling(0) and where child would be;
-        // nearest is sibling.
         expect(intent?.mode).toBe('sibling');
     });
 
@@ -107,8 +103,8 @@ describe('computeListIntent', () => {
         const intent = computeListIntent({
             doc,
             lineMap,
-            referenceLineNumber: 3,
-            cursorOffsetColumns: 0,
+            refLine: 3,
+            offset: 0,
             indentUnit: 2,
             allowChild: true,
         });
@@ -117,29 +113,25 @@ describe('computeListIntent', () => {
     });
 });
 
-describe('getListAncestorLineNumbers', () => {
+describe('listAncestors', () => {
     it('walks up the parent chain to the root', () => {
         const doc = docFrom('- a\n  - b\n    - c');
         const lineMap = getLineMap(doc, { tabSize: 4 });
 
-        const ancestors = getListAncestorLineNumbers(doc, 3, lineMap);
+        const ancestors = listAncestors(doc, 3, lineMap);
 
-        // From the deepest item, ancestors climb to the root (line 1).
         expect(ancestors).toContain(1);
         expect(ancestors[ancestors.length - 1]).toBe(1);
-        // The starting line's own subtree root is included; it must not be
-        // deeper than the starting line.
         expect(ancestors[0]).toBeLessThanOrEqual(3);
     });
 });
 
-describe('resolveReferenceListLineNumber', () => {
+describe('listRoot', () => {
     it('returns a list line at or above the input', () => {
         const doc = docFrom('- a\n  - b\n  - c');
         const lineMap = getLineMap(doc, { tabSize: 4 });
 
-        // Line 3 is a list line inside line 1's subtree.
-        const ref = resolveReferenceListLineNumber(3, lineMap);
+        const ref = listRoot(3, lineMap);
         expect(ref).not.toBeNull();
         expect(ref).toBeGreaterThanOrEqual(1);
         expect(ref).toBeLessThanOrEqual(3);

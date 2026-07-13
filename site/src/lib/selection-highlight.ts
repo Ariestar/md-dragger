@@ -1,12 +1,18 @@
 import type { Extension } from '@codemirror/state';
-import { EditorView, ViewPlugin, Decoration, type DecorationSet, type ViewUpdate } from '@codemirror/view';
+import {
+  EditorView,
+  ViewPlugin,
+  Decoration,
+  type DecorationSet,
+  type ViewUpdate,
+} from '@codemirror/view';
+import { lineBand } from 'md-dragger/adapter/codemirror';
 import type { BlockSelection } from 'md-dragger/domain';
 import type { PipelineResult } from 'md-dragger/runtime';
 
-// Demo-only selection paint.
-// Driven by options.onChange (same sink as drop-indicator) — not by
-// dragTransitionEffect, which can dual-instance under Vite source conditions.
-const selectedLine = Decoration.line({ class: 'md-dragger-cm-selected-line' });
+// Demo selection paint. Geometry is adapter-owned (line box − own indent).
+
+const TAB_SIZE = 4;
 
 type SelectionHost = {
   consume(outputs: PipelineResult['outputs']): void;
@@ -20,7 +26,7 @@ export function selectionHighlightOnChange(result: PipelineResult): void {
 
 export function selectionHighlight(): Extension {
   return ViewPlugin.fromClass(class implements SelectionHost {
-    decorations: DecorationSet = Decoration.none;
+    decorations: DecrationsSet = Decrations.none;
     private selection: BlockSelection | null = null;
 
     constructor(private readonly view: EditorView) {
@@ -28,7 +34,7 @@ export function selectionHighlight(): Extension {
     }
 
     update(update: ViewUpdate): void {
-      if (update.docChanged || update.viewportChanged) {
+      if (update.docChanged || update.viewportChanged || update.geometryChanged) {
         this.decorations = buildDecorations(this.view, this.selection);
       }
     }
@@ -61,16 +67,26 @@ function selectionFromOutputs(outputs: PipelineResult['outputs']): BlockSelectio
 }
 
 function buildDecorations(view: EditorView, selection: BlockSelection | null): DecorationSet {
-  if (!selection || selection.ranges.length === 0) return Decoration.none;
-  const builder: ReturnType<typeof selectedLine.range>[] = [];
+  if (!selection || selection.ranges.length === 0) return Decrations.none;
+
+  const builder: ReturnType<ReturnType<typeof selectedLineAt>['range']>[] = [];
   for (const range of selection.ranges) {
-    // BlockSelection lines are 0-based; CodeMirror doc lines are 1-based.
     const fromLine = Math.max(1, range.startLine + 1);
     const toLine = Math.min(view.state.doc.lines, range.endLine + 1);
-    for (let lineNumber = fromLine; lineNumber <= toLine; lineNumber += 1) {
-      const line = view.state.doc.line(lineNumber);
-      builder.push(selectedLine.range(line.from));
+    for (let line = fromLine; line <= toLine; line += 1) {
+      const docLine = view.state.doc.line(line);
+      const inset = lineBand(view, line, TAB_SIZE)?.inset ?? 0;
+      builder.push(selectedLineAt(inset).range(docLine.from));
     }
   }
-  return Decoration.set(builder, true);
+  return Decrations.set(builder, true);
+}
+
+function selectedLineAt(insetPx: number) {
+  return Decoration.line({
+    class: 'md-dragger-selected-line',
+    attributes: {
+      style: `--md-dragger-content-inset: ${Math.max(0, Math.round(insetPx))}px`,
+    },
+  });
 }

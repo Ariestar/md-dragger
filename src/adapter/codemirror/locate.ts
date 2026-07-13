@@ -15,16 +15,16 @@ import {
 } from './config';
 import { nativePointerEvent } from './pointer-input';
 
+/** Source line when press is on a drag handle; otherwise null. */
 export function sourceLineFromInput(view: EditorView, input: PressInput): number | null {
   const event = nativePointerEvent(input.native);
   const target = event?.target instanceof Element ? event.target : null;
-  const handle = target?.closest(`.${HANDLE_CLASS}`);
-  if (!handle) return null;
-  return lineNumberFromPoint(view, input.point);
+  if (!target?.closest(`.${HANDLE_CLASS}`)) return null;
+  return lineAtPoint(view, input.point);
 }
 
-// Hit-test only: which document line the pointer is over.
-export function lineNumberFromPoint(view: EditorView, point: Point): number | null {
+/** Document line under a screen point (1-based; past end → lines+1). */
+export function lineAtPoint(view: EditorView, point: Point): number | null {
   const contentRect = view.contentDOM.getBoundingClientRect();
   if (point.y <= contentRect.top) return 1;
   if (point.y >= contentRect.bottom) return view.state.doc.lines + 1;
@@ -34,40 +34,31 @@ export function lineNumberFromPoint(view: EditorView, point: Point): number | nu
   return view.state.doc.lineAt(pos).number;
 }
 
-// Adapter = measure pixels. Domain owns half-line + list intent.
-// listIndentUnit comes from host config — no silent default, no doc-sample guess.
+// Adapter measures pixels; domain owns half-line + list intent.
 export function resolveDropTarget(
   view: EditorView,
   point: Point,
   selection: BlockSelection,
-  options: MdDraggerCodeMirrorOptions
+  options: MdDraggerCodeMirrorOptions,
 ): DropTarget | null {
-  const hitLineNumber = lineNumberFromPoint(view, point);
-  if (hitLineNumber === null) return null;
+  const hitLine = lineAtPoint(view, point);
+  if (hitLine === null) return null;
 
   const doc = view.state.doc;
   const tabSize = resolveTabSize(options);
-  const listIndentUnit = resolveListIndentUnit(options);
-  const lineParsing = createLineParsingContext(tabSize);
-
-  const belowMidLine = hitLineNumber >= 1 && hitLineNumber <= doc.lines
-    ? isBelowMidLine(view, hitLineNumber, point.y)
-    : hitLineNumber > doc.lines;
-
-  const pastListContentStart = hitLineNumber >= 1 && hitLineNumber <= doc.lines
-    ? isPastListContentStart(view, hitLineNumber, point.x, lineParsing.parseLine)
-    : false;
+  const indentUnit = resolveListIndentUnit(options);
+  const parseLine = createLineParsingContext(tabSize).parseLine;
+  const inDoc = hitLine >= 1 && hitLine <= doc.lines;
 
   const located = locateDropTarget({
     doc,
     selection,
-    hitLineNumber,
-    belowMidLine,
-    pastListContentStart,
-    cursorOffsetColumnsFromMarker: (listLineNumber) =>
-      cursorOffsetColumnsFromMarker(view, listLineNumber, point.x, lineParsing.parseLine),
+    hitLine,
+    belowMid: inDoc ? belowMid(view, hitLine, point.y) : hitLine > doc.lines,
+    pastMarker: inDoc ? pastMarker(view, hitLine, point.x, parseLine) : false,
+    markerOffset: (listLine) => markerOffset(view, listLine, point.x, parseLine),
     tabSize,
-    indentUnit: listIndentUnit,
+    indentUnit,
   });
   if (!located) return null;
 
@@ -79,80 +70,57 @@ export function resolveDropTarget(
   };
 }
 
-function isBelowMidLine(view: EditorView, lineNumber: number, clientY: number): boolean {
-  const line = view.state.doc.line(lineNumber);
-  const midY = lineMidY(view, line.from);
-  if (midY === null) {
-    throw new Error('isBelowMidLine: cannot measure line mid-Y');
-  }
-  return clientY > midY;
-}
-
-function isPastListContentStart(
-  view: EditorView,
-  lineNumber: number,
-  clientX: number,
-  parseLine: (line: string) => ParsedLine,
-): boolean {
-  const bounds = listMarkerBounds(view, lineNumber, parseLine);
-  return !!bounds && clientX >= bounds.contentStartX + 2;
-}
-
-function cursorOffsetColumnsFromMarker(
-  view: EditorView,
-  listLineNumber: number,
-  clientX: number,
-  parseLine: (line: string) => ParsedLine,
-): number | null {
-  const markerX = markerStartX(view, listLineNumber, parseLine);
-  if (markerX === null) return null;
-  const charWidth = defaultCharacterWidth(view);
-  return (clientX - markerX) / charWidth;
-}
-
-function lineMidY(view: EditorView, lineFromPos: number): number | null {
+function belowMid(view: EditorView, line: number, y: number): boolean {
+  const from = view.state.doc.line(line).from;
   try {
-    const block = view.lineBlockAt(lineFromPos);
-    return view.documentTop + (block.top + block.bottom) / 2;
+    const block = view.lineBlockAt(from);
+    return y > view.documentTop + (block.top + block.bottom) / 2;
   } catch {
-    const coords = view.coordsAtPos(lineFromPos, 1);
-    if (!coords) return null;
-    return (coords.top + coords.bottom) / 2;
+    const coords = view.coordsAtPos(from, 1);
+    if (!coords) throw new Error('belowMid: cannot measure line mid-Y');
+    return y > (coords.top + coords.bottom) / 2;
   }
 }
 
-function listMarkerBounds(
+function pastMarker(
   view: EditorView,
-  lineNumber: number,
-  parseLine: (line: string) => ParsedLine,
-): { markerStartX: number; contentStartX: number } | null {
-  if (lineNumber < 1 || lineNumber > view.state.doc.lines) return null;
-  const line = view.state.doc.line(lineNumber);
-  const parsed = parseLine(line.text);
-  if (!parsed.isListItem) return null;
-  const markerStartPos = line.from + parsed.quotePrefix.length + parsed.indentRaw.length;
-  const contentStartPos = markerStartPos + parsed.marker.length;
-  const markerStart = view.coordsAtPos(Math.min(line.to, markerStartPos), 1);
-  const contentStart = view.coordsAtPos(Math.min(line.to, contentStartPos), 1);
-  if (!markerStart || !contentStart) return null;
-  return {
-    markerStartX: markerStart.left,
-    contentStartX: contentStart.left,
-  };
+  line: number,
+  x: number,
+  parseLine: (text: string) => ParsedLine,
+): boolean {
+  const bounds = listBounds(view, line, parseLine);
+  return !!bounds && x >= bounds.textX + 2;
 }
 
-function markerStartX(
+function markerOffset(
   view: EditorView,
-  lineNumber: number,
-  parseLine: (line: string) => ParsedLine,
+  line: number,
+  x: number,
+  parseLine: (text: string) => ParsedLine,
 ): number | null {
-  return listMarkerBounds(view, lineNumber, parseLine)?.markerStartX ?? null;
-}
-
-function defaultCharacterWidth(view: EditorView): number {
+  const bounds = listBounds(view, line, parseLine);
+  if (!bounds) return null;
   const width = (view as unknown as { defaultCharacterWidth?: number }).defaultCharacterWidth;
   if (!(typeof width === 'number' && width > 0)) {
     throw new Error('defaultCharacterWidth: EditorView has no character width');
   }
-  return width;
+  return (x - bounds.markerX) / width;
+}
+
+function listBounds(
+  view: EditorView,
+  line: number,
+  parseLine: (text: string) => ParsedLine,
+): { markerX: number; textX: number } | null {
+  if (line < 1 || line > view.state.doc.lines) return null;
+  const docLine = view.state.doc.line(line);
+  const parsed = parseLine(docLine.text);
+  if (!parsed.isListItem) return null;
+
+  const markerPos = docLine.from + parsed.quotePrefix.length + parsed.indentRaw.length;
+  const textPos = markerPos + parsed.marker.length;
+  const marker = view.coordsAtPos(Math.min(docLine.to, markerPos), 1);
+  const text = view.coordsAtPos(Math.min(docLine.to, textPos), 1);
+  if (!marker || !text) return null;
+  return { markerX: marker.left, textX: text.left };
 }

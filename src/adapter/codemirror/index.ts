@@ -9,7 +9,9 @@ import { dragRuntime } from './runtime-plugin';
 // IO axes. Rendering (drop indicator, selection highlight, …) is the
 // consumer's job — derive it from dragTransitionEffect, not shipped here.
 export { pointerInput } from './pointer-input';
-export { sourceLineFromInput, resolveDropTarget, lineNumberFromPoint } from './locate';
+export { sourceLineFromInput, resolveDropTarget, lineAtPoint } from './locate';
+export { lineBand, dropSeam } from './geometry';
+export type { LineBand, DropSeam } from './geometry';
 export { dragHandleGutter } from './handle-gutter';
 export { applyCommit } from './commit';
 export { dragRuntime } from './runtime-plugin';

@@ -7,8 +7,8 @@ import type {
   ResolvedConfig,
 } from '../../runtime';
 
-export const HANDLE_CLASS = 'md-dragger-cm-handle';
-export const EDITOR_CLASS = 'md-dragger-cm-editor';
+export const HANDLE_CLASS = 'md-dragger-handle';
+export const EDITOR_CLASS = 'md-dragger-editor';
 
 // Custom handle element factory. Returns the DOM element used for every
 // draggable block's handle. The same element shape is reused across blocks;

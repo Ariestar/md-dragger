@@ -147,7 +147,8 @@
     }
 }
 
-.md-dragger-cm-editor .md-dragger-cm-gutter {
+/* Host chrome. `.cm-*` selectors below are host DOM classes from the editor. */
+.md-dragger-editor .md-dragger-gutter {
   width: 1.75rem;
   min-width: 1.75rem;
   color: var(--md-dragger-handle-color);
@@ -155,20 +156,20 @@
   border: 0;
 }
 
-.md-dragger-cm-editor .cm-gutters {
+.md-dragger-editor .cm-gutters {
   background: var(--md-dragger-gutter-background);
   border: 0;
   /* Keep the handle column visible beside ink-mde content. */
   display: flex;
 }
 
-.md-dragger-cm-editor .cm-gutter,
-.md-dragger-cm-editor .cm-gutterElement {
+.md-dragger-editor .cm-gutter,
+.md-dragger-editor .cm-gutterElement {
   background: var(--md-dragger-gutter-background);
   border: 0;
 }
 
-.md-dragger-cm-editor .md-dragger-cm-handle {
+.md-dragger-editor .md-dragger-handle {
   width: 1.35rem;
   height: 1.35rem;
   margin: 0.15rem 0.2rem 0 0.15rem;
@@ -184,23 +185,29 @@
   transition: opacity 120ms ease, color 120ms ease;
 }
 
-.md-dragger-cm-editor .md-dragger-cm-handle:hover,
-.md-dragger-cm-editor .md-dragger-cm-handle:focus-visible {
+.md-dragger-editor .md-dragger-handle:hover,
+.md-dragger-editor .md-dragger-handle:focus-visible {
   opacity: 1;
   color: var(--md-dragger-handle-color-hover, var(--foreground));
 }
 
-.md-dragger-cm-editor .md-dragger-cm-handle:active {
+.md-dragger-editor .md-dragger-handle:active {
   cursor: grabbing;
 }
 
-.md-dragger-cm-editor .md-dragger-cm-selected-line {
-  /* Same token family as the drop line. */
-  background: var(--md-dragger-selection-background);
+/* Full line-height box, left edge after indent (marker in). */
+.md-dragger-editor .cm-line.md-dragger-selected-line {
+  background-image: linear-gradient(
+    var(--md-dragger-selection-background),
+    var(--md-dragger-selection-background)
+  );
+  background-repeat: no-repeat;
+  background-position: var(--md-dragger-content-inset, 0px) 0;
+  background-size: calc(100% - var(--md-dragger-content-inset, 0px)) 100%;
 }
 
-/* Notion-like insert cue: thin line across the same band as selection highlight. */
-.md-dragger-cm-drop-indicator {
+/* Notion-like insert cue: same band as selection highlight. */
+.md-dragger-drop-indicator {
   position: fixed;
   top: 0;
   left: 0;
@@ -213,7 +220,7 @@
   opacity: 0.9;
 }
 
-.md-dragger-cm-drop-indicator-cap {
+.md-dragger-drop-indicator-cap {
   position: absolute;
   top: 50%;
   left: 0;

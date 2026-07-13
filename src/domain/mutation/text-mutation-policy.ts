@@ -1,5 +1,5 @@
 import { BlockInfo } from '../block/block-types';
-import { adjustListToTargetContext, buildInsertText, getListContext } from './list-mutation';
+import { adjustListToTargetContext, buildInsertText, getListContextNearLine } from './list-mutation';
 import type { ListDropTarget } from '../command/drop-target';
 import { Doc } from '../markdown/document-types';
 import { LineParsingContext } from '../markdown/line-parsing-service';
@@ -21,7 +21,7 @@ export function buildInsertTextForDrop(params: {
         listIntent,
     } = params;
     const getListContextForDoc = (activeDoc: Doc, lineNumber: number) =>
-        getListContext(activeDoc, lineNumber, lineParsing.parseLine);
+        getListContextNearLine(activeDoc, lineNumber, lineParsing.parseLine);
 
     return buildInsertText({
         sourceBlockType: sourceBlock.type,

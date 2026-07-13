@@ -2,14 +2,6 @@ import { BlockType } from '../block/block-types';
 import type { ListDropTarget } from '../command/drop-target';
 import { Doc, ListContext, ListContextValue, ParsedLine } from '../markdown/document-types';
 
-export function getListContext(
-    doc: Doc,
-    lineNumber: number,
-    parseLineWithQuote: (line: string) => ParsedLine
-): ListContext {
-    return getListContextNearLine(doc, lineNumber, parseLineWithQuote);
-}
-
 export interface ListContextNearLineOptions {
     scanUp?: number;
     scanDown?: number;

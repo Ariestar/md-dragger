@@ -118,9 +118,8 @@ export {
 export { type LineRange } from './markdown/line-range-types';
 export {
   computeListIntent,
-  resolveReferenceListLineNumber,
-  getListAncestorLineNumbers,
-  findParentLineNumberByIndent,
+  listRoot,
+  listAncestors,
   type ListIntent,
   type ListIntentMode,
 } from './markdown/list-target';

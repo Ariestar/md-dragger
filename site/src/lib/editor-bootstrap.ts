@@ -1,7 +1,7 @@
 import type { Extension } from '@codemirror/state';
 import {
   HANDLE_CLASS,
-  lineNumberFromPoint,
+  lineAtPoint,
   mdDragger,
   sourceLineFromInput as handleSourceLineFromInput,
 } from 'md-dragger/adapter/codemirror';
@@ -62,7 +62,7 @@ export function demoDraggerExtensions(options: DemoUxOptions = {}): Extension[] 
               ) {
                 return null;
               }
-              return lineNumberFromPoint(view, input.point);
+              return lineAtPoint(view, input.point);
             },
           })
         : undefined,

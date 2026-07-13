@@ -6,7 +6,7 @@ import { createSingleBlockSelection, type BlockSelection } from '../domain/selec
 import type { SelectedBlockRange } from '../domain/selection/block-ranges';
 import { buildSelectedBlockRangeFromBlockInfo, type RangeSelectionBoundary, type RangeSelectionBoundaryResolver } from '../domain/selection/range-selection';
 import { createLineParsingContext } from '../domain/markdown/line-parsing-service';
-import { getListContext } from '../domain/mutation/list-mutation';
+import { getListContextNearLine } from '../domain/mutation/list-mutation';
 import { buildInsertTextForDrop } from '../domain/mutation/text-mutation-policy';
 import { resolveDropRuleAtInsertion } from '../domain/rules/container-policy-service';
 import { planMove, type MoveDeps, type MoveResult } from '../domain/move/move-plan';
@@ -338,7 +338,7 @@ export class DraggerRuntime implements RuntimeController {
             slotAt: (targetDoc, sourceBlock, lineNumber, options) =>
                 resolveDropRuleAtInsertion(targetDoc, sourceBlock, lineNumber, options),
             parseLine: lineParsing.parseLine,
-            listCtx: (activeDoc, lineNumber) => getListContext(activeDoc, lineNumber, lineParsing.parseLine),
+            listCtx: (activeDoc, lineNumber) => getListContextNearLine(activeDoc, lineNumber, lineParsing.parseLine),
             insertText: (activeDoc, sourceBlock, lineNumber, sourceContent, listIntent) =>
                 buildInsertTextForDrop({
                     lineParsing,
