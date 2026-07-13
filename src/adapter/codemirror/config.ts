@@ -36,12 +36,6 @@ export type LocateOptionInput = LocateOptions | ((view: EditorView) => LocateOpt
 export type MdDraggerCodeMirrorOptions = {
   // Required: tabSize + listIndentUnit. No silent defaults.
   config: Config;
-  /**
-   * Pixel width of one indent column on this host.
-   * Required — different CM themes/fonts use different column metrics.
-   * Number, or a getter closed over the live view.
-   */
-  columnWidthPx: number | ((view: EditorView) => number);
   handle?: HandleOptions;
   locate?: LocateOptionInput;
   // Extra host observer for pipeline output (in addition to dragTransitionEffect).
@@ -75,17 +69,4 @@ export function resolveTabSize(options: MdDraggerCodeMirrorOptions): number {
 
 export function resolveListIndentUnit(options: MdDraggerCodeMirrorOptions): number {
   return resolveConfig(options.config).listIndentUnit;
-}
-
-export function resolveColumnWidthPx(
-  options: MdDraggerCodeMirrorOptions,
-  view: EditorView,
-): number {
-  const raw = typeof options.columnWidthPx === 'function'
-    ? options.columnWidthPx(view)
-    : options.columnWidthPx;
-  if (!(raw > 0)) {
-    throw new Error(`mdDragger: columnWidthPx must be positive, got ${String(raw)}`);
-  }
-  return raw;
 }

@@ -7,7 +7,7 @@ import { dragRuntime } from './runtime-plugin';
 // Named building blocks — compose them yourself, or use mdDragger() below.
 // Adapter parts only: they wire CodeMirror into the headless runtime's five
 // IO axes. Rendering (drop indicator, selection highlight, …) is the
-// consumer's job — derive it from dragTransitionEffect, not shipped here.
+// consumer's job — derive it from dragTransitionEffect / onChange.
 export { pointerInput } from './pointer-input';
 export { sourceLineFromInput, resolveDropTarget, lineAtPoint } from './locate';
 export { lineBand, dropSeam } from './geometry';
@@ -23,7 +23,6 @@ export {
   resolveLocateOptions,
   resolveTabSize,
   resolveListIndentUnit,
-  resolveColumnWidthPx,
   type MdDraggerCodeMirrorOptions,
   type HandleOptions,
   type LocateOptions,

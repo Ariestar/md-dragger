@@ -9,7 +9,6 @@ import { createLineParsingContext } from '../../domain/markdown/line-parsing-ser
 import type { ParsedLine } from '../../domain/markdown/document-types';
 import {
   HANDLE_CLASS,
-  resolveColumnWidthPx,
   resolveListIndentUnit,
   resolveTabSize,
   type MdDraggerCodeMirrorOptions,
@@ -35,8 +34,7 @@ export function lineAtPoint(view: EditorView, point: Point): number | null {
   return view.state.doc.lineAt(pos).number;
 }
 
-// Adapter measures pixels; domain owns half-line + list intent.
-// columnWidthPx is host-supplied (same unit as dropSeam).
+// Adapter measures pointer → domain facts; domain returns DropTarget + guide.
 export function resolveDropTarget(
   view: EditorView,
   point: Point,
@@ -49,7 +47,6 @@ export function resolveDropTarget(
   const doc = view.state.doc;
   const tabSize = resolveTabSize(options);
   const indentUnit = resolveListIndentUnit(options);
-  const columnWidthPx = resolveColumnWidthPx(options, view);
   const parseLine = createLineParsingContext(tabSize).parseLine;
   const inDoc = hitLine >= 1 && hitLine <= doc.lines;
 
@@ -59,7 +56,7 @@ export function resolveDropTarget(
     hitLine,
     belowMid: inDoc ? belowMid(view, hitLine, point.y) : hitLine > doc.lines,
     pastMarker: inDoc ? pastMarker(view, hitLine, point.x, parseLine) : false,
-    markerOffset: (listLine) => markerOffset(view, listLine, point.x, parseLine, columnWidthPx),
+    markerOffset: (listLine) => markerOffset(view, listLine, point.x, parseLine),
     tabSize,
     indentUnit,
   });
@@ -70,6 +67,7 @@ export function resolveDropTarget(
     targetLineNumber: located.targetLineNumber,
     placement: located.placement,
     listIntent: located.listIntent,
+    guide: located.guide,
   };
 }
 
@@ -100,11 +98,23 @@ function markerOffset(
   line: number,
   x: number,
   parseLine: (text: string) => ParsedLine,
-  columnWidthPx: number,
 ): number | null {
   const bounds = listBounds(view, line, parseLine);
   if (!bounds) return null;
-  return (x - bounds.markerX) / columnWidthPx;
+  // Input only: columns from marker. Use the span of one space on this line if present,
+  // else the marker→text gap (host-measured, not estimated in domain).
+  const unit = spaceOnLine(view, line) ?? Math.max(1, bounds.textX - bounds.markerX);
+  return (x - bounds.markerX) / unit;
+}
+
+function spaceOnLine(view: EditorView, line: number): number | null {
+  const docLine = view.state.doc.line(line);
+  const i = docLine.text.indexOf(' ');
+  if (i < 0) return null;
+  const a = view.coordsAtPos(docLine.from + i, 1);
+  const b = view.coordsAtPos(docLine.from + i + 1, 1);
+  if (!a || !b || b.left <= a.left) return null;
+  return b.left - a.left;
 }
 
 function listBounds(

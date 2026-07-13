@@ -54,6 +54,7 @@ describe('locateDropTarget', () => {
             indentUnit: 2,
         });
         expect(upper?.targetLineNumber).toBe(2);
+        expect(upper?.guide.bandLine).toBe(1);
 
         const lower = locateDropTarget({
             doc,
@@ -66,6 +67,7 @@ describe('locateDropTarget', () => {
             indentUnit: 2,
         });
         expect(lower?.targetLineNumber).toBe(3);
+        expect(lower?.guide.bandLine).toBe(2);
     });
 
     it('nests one level into the hovered list row', () => {
@@ -87,6 +89,12 @@ describe('locateDropTarget', () => {
         expect(result?.listIntent?.mode).toBe('child');
         expect(result?.listIntent?.targetIndentWidth).toBe(2);
         expect(result?.listIntent?.contextLineNumber).toBe(2);
+        // Child indent 2: no list at indent 2 yet → left reuses bandLine's
+        // own content start (indent 0). Once a nested list exists, leftLine
+        // snaps to that list (see sibling test below).
+        expect(result?.guide.bandLine).toBe(2);
+        expect(result?.guide.leftLine).toBe(2);
+        expect(result?.guide.leftChars).toBe(0);
     });
 
     it('keeps nested indent when dropping as sibling of an inner list item', () => {
@@ -112,6 +120,9 @@ describe('locateDropTarget', () => {
         expect(result?.targetLineNumber).toBe(3);
         expect(result?.listIntent?.targetIndentWidth).toBe(2);
         expect(result?.listIntent?.mode).toBe('sibling');
+        // Reuse existing list line at indent 2 for left edge (same as list markers).
+        expect(result?.guide.leftLine).toBe(2);
+        expect(result?.guide.leftChars).toBe(2);
     });
 
     it('never forces targetIndentWidth 0 when reference is a nested list line', () => {
@@ -132,5 +143,7 @@ describe('locateDropTarget', () => {
 
         expect(result?.listIntent?.targetIndentWidth).toBe(2);
         expect(result?.listIntent?.contextLineNumber).toBe(2);
+        expect(result?.guide.leftLine).toBe(2);
+        expect(result?.guide.leftChars).toBe(2);
     });
 });

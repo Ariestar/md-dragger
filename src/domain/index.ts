@@ -34,7 +34,7 @@ export {
 
 // --- command ---
 export { type BlockCommand } from './command/block-command';
-export { type DropTarget, type ListDropTarget } from './command/drop-target';
+export { type DropTarget, type ListDropTarget, type DropGuide } from './command/drop-target';
 export { type MoveBlockCommand, createMoveCommand } from './command/move-command';
 export { type DeleteBlockCommand, createDeleteCommand } from './command/delete-command';
 

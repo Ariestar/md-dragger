@@ -4,12 +4,7 @@ import { dropSeam } from 'md-dragger/adapter/codemirror';
 import type { DropTarget } from 'md-dragger/domain';
 import type { PipelineResult } from 'md-dragger/runtime';
 
-// Demo drop line: paint only.
-// columnWidthPx is host-supplied (same value passed to mdDragger).
-
-export type DropIndicatorOptions = {
-  columnWidthPx: number | ((view: EditorView) => number);
-};
+// Demo drop line: paint only. Domain guide → adapter dropSeam → pixels.
 
 let active:
   | { consume(outputs: PipelineResult['outputs']): void }
@@ -19,9 +14,7 @@ export function dropIndicatorOnChange(result: PipelineResult): void {
   active?.consume(result.outputs);
 }
 
-export function dropIndicator(options: DropIndicatorOptions): Extension {
-  const columnWidthPx = options.columnWidthPx;
-
+export function dropIndicator(): Extension {
   return ViewPlugin.fromClass(class {
     private readonly el: HTMLDivElement;
     private target: DropTarget | null = null;
@@ -82,10 +75,7 @@ export function dropIndicator(options: DropIndicatorOptions): Extension {
         return;
       }
 
-      const width = typeof columnWidthPx === 'function'
-        ? columnWidthPx(this.view)
-        : columnWidthPx;
-      const seam = dropSeam(this.view, target, width);
+      const seam = dropSeam(this.view, target);
       if (!seam) {
         this.el.hidden = true;
         return;
