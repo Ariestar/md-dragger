@@ -9,12 +9,12 @@ import { createLineParsingContext } from '../../domain/markdown/line-parsing-ser
 import type { ParsedLine } from '../../domain/markdown/document-types';
 import {
   HANDLE_CLASS,
+  resolveColumnWidthPx,
   resolveListIndentUnit,
   resolveTabSize,
   type MdDraggerCodeMirrorOptions,
 } from './config';
 import { nativePointerEvent } from './pointer-input';
-import { spaceWidth } from './geometry';
 
 /** Source line when press is on a drag handle; otherwise null. */
 export function sourceLineFromInput(view: EditorView, input: PressInput): number | null {
@@ -36,6 +36,7 @@ export function lineAtPoint(view: EditorView, point: Point): number | null {
 }
 
 // Adapter measures pixels; domain owns half-line + list intent.
+// columnWidthPx is host-supplied (same unit as dropSeam).
 export function resolveDropTarget(
   view: EditorView,
   point: Point,
@@ -48,6 +49,7 @@ export function resolveDropTarget(
   const doc = view.state.doc;
   const tabSize = resolveTabSize(options);
   const indentUnit = resolveListIndentUnit(options);
+  const columnWidthPx = resolveColumnWidthPx(options, view);
   const parseLine = createLineParsingContext(tabSize).parseLine;
   const inDoc = hitLine >= 1 && hitLine <= doc.lines;
 
@@ -57,7 +59,7 @@ export function resolveDropTarget(
     hitLine,
     belowMid: inDoc ? belowMid(view, hitLine, point.y) : hitLine > doc.lines,
     pastMarker: inDoc ? pastMarker(view, hitLine, point.x, parseLine) : false,
-    markerOffset: (listLine) => markerOffset(view, listLine, point.x, parseLine),
+    markerOffset: (listLine) => markerOffset(view, listLine, point.x, parseLine, columnWidthPx),
     tabSize,
     indentUnit,
   });
@@ -98,11 +100,11 @@ function markerOffset(
   line: number,
   x: number,
   parseLine: (text: string) => ParsedLine,
+  columnWidthPx: number,
 ): number | null {
   const bounds = listBounds(view, line, parseLine);
   if (!bounds) return null;
-  // Same unit as dropSeam: real space width, not average glyph width.
-  return (x - bounds.markerX) / spaceWidth(view);
+  return (x - bounds.markerX) / columnWidthPx;
 }
 
 function listBounds(

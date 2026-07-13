@@ -1,4 +1,5 @@
 import type { Extension } from '@codemirror/state';
+import type { EditorView } from '@codemirror/view';
 import {
   HANDLE_CLASS,
   lineAtPoint,
@@ -6,6 +7,7 @@ import {
   sourceLineFromInput as handleSourceLineFromInput,
 } from 'md-dragger/adapter/codemirror';
 import type { PressInput } from 'md-dragger/runtime';
+import { demoColumnWidthPx } from './column-width';
 import { dropIndicator, dropIndicatorOnChange } from './drop-indicator';
 import { selectionHighlight, selectionHighlightOnChange } from './selection-highlight';
 
@@ -25,12 +27,16 @@ export function demoDraggerExtensions(options: DemoUxOptions = {}): Extension[] 
       : 0);
   const rowPressOnTouch = options.rowPressOnTouch !== false;
 
+  // Host-owned column metric (theme/font specific). Same value for locate + paint.
+  const columnWidthPx = (view: EditorView) => demoColumnWidthPx(view);
+
   return [
     ...mdDragger({
       config: {
         tabSize: 4,
         listIndentUnit: 2,
       },
+      columnWidthPx,
       ux: {
         gesture: {
           dragArmMs,
@@ -67,7 +73,7 @@ export function demoDraggerExtensions(options: DemoUxOptions = {}): Extension[] 
           })
         : undefined,
     }),
-    dropIndicator(),
+    dropIndicator({ columnWidthPx }),
     selectionHighlight(),
   ];
 }
