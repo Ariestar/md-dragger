@@ -5,7 +5,8 @@ import type { PipelineResult } from 'md-dragger/runtime';
 
 // Demo drop line. Fed by mdDragger({ onChange }) — not dragTransitionEffect
 // (Vite source dual-instance can break StateEffect identity).
-// Geometry = target .cm-line box + list indent. Self-drop still draws the line.
+// Y = insertion seam before targetLineNumber (bottom of previous line).
+// X/width = the line box that defines that seam + list indent.
 
 let active:
   | { consume(outputs: PipelineResult['outputs']): void }
@@ -76,27 +77,43 @@ export function dropIndicator(): Extension {
         return;
       }
 
-      const pastEnd = target.targetLineNumber > this.view.state.doc.lines;
-      const lineNumber = Math.min(target.targetLineNumber, this.view.state.doc.lines);
-      const line = this.view.state.doc.line(lineNumber);
-      const lineEl = lineElementAt(this.view, line.from);
-      if (!lineEl) {
+      const seam = insertionSeam(this.view, target.targetLineNumber);
+      if (!seam) {
         this.el.hidden = true;
         return;
       }
 
-      const rect = lineEl.getBoundingClientRect();
       const indent = (target.listIntent?.targetIndentWidth ?? 0)
         * defaultCharacterWidth(this.view);
-      const left = rect.left + indent;
-      const width = Math.max(24, rect.right - left);
-      const y = pastEnd ? rect.bottom : rect.top;
+      const left = seam.left + indent;
+      const width = Math.max(24, seam.right - left);
 
       this.el.hidden = false;
-      this.el.style.transform = `translate3d(${left}px, ${y}px, 0)`;
+      this.el.style.transform = `translate3d(${left}px, ${seam.y}px, 0)`;
       this.el.style.width = `${width}px`;
     }
   });
+}
+
+// placement 'before' targetLineNumber → seam is top of that line / bottom of previous.
+function insertionSeam(
+  view: EditorView,
+  targetLineNumber: number,
+): { left: number; right: number; y: number } | null {
+  const doc = view.state.doc;
+  if (targetLineNumber <= 1) {
+    const lineEl = lineElementAt(view, doc.line(1).from);
+    if (!lineEl) return null;
+    const rect = lineEl.getBoundingClientRect();
+    return { left: rect.left, right: rect.right, y: rect.top };
+  }
+
+  const anchorLineNumber = Math.min(targetLineNumber - 1, doc.lines);
+  const lineEl = lineElementAt(view, doc.line(anchorLineNumber).from);
+  if (!lineEl) return null;
+  const rect = lineEl.getBoundingClientRect();
+  // After last line: still use last line's bottom as the seam.
+  return { left: rect.left, right: rect.right, y: rect.bottom };
 }
 
 function lineElementAt(view: EditorView, pos: number): HTMLElement | null {
