@@ -14,7 +14,7 @@ import { dragTransitionEffect } from './drag-events';
 // Constructs the headless runtime, wires it to CodeMirror's pointer input,
 // document, hit-test and commit, and rebroadcasts every pipeline transition
 // as a dragTransitionEffect so visual plugins can derive from it.
-export function dragRuntime(options: MdDraggerCodeMirrorOptions = {}): Extension {
+export function dragRuntime(options: MdDraggerCodeMirrorOptions): Extension {
   return ViewPlugin.fromClass(class {
     private readonly runtime: DraggerRuntime;
 

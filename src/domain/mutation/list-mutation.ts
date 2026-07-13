@@ -116,7 +116,6 @@ export function computeListIndentPlan(params: {
     sourceBase: { indentWidth: number; indentRaw: string };
     targetLineNumber: number;
     parseLineWithQuote: (line: string) => ParsedLine;
-    getIndentUnitWidth: (sample: string) => number;
     getListContext?: (doc: Doc, lineNumber: number) => ListContext;
     listIntent?: ListDropTarget;
 }): ListIndentPlan {
@@ -125,7 +124,6 @@ export function computeListIndentPlan(params: {
         sourceBase,
         targetLineNumber,
         parseLineWithQuote,
-        getIndentUnitWidth: getIndentUnitWidthFn,
         getListContext: getListContextFn,
         listIntent,
     } = params;
@@ -135,27 +133,23 @@ export function computeListIndentPlan(params: {
         ? getListContextFn(doc, listContextLineNumber)
         : getListContextNearLine(doc, listContextLineNumber, parseLineWithQuote);
     const indentSample = targetContext ? targetContext.indentRaw : sourceBase.indentRaw;
-    const indentUnitWidth = getIndentUnitWidthFn(indentSample || sourceBase.indentRaw);
 
-    // Absolute indent from locate wins. Do not also apply mode deltas on top.
-    let indentDelta: number;
-    if (typeof listIntent?.targetIndentWidth === 'number') {
-        indentDelta = listIntent.targetIndentWidth - sourceBase.indentWidth;
-    } else {
-        const indentDeltaBase = (targetContext ? targetContext.indentWidth : 0) - sourceBase.indentWidth;
-        const intentSteps = listIntent?.mode === 'child'
-            ? 1
-            : listIntent?.mode === 'outdent'
-                ? -1
-                : 0;
-        indentDelta = indentDeltaBase + intentSteps * indentUnitWidth;
+    if (
+        (listIntent?.mode === 'child' || listIntent?.mode === 'outdent')
+        && typeof listIntent.targetIndentWidth !== 'number'
+    ) {
+        throw new Error('listIntent.targetIndentWidth is required for child/outdent');
     }
+
+    const indentDelta = typeof listIntent?.targetIndentWidth === 'number'
+        ? listIntent.targetIndentWidth - sourceBase.indentWidth
+        : (targetContext ? targetContext.indentWidth : 0) - sourceBase.indentWidth;
 
     return {
         listContextLineNumber,
         targetContext,
         indentSample,
-        indentUnitWidth,
+        indentUnitWidth: Math.abs(indentDelta),
         indentDelta,
         targetIndentWidth: sourceBase.indentWidth + indentDelta,
         sourceBaseIndentWidth: sourceBase.indentWidth,
@@ -167,7 +161,6 @@ export function adjustListToTargetContext(params: {
     sourceContent: string;
     targetLineNumber: number;
     parseLineWithQuote: (line: string) => ParsedLine;
-    getIndentUnitWidth: (sample: string) => number;
     buildIndentStringFromSample: (sample: string, width: number) => string;
     getListContext?: (doc: Doc, lineNumber: number) => ListContext;
     listIntent?: ListDropTarget;
@@ -177,7 +170,6 @@ export function adjustListToTargetContext(params: {
         sourceContent,
         targetLineNumber,
         parseLineWithQuote,
-        getIndentUnitWidth: getIndentUnitWidthFn,
         buildIndentStringFromSample: buildIndentStringFromSampleFn,
         getListContext: getListContextFn,
         listIntent,
@@ -191,7 +183,6 @@ export function adjustListToTargetContext(params: {
         sourceBase,
         targetLineNumber,
         parseLineWithQuote,
-        getIndentUnitWidth: getIndentUnitWidthFn,
         getListContext: getListContextFn,
         listIntent,
     });

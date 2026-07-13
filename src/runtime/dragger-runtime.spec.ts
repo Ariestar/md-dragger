@@ -63,6 +63,7 @@ describe('DraggerRuntime pipeline result + commit', () => {
                 resolveDropTarget: () => dropTarget,
             },
             commit: { apply: () => {} },
+            config: { tabSize: 4, listIndentUnit: 2 },
             onChange: (result) => { results.push(result); },
         });
         rt.mount();
@@ -105,7 +106,9 @@ describe('DraggerRuntime pipeline result + commit', () => {
             },
             commit: {
                 apply: (edits) => { applies.push(edits); },
+            config: { tabSize: 4, listIndentUnit: 2 },
             },
+            config: { tabSize: 4, listIndentUnit: 2 },
             onChange: (result) => { results.push(result); },
         });
         rt.mount();
@@ -141,6 +144,7 @@ describe('DraggerRuntime pipeline result + commit', () => {
                 mode: 'command',
                 apply,
             },
+            config: { tabSize: 4, listIndentUnit: 2 },
             onChange: (result) => { results.push(result); },
         });
         rt.mount();
@@ -181,6 +185,7 @@ describe('DraggerRuntime pipeline result + commit', () => {
                     resolveDropTarget: () => dropTarget,
                 },
                 commit: { apply: () => {} },
+            config: { tabSize: 4, listIndentUnit: 2 },
             });
             rt.mount();
             input.press(pressAt(releaseCapture));
@@ -203,6 +208,7 @@ describe('DraggerRuntime pipeline result + commit', () => {
                     resolveDropTarget: () => dropTarget,
                 },
                 commit: { apply: () => {} },
+            config: { tabSize: 4, listIndentUnit: 2 },
             });
             rt.mount();
             input.press(pressAt(releaseCapture));
@@ -226,6 +232,7 @@ describe('DraggerRuntime pipeline result + commit', () => {
                     resolveDropTarget: () => dropTarget,
                 },
                 commit: { apply: () => {} },
+            config: { tabSize: 4, listIndentUnit: 2 },
             });
             rt.mount();
             input.press(pressAt(releaseCapture));

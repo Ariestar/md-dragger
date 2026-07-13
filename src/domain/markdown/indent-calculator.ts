@@ -3,12 +3,11 @@ import { parseLineWithQuote as parseLineWithQuoteByTabSize } from './line-parser
 
 const indentUnitWidthCache = new WeakMap<object, number>();
 
-/** Space-list step when the document has no nested sample. Not tabSize. */
-const SPACE_LIST_INDENT_UNIT = 2;
-
-export function normalizeTabSize(tabSize?: number): number {
-    const safe = tabSize ?? 4;
-    return safe > 0 ? safe : 4;
+export function normalizeTabSize(tabSize: number): number {
+    if (!(tabSize > 0)) {
+        throw new Error(`tabSize must be positive, got ${String(tabSize)}`);
+    }
+    return tabSize;
 }
 
 export function parseLineWithQuote(line: string, tabSize: number): ParsedLine {
@@ -16,28 +15,27 @@ export function parseLineWithQuote(line: string, tabSize: number): ParsedLine {
 }
 
 export function buildIndentStringFromSample(sample: string, width: number, tabSize: number): string {
-    const safeTabSize = normalizeTabSize(tabSize);
+    const unit = normalizeTabSize(tabSize);
     const safeWidth = Math.max(0, width);
     if (safeWidth === 0) return '';
     if (sample.includes('\t')) {
-        const tabs = Math.max(0, Math.floor(safeWidth / safeTabSize));
-        const spaces = Math.max(0, safeWidth - tabs * safeTabSize);
+        const tabs = Math.floor(safeWidth / unit);
+        const spaces = safeWidth - tabs * unit;
         return '\t'.repeat(tabs) + ' '.repeat(spaces);
     }
     return ' '.repeat(safeWidth);
 }
 
-// Unit for one list nesting step.
-// - tab indent sample → tab width
-// - non-empty space sample → that sample's width
-// - empty sample → SPACE_LIST_INDENT_UNIT (never tabSize)
+// One nesting step from a concrete indent sample. Empty sample is an error.
 export function getIndentUnitWidth(sample: string, tabSize: number): number {
+    if (sample.length === 0) {
+        throw new Error('getIndentUnitWidth: empty indent sample');
+    }
     if (sample.includes('\t')) return normalizeTabSize(tabSize);
-    if (sample.length > 0) return sample.length;
-    return SPACE_LIST_INDENT_UNIT;
+    return sample.length;
 }
 
-// Smallest positive nested delta in the doc, or SPACE_LIST_INDENT_UNIT if flat.
+// Smallest positive nested list delta in the document. Flat docs throw.
 export function getIndentUnitWidthFromDoc(
     doc: Doc,
     parseLine: (line: string) => ParsedLine,
@@ -46,8 +44,7 @@ export function getIndentUnitWidthFromDoc(
     let prevIndent: number | null = null;
 
     for (let i = 1; i <= doc.lines; i++) {
-        const text = doc.line(i).text;
-        const parsed = parseLine(text);
+        const parsed = parseLine(doc.line(i).text);
         if (!parsed.isListItem) continue;
         if (prevIndent !== null && parsed.indentWidth > prevIndent) {
             const delta = parsed.indentWidth - prevIndent;
@@ -56,7 +53,9 @@ export function getIndentUnitWidthFromDoc(
         prevIndent = parsed.indentWidth;
     }
 
-    if (!isFinite(best)) return SPACE_LIST_INDENT_UNIT;
+    if (!isFinite(best)) {
+        throw new Error('getIndentUnitWidthFromDoc: document has no nested list sample');
+    }
     return best;
 }
 

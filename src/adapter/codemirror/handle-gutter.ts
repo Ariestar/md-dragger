@@ -23,7 +23,7 @@ function createHandleMarker(render: RenderHandle | undefined): GutterMarker {
   })();
 }
 
-export function dragHandleGutter(options: MdDraggerCodeMirrorOptions = {}): Extension {
+export function dragHandleGutter(options: MdDraggerCodeMirrorOptions): Extension {
   const marker = createHandleMarker(options.handle?.render);
   return gutter({
     class: 'md-dragger-cm-gutter',

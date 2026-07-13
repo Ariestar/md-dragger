@@ -20,6 +20,7 @@ export {
   resolveConfig,
   resolveLocateOptions,
   resolveTabSize,
+  resolveListIndentUnit,
   type MdDraggerCodeMirrorOptions,
   type HandleOptions,
   type LocateOptions,
@@ -29,11 +30,8 @@ export {
 
 const editorAttributes = EditorView.editorAttributes.of({ class: EDITOR_CLASS });
 
-// Thin, transparent composition of the adapter blocks above. Spread it into
-// your extensions array (`[...mdDragger()]`); it carries no visuals — add
-// your own drop indicator / selection highlight by listening to
-// dragTransitionEffect.
-export function mdDragger(options: MdDraggerCodeMirrorOptions = {}): Extension[] {
+// Thin composition. Host must pass config.tabSize + config.listIndentUnit.
+export function mdDragger(options: MdDraggerCodeMirrorOptions): Extension[] {
   return [
     editorAttributes,
     dragHandleGutter(options),

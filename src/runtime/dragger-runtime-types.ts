@@ -84,11 +84,14 @@ export type CommitHost = {
     apply?(edits: DocEdit[]): void;
 };
 
+// Host must supply both. No silent defaults.
 export type ResolvedConfig = {
     tabSize: number;
+    /** Columns per one list nest step (e.g. 2 for common markdown lists). */
+    listIndentUnit: number;
 };
 
-export type Config = Partial<ResolvedConfig> | (() => Partial<ResolvedConfig>);
+export type Config = ResolvedConfig | (() => ResolvedConfig);
 
 // Gesture knobs for DefaultUx only.
 //
@@ -147,8 +150,9 @@ export type RuntimeOptions = {
     document: DocumentHost;
     locate: LocateHost;
     commit: CommitHost;
+    // Required: tabSize + listIndentUnit. Missing values throw.
+    config: Config;
     onChange?(result: PipelineResult): void;
-    config?: Config;
     scheduler?: SchedulerHost;
     // Omit = DefaultUx with default gesture + no modules.
     // Object = DefaultUx config. Function = full Ux replacement.

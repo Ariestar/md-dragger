@@ -31,7 +31,6 @@ export function buildInsertTextForDrop(params: {
             sourceContent: content,
             targetLineNumber,
             parseLineWithQuote: lineParsing.parseLine,
-            getIndentUnitWidth: lineParsing.getIndentUnitWidth,
             buildIndentStringFromSample: lineParsing.buildIndentStringFromSample,
             getListContext: getListContextForDoc,
             listIntent,

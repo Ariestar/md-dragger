@@ -50,7 +50,6 @@ export function selfDrop(params: {
     targetLineNumber: number;
     parseLineWithQuote: (line: string) => ParsedLine;
     getListContext: (doc: Doc, lineNumber: number) => ListContext;
-    getIndentUnitWidth: (sample: string) => number;
     slotContext?: InsertionSlotContext;
     lineMap?: LineMap;
     listIntent?: ListDropTarget;
@@ -61,7 +60,6 @@ export function selfDrop(params: {
         targetLineNumber,
         parseLineWithQuote,
         getListContext,
-        getIndentUnitWidth,
         slotContext,
         lineMap,
         listIntent,
@@ -146,7 +144,6 @@ export function selfDrop(params: {
         },
         targetLineNumber,
         parseLineWithQuote,
-        getIndentUnitWidth,
         getListContext,
         listIntent,
     });

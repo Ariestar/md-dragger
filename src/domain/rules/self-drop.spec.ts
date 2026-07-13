@@ -39,7 +39,6 @@ describe('selfDrop', () => {
             targetLineNumber: 1,
             parseLineWithQuote: (line) => parseLineWithQuote(line, 4),
             getListContext: () => null,
-            getIndentUnitWidth: () => 2,
             slotContext: 'inside_list',
         });
 
@@ -57,7 +56,6 @@ describe('selfDrop', () => {
             targetLineNumber: 2,
             parseLineWithQuote: (line) => parseLineWithQuote(line, 4),
             getListContext: () => ({ indentWidth: 0, indentRaw: '', markerType: 'unordered' }),
-            getIndentUnitWidth: () => 2,
             slotContext: 'inside_list',
             listIntent: {
                 mode: 'sibling',
@@ -71,7 +69,6 @@ describe('selfDrop', () => {
             targetLineNumber: 2,
             parseLineWithQuote: (line) => parseLineWithQuote(line, 4),
             getListContext: () => ({ indentWidth: 0, indentRaw: '', markerType: 'unordered' }),
-            getIndentUnitWidth: () => 2,
             slotContext: 'inside_list',
             lineMap: getLineMap(state.doc, { tabSize: TAB_SIZE }),
             listIntent: {
@@ -97,7 +94,6 @@ describe('selfDrop', () => {
             targetLineNumber: 4,
             parseLineWithQuote: (line) => parseLineWithQuote(line, 4),
             getListContext: () => null,
-            getIndentUnitWidth: () => 2,
         });
         expect(inGap.inSelfRange).toBe(false);
         expect(inGap.allowInPlaceIndentChange).toBe(false);
@@ -108,7 +104,6 @@ describe('selfDrop', () => {
             targetLineNumber: 2,
             parseLineWithQuote: (line) => parseLineWithQuote(line, 4),
             getListContext: () => null,
-            getIndentUnitWidth: () => 2,
         });
         expect(inSelectedRange.inSelfRange).toBe(true);
         expect(inSelectedRange.rejectReason).toBe('self_range_blocked');
@@ -127,7 +122,6 @@ describe('selfDrop', () => {
             targetLineNumber: 3,
             parseLineWithQuote: (line) => parseLineWithQuote(line, 4),
             getListContext: () => null,
-            getIndentUnitWidth: () => 2,
             listIntent: {
                 contextLineNumber: 3,
                 targetIndentWidth: 4,
@@ -153,7 +147,6 @@ describe('selfDrop', () => {
             targetLineNumber: 4,
             parseLineWithQuote: (line) => parseLineWithQuote(line, 4),
             getListContext: () => null,
-            getIndentUnitWidth: () => 2,
             listIntent: {
                 contextLineNumber: 4,
                 targetIndentWidth: 2,

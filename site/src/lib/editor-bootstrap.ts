@@ -27,6 +27,10 @@ export function demoDraggerExtensions(options: DemoUxOptions = {}): Extension[] 
 
   return [
     ...mdDragger({
+      config: {
+        tabSize: 4,
+        listIndentUnit: 2,
+      },
       ux: {
         gesture: {
           dragArmMs,

@@ -4,6 +4,7 @@ import type {
   DefaultUxConfig,
   LocateHost,
   PipelineResult,
+  ResolvedConfig,
 } from '../../runtime';
 
 export const HANDLE_CLASS = 'md-dragger-cm-handle';
@@ -33,7 +34,8 @@ export type LocateOptions = {
 export type LocateOptionInput = LocateOptions | ((view: EditorView) => LocateOptions);
 
 export type MdDraggerCodeMirrorOptions = {
-  config?: Config;
+  // Required: tabSize + listIndentUnit. No silent defaults.
+  config: Config;
   handle?: HandleOptions;
   locate?: LocateOptionInput;
   // Extra host observer for pipeline output (in addition to dragTransitionEffect).
@@ -42,8 +44,15 @@ export type MdDraggerCodeMirrorOptions = {
   ux?: DefaultUxConfig;
 };
 
-export function resolveConfig(config: Config | undefined) {
-  return typeof config === 'function' ? config() : config;
+export function resolveConfig(config: Config): ResolvedConfig {
+  const raw = typeof config === 'function' ? config() : config;
+  if (!(raw.tabSize > 0)) {
+    throw new Error(`mdDragger: config.tabSize must be positive, got ${String(raw.tabSize)}`);
+  }
+  if (!(raw.listIndentUnit > 0)) {
+    throw new Error(`mdDragger: config.listIndentUnit must be positive, got ${String(raw.listIndentUnit)}`);
+  }
+  return raw;
 }
 
 export function resolveLocateOptions(
@@ -55,5 +64,9 @@ export function resolveLocateOptions(
 }
 
 export function resolveTabSize(options: MdDraggerCodeMirrorOptions): number {
-  return resolveConfig(options.config)?.tabSize ?? 4;
+  return resolveConfig(options.config).tabSize;
+}
+
+export function resolveListIndentUnit(options: MdDraggerCodeMirrorOptions): number {
+  return resolveConfig(options.config).listIndentUnit;
 }

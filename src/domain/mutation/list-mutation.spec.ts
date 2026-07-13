@@ -29,45 +29,29 @@ describe('list-mutation', () => {
         expect(buildIndentStringFromSample('\t', 6, 4)).toBe('\t  ');
     });
 
-    it('computes shared indent plan for list overrides', () => {
+    it('uses absolute targetIndentWidth for child', () => {
         const doc = createDoc(['- existing']);
         const plan = computeListIndentPlan({
             doc,
             sourceBase: { indentWidth: 0, indentRaw: '' },
             targetLineNumber: 2,
             parseLineWithQuote: parse,
-            getIndentUnitWidth: () => 2,
-            listIntent: { mode: 'child' },
+            listIntent: { mode: 'child', contextLineNumber: 1, targetIndentWidth: 2 },
         });
 
         expect(plan.targetIndentWidth).toBe(2);
         expect(plan.indentDelta).toBe(2);
     });
 
-    it('mode child with empty indent sample is one level (2), not tabSize (4)', () => {
+    it('throws when child lacks targetIndentWidth', () => {
         const doc = createDoc(['- existing']);
-        const plan = computeListIndentPlan({
+        expect(() => computeListIndentPlan({
             doc,
             sourceBase: { indentWidth: 0, indentRaw: '' },
             targetLineNumber: 2,
             parseLineWithQuote: parse,
-            getIndentUnitWidth: (sample) => (sample.length > 0 ? sample.length : 2),
             listIntent: { mode: 'child', contextLineNumber: 1 },
-        });
-        expect(plan.targetIndentWidth).toBe(2);
-    });
-
-    it('absolute targetIndentWidth is not combined with mode delta', () => {
-        const doc = createDoc(['- existing']);
-        const plan = computeListIndentPlan({
-            doc,
-            sourceBase: { indentWidth: 0, indentRaw: '' },
-            targetLineNumber: 2,
-            parseLineWithQuote: parse,
-            getIndentUnitWidth: () => 2,
-            listIntent: { mode: 'child', contextLineNumber: 1, targetIndentWidth: 2 },
-        });
-        expect(plan.targetIndentWidth).toBe(2);
+        })).toThrow(/targetIndentWidth/);
     });
 
     it('keeps source markers while adjusting list indentation', () => {
@@ -79,8 +63,8 @@ describe('list-mutation', () => {
             sourceContent,
             targetLineNumber: 2,
             parseLineWithQuote: parse,
-            getIndentUnitWidth: () => 2,
             buildIndentStringFromSample: (sample, width) => buildIndentStringFromSample(sample, width, 4),
+            listIntent: { mode: 'sibling', contextLineNumber: 1, targetIndentWidth: 0 },
         });
 
         expect(result).toBe('- parent\n  - child');

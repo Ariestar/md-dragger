@@ -7,7 +7,12 @@ import {
 } from '../../domain';
 import { createLineParsingContext } from '../../domain/markdown/line-parsing-service';
 import type { ParsedLine } from '../../domain/markdown/document-types';
-import { HANDLE_CLASS, resolveTabSize, type MdDraggerCodeMirrorOptions } from './config';
+import {
+  HANDLE_CLASS,
+  resolveListIndentUnit,
+  resolveTabSize,
+  type MdDraggerCodeMirrorOptions,
+} from './config';
 import { nativePointerEvent } from './pointer-input';
 
 export function sourceLineFromInput(view: EditorView, input: PressInput): number | null {
@@ -30,6 +35,7 @@ export function lineNumberFromPoint(view: EditorView, point: Point): number | nu
 }
 
 // Adapter = measure pixels. Domain owns half-line + list intent.
+// listIndentUnit comes from host config — no silent default, no doc-sample guess.
 export function resolveDropTarget(
   view: EditorView,
   point: Point,
@@ -41,8 +47,8 @@ export function resolveDropTarget(
 
   const doc = view.state.doc;
   const tabSize = resolveTabSize(options);
+  const listIndentUnit = resolveListIndentUnit(options);
   const lineParsing = createLineParsingContext(tabSize);
-  const indentUnit = lineParsing.getIndentUnitWidthForDoc(doc);
 
   const belowMidLine = hitLineNumber >= 1 && hitLineNumber <= doc.lines
     ? isBelowMidLine(view, hitLineNumber, point.y)
@@ -61,7 +67,7 @@ export function resolveDropTarget(
     cursorOffsetColumnsFromMarker: (listLineNumber) =>
       cursorOffsetColumnsFromMarker(view, listLineNumber, point.x, lineParsing.parseLine),
     tabSize,
-    indentUnit,
+    indentUnit: listIndentUnit,
   });
   if (!located) return null;
 
@@ -76,7 +82,10 @@ export function resolveDropTarget(
 function isBelowMidLine(view: EditorView, lineNumber: number, clientY: number): boolean {
   const line = view.state.doc.line(lineNumber);
   const midY = lineMidY(view, line.from);
-  return midY !== null ? clientY > midY : true;
+  if (midY === null) {
+    throw new Error('isBelowMidLine: cannot measure line mid-Y');
+  }
+  return clientY > midY;
 }
 
 function isPastListContentStart(
@@ -97,7 +106,8 @@ function cursorOffsetColumnsFromMarker(
 ): number | null {
   const markerX = markerStartX(view, listLineNumber, parseLine);
   if (markerX === null) return null;
-  return (clientX - markerX) / defaultCharacterWidth(view);
+  const charWidth = defaultCharacterWidth(view);
+  return (clientX - markerX) / charWidth;
 }
 
 function lineMidY(view: EditorView, lineFromPos: number): number | null {
@@ -141,5 +151,8 @@ function markerStartX(
 
 function defaultCharacterWidth(view: EditorView): number {
   const width = (view as unknown as { defaultCharacterWidth?: number }).defaultCharacterWidth;
-  return typeof width === 'number' && width > 0 ? width : 8;
+  if (!(typeof width === 'number' && width > 0)) {
+    throw new Error('defaultCharacterWidth: EditorView has no character width');
+  }
+  return width;
 }

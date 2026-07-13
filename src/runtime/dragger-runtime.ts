@@ -28,10 +28,6 @@ import {
 import { DefaultUx } from './default-ux';
 import type { CommitResult } from './ux-module';
 
-const DEFAULT_CONFIG: ResolvedConfig = {
-    tabSize: 4,
-};
-
 type ActiveDragSession = {
     sessionId: string;
     pointer: Pointer;
@@ -330,12 +326,11 @@ export class DraggerRuntime implements RuntimeController {
             sourceDoc: this.options.document.getDoc(),
             selection,
             target,
-            deps: this.moveDeps(target.targetDoc, lineParsing),
+            deps: this.moveDeps(lineParsing),
         });
     }
 
     private moveDeps(
-        doc: ReturnType<RuntimeOptions['document']['getDoc']>,
         lineParsing: ReturnType<typeof createLineParsingContext>,
     ): MoveDeps {
         return {
@@ -344,7 +339,6 @@ export class DraggerRuntime implements RuntimeController {
                 resolveDropRuleAtInsertion(targetDoc, sourceBlock, lineNumber, options),
             parseLine: lineParsing.parseLine,
             listCtx: (activeDoc, lineNumber) => getListContext(activeDoc, lineNumber, lineParsing.parseLine),
-            indentUnit: (sample) => lineParsing.getIndentUnitWidth(sample),
             insertText: (activeDoc, sourceBlock, lineNumber, sourceContent, listIntent) =>
                 buildInsertTextForDrop({
                     lineParsing,
@@ -407,10 +401,19 @@ export class DraggerRuntime implements RuntimeController {
     }
 
     private config(): ResolvedConfig {
-        const config = typeof this.options.config === 'function'
+        const raw = typeof this.options.config === 'function'
             ? this.options.config()
             : this.options.config;
-        return { ...DEFAULT_CONFIG, ...config };
+        if (!raw) {
+            throw new Error('DraggerRuntime: config is required (tabSize, listIndentUnit)');
+        }
+        if (!(raw.tabSize > 0)) {
+            throw new Error(`DraggerRuntime: config.tabSize must be positive, got ${String(raw.tabSize)}`);
+        }
+        if (!(raw.listIndentUnit > 0)) {
+            throw new Error(`DraggerRuntime: config.listIndentUnit must be positive, got ${String(raw.listIndentUnit)}`);
+        }
+        return raw;
     }
 }
 

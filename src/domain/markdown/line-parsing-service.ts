@@ -1,5 +1,11 @@
 import { Doc, ParsedLine } from './document-types';
-import { buildIndentStringFromSample, getIndentUnitWidth, getIndentUnitWidthForDoc, normalizeTabSize, parseLineWithQuote } from './indent-calculator';
+import {
+    buildIndentStringFromSample,
+    getIndentUnitWidth,
+    getIndentUnitWidthForDoc,
+    normalizeTabSize,
+    parseLineWithQuote,
+} from './indent-calculator';
 
 export interface LineParsingContext {
     getTabSize: () => number;
@@ -10,14 +16,15 @@ export interface LineParsingContext {
 }
 
 export function createLineParsingContext(tabSize: number): LineParsingContext {
-    const normalizedTabSize = normalizeTabSize(tabSize);
-    const getTabSize = () => normalizedTabSize;
-    const parseLine = (line: string) => parseLineWithQuote(line, getTabSize());
+    const unitTabSize = normalizeTabSize(tabSize);
+    const getTabSize = () => unitTabSize;
+    const parseLine = (line: string) => parseLineWithQuote(line, unitTabSize);
     return {
         getTabSize,
         parseLine,
-        getIndentUnitWidth: (sample: string) => getIndentUnitWidth(sample, getTabSize()),
+        getIndentUnitWidth: (sample: string) => getIndentUnitWidth(sample, unitTabSize),
         getIndentUnitWidthForDoc: (doc: Doc) => getIndentUnitWidthForDoc(doc, parseLine),
-        buildIndentStringFromSample: (sample: string, width: number) => buildIndentStringFromSample(sample, width, getTabSize()),
+        buildIndentStringFromSample: (sample: string, width: number) =>
+            buildIndentStringFromSample(sample, width, unitTabSize),
     };
 }

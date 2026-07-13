@@ -41,7 +41,6 @@ const stubDeps: MoveDeps = {
         content: text,
     }),
     listCtx: () => null,
-    indentUnit: () => 4,
     insertText: (_doc, _block, _line, sourceContent) => sourceContent,
 };
 

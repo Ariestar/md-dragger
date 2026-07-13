@@ -42,7 +42,6 @@ export type MoveDeps = {
     };
     parseLine: (line: string) => ParsedLine;
     listCtx: (doc: Doc, lineNumber: number) => ListContext;
-    indentUnit: (sample: string) => number;
     insertText: (
         doc: Doc,
         sourceBlock: BlockInfo,
@@ -114,7 +113,6 @@ export function checkDrop(input: DropInput): DropCheck {
             targetLineNumber,
             parseLineWithQuote: input.deps.parseLine,
             getListContext: input.deps.listCtx,
-            getIndentUnitWidth: input.deps.indentUnit,
             slotContext: slot.slotContext,
             lineMap,
             listIntent: input.target.listIntent,
