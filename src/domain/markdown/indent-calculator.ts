@@ -38,11 +38,13 @@ export function getIndentUnitWidthFromDoc(
 ): number | undefined {
     let best = Number.POSITIVE_INFINITY;
     let prevIndent: number | null = null;
+    let sawTabIndent = false;
 
     for (let i = 1; i <= doc.lines; i++) {
         const text = doc.line(i).text;
         const parsed = parseLine(text);
         if (!parsed.isListItem) continue;
+        if (parsed.indentRaw.includes('\t')) sawTabIndent = true;
         if (prevIndent !== null && parsed.indentWidth > prevIndent) {
             const delta = parsed.indentWidth - prevIndent;
             if (delta > 0 && delta < best) best = delta;
@@ -51,7 +53,9 @@ export function getIndentUnitWidthFromDoc(
     }
 
     if (!isFinite(best)) {
-        return normalizeTabSize(fallbackTabSize);
+        // No nested sample. Space lists almost always step by 2; using tabSize (4)
+        // made a single "child" drop land two visual levels deep.
+        return sawTabIndent ? normalizeTabSize(fallbackTabSize) : 2;
     }
     return Math.max(2, best);
 }

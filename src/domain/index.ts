@@ -125,6 +125,11 @@ export {
   type ListIntentMode,
 } from './markdown/list-target';
 export {
+  locateDropTarget,
+  type DropLocateInput,
+  type DropLocateResult,
+} from './markdown/drop-locate';
+export {
   normalizeLineRange,
   mergeLineRanges,
   cloneLineRanges,
