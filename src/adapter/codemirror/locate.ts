@@ -14,6 +14,7 @@ import {
   type MdDraggerCodeMirrorOptions,
 } from './config';
 import { nativePointerEvent } from './pointer-input';
+import { spaceWidth } from './geometry';
 
 /** Source line when press is on a drag handle; otherwise null. */
 export function sourceLineFromInput(view: EditorView, input: PressInput): number | null {
@@ -100,11 +101,8 @@ function markerOffset(
 ): number | null {
   const bounds = listBounds(view, line, parseLine);
   if (!bounds) return null;
-  const width = (view as unknown as { defaultCharacterWidth?: number }).defaultCharacterWidth;
-  if (!(typeof width === 'number' && width > 0)) {
-    throw new Error('defaultCharacterWidth: EditorView has no character width');
-  }
-  return (x - bounds.markerX) / width;
+  // Same unit as dropSeam: real space width, not average glyph width.
+  return (x - bounds.markerX) / spaceWidth(view);
 }
 
 function listBounds(

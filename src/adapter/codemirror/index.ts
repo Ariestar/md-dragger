@@ -10,7 +10,7 @@ import { dragRuntime } from './runtime-plugin';
 // consumer's job — derive it from dragTransitionEffect, not shipped here.
 export { pointerInput } from './pointer-input';
 export { sourceLineFromInput, resolveDropTarget, lineAtPoint } from './locate';
-export { lineBand, dropSeam } from './geometry';
+export { lineBand, dropSeam, spaceWidth } from './geometry';
 export type { LineBand, DropSeam } from './geometry';
 export { dragHandleGutter } from './handle-gutter';
 export { applyCommit } from './commit';
