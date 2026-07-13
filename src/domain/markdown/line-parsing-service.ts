@@ -17,7 +17,7 @@ export function createLineParsingContext(tabSize: number): LineParsingContext {
         getTabSize,
         parseLine,
         getIndentUnitWidth: (sample: string) => getIndentUnitWidth(sample, getTabSize()),
-        getIndentUnitWidthForDoc: (doc: Doc) => getIndentUnitWidthForDoc(doc, parseLine, getTabSize()),
+        getIndentUnitWidthForDoc: (doc: Doc) => getIndentUnitWidthForDoc(doc, parseLine),
         buildIndentStringFromSample: (sample: string, width: number) => buildIndentStringFromSample(sample, width, getTabSize()),
     };
 }

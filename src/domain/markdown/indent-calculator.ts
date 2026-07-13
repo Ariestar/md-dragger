@@ -3,6 +3,9 @@ import { parseLineWithQuote as parseLineWithQuoteByTabSize } from './line-parser
 
 const indentUnitWidthCache = new WeakMap<object, number>();
 
+/** Space-list step when the document has no nested sample. Not tabSize. */
+const SPACE_LIST_INDENT_UNIT = 2;
+
 export function normalizeTabSize(tabSize?: number): number {
     const safe = tabSize ?? 4;
     return safe > 0 ? safe : 4;
@@ -24,24 +27,21 @@ export function buildIndentStringFromSample(sample: string, width: number, tabSi
     return ' '.repeat(safeWidth);
 }
 
+// Unit for one list nesting step.
+// - tab indent sample → tab width
+// - non-empty space sample → that sample's width
+// - empty sample → SPACE_LIST_INDENT_UNIT (never tabSize)
 export function getIndentUnitWidth(sample: string, tabSize: number): number {
-    const safeTabSize = normalizeTabSize(tabSize);
-    if (sample.includes('\t')) return safeTabSize;
-    // Non-empty space indent: the sample itself is the step (usually 2).
-    if (sample.length > 0) {
-        // Cap at tabSize so a long first-line indent doesn't become the unit.
-        return Math.min(sample.length, safeTabSize);
-    }
-    // Empty sample: space lists step by 2. Returning tabSize (4) made
-    // mode:'child' write two visual levels under a flat "- item" list.
-    return 2;
+    if (sample.includes('\t')) return normalizeTabSize(tabSize);
+    if (sample.length > 0) return sample.length;
+    return SPACE_LIST_INDENT_UNIT;
 }
 
+// Smallest positive nested delta in the doc, or SPACE_LIST_INDENT_UNIT if flat.
 export function getIndentUnitWidthFromDoc(
     doc: Doc,
     parseLine: (line: string) => ParsedLine,
-    fallbackTabSize?: number
-): number | undefined {
+): number {
     let best = Number.POSITIVE_INFINITY;
     let prevIndent: number | null = null;
 
@@ -56,26 +56,19 @@ export function getIndentUnitWidthFromDoc(
         prevIndent = parsed.indentWidth;
     }
 
-    if (!isFinite(best)) {
-        // No nested pair in the doc — same default as getIndentUnitWidth('').
-        return 2;
-    }
-    return Math.max(2, best);
+    if (!isFinite(best)) return SPACE_LIST_INDENT_UNIT;
+    return best;
 }
 
 export function getIndentUnitWidthForDoc(
     doc: Doc,
     parseLine: (line: string) => ParsedLine,
-    fallbackTabSize?: number
 ): number {
     if (doc && typeof doc === 'object') {
         const cached = indentUnitWidthCache.get(doc);
-        if (typeof cached === 'number') {
-            return cached;
-        }
+        if (typeof cached === 'number') return cached;
     }
-    const fromDoc = getIndentUnitWidthFromDoc(doc, parseLine, fallbackTabSize);
-    const resolved = typeof fromDoc === 'number' ? fromDoc : normalizeTabSize(fallbackTabSize);
+    const resolved = getIndentUnitWidthFromDoc(doc, parseLine);
     if (doc && typeof doc === 'object') {
         indentUnitWidthCache.set(doc, resolved);
     }

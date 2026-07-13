@@ -51,12 +51,7 @@ describe('list-mutation', () => {
             sourceBase: { indentWidth: 0, indentRaw: '' },
             targetLineNumber: 2,
             parseLineWithQuote: parse,
-            // Same as runtime: sample-based unit (empty parent indent).
-            getIndentUnitWidth: (sample) => {
-                if (sample.includes('\t')) return 4;
-                if (sample.length > 0) return Math.min(sample.length, 4);
-                return 2;
-            },
+            getIndentUnitWidth: (sample) => (sample.length > 0 ? sample.length : 2),
             listIntent: { mode: 'child', contextLineNumber: 1 },
         });
         expect(plan.targetIndentWidth).toBe(2);
