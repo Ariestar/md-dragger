@@ -3,125 +3,108 @@ import { EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view';
 import type { DropTarget } from 'md-dragger/domain';
 import type { PipelineResult } from 'md-dragger/runtime';
 
-// Demo-only drop indicator.
-//
-// Driven by options.onChange from dragRuntime — NOT by dragTransitionEffect.
-// Vite's `conditions: ['source']` can load the adapter twice (source + bundled),
-// which creates two StateEffect identities so effect.is(dragTransitionEffect)
-// never matches. The onChange callback is a plain function reference and
-// cannot dual-instance.
-type IndicatorTarget = {
-  target: DropTarget | null;
-  targetLineNumber: number;
-  allowed: boolean;
-};
+// Demo drop line. Fed by mdDragger({ onChange }) — not dragTransitionEffect
+// (Vite source dual-instance can break StateEffect identity).
+// Geometry = target .cm-line box + list indent. Self-drop still draws the line.
 
-type DropIndicatorHost = {
-  consume(outputs: PipelineResult['outputs']): void;
-  destroy(): void;
-};
-
-// Shared sink so mdDragger({ onChange }) can push into the ViewPlugin instance.
-let activeHost: DropIndicatorHost | null = null;
+let active:
+  | { consume(outputs: PipelineResult['outputs']): void }
+  | null = null;
 
 export function dropIndicatorOnChange(result: PipelineResult): void {
-  activeHost?.consume(result.outputs);
+  active?.consume(result.outputs);
 }
 
 export function dropIndicator(): Extension {
-  return ViewPlugin.fromClass(class implements DropIndicatorHost {
-    private readonly indicator: HTMLDivElement;
-    private current: IndicatorTarget | null = null;
-    private refreshFrame: number | null = null;
+  return ViewPlugin.fromClass(class {
+    private readonly el: HTMLDivElement;
+    private target: DropTarget | null = null;
+    private raf: number | null = null;
 
     constructor(private readonly view: EditorView) {
-      this.indicator = document.createElement('div');
-      this.indicator.className = 'md-dragger-cm-drop-indicator';
-      this.indicator.setAttribute('aria-hidden', 'true');
-      this.indicator.hidden = true;
-      // Inline critical styles so the line is visible even if CSS is purged
-      // or not yet applied. Theme CSS can still override via class rules.
-      this.indicator.style.position = 'fixed';
-      this.indicator.style.zIndex = '1000';
-      this.indicator.style.height = '2px';
-      this.indicator.style.pointerEvents = 'none';
-      this.indicator.style.background = 'var(--md-dragger-indicator, #60a5fa)';
-      this.indicator.style.boxShadow = '0 0 0 1px var(--md-dragger-indicator-shadow, rgba(96,165,250,0.35))';
-      document.body.appendChild(this.indicator);
-      activeHost = this;
+      this.el = document.createElement('div');
+      this.el.className = 'md-dragger-cm-drop-indicator';
+      this.el.setAttribute('aria-hidden', 'true');
+      this.el.hidden = true;
+      const cap = document.createElement('span');
+      cap.className = 'md-dragger-cm-drop-indicator-cap';
+      this.el.appendChild(cap);
+      document.body.appendChild(this.el);
+      active = this;
     }
 
     update(update: ViewUpdate): void {
-      // Geometry-only refresh — pipeline pushes arrive via dropIndicatorOnChange.
       if (update.docChanged || update.geometryChanged || update.viewportChanged) {
-        this.scheduleRefresh();
+        this.queue();
       }
     }
 
     destroy(): void {
-      if (activeHost === this) activeHost = null;
-      if (this.refreshFrame !== null) {
-        window.cancelAnimationFrame(this.refreshFrame);
-        this.refreshFrame = null;
-      }
-      this.indicator.remove();
+      if (active === this) active = null;
+      if (this.raf !== null) window.cancelAnimationFrame(this.raf);
+      this.el.remove();
     }
 
     consume(outputs: PipelineResult['outputs']): void {
       for (const output of outputs) {
         if (output.type === 'drag_over') {
-          // Still show the line when the drop is rejected (e.g. self-drop) —
-          // the host can style it differently later; hiding it entirely made
-          // the demo look like the indicator was broken.
-          this.render({
-            target: output.drop.target,
-            targetLineNumber: output.drop.target?.targetLineNumber ?? -1,
-            allowed: true,
-          });
+          this.target = output.drop.target;
+          this.paint();
         } else if (
           output.type === 'dropped'
           || output.type === 'cancelled'
           || output.type === 'terminal'
         ) {
-          this.render(null);
+          this.target = null;
+          this.paint();
         }
       }
     }
 
-    private render(next: IndicatorTarget | null): void {
-      this.current = next;
-      if (!next || next.targetLineNumber < 1) {
-        this.indicator.hidden = true;
-        return;
-      }
-
-      const lineNumber = Math.min(next.targetLineNumber, this.view.state.doc.lines);
-      const line = this.view.state.doc.line(lineNumber);
-      const rect = this.view.coordsAtPos(line.from, -1);
-      const contentRect = this.view.contentDOM.getBoundingClientRect();
-      if (!rect) {
-        this.indicator.hidden = true;
-        return;
-      }
-
-      const indentOffset = (next.target?.listIntent?.targetIndentWidth ?? 0)
-        * defaultCharacterWidth(this.view);
-      this.indicator.hidden = false;
-      this.indicator.style.left = `${contentRect.left + indentOffset}px`;
-      this.indicator.style.top = `${
-        next.targetLineNumber > this.view.state.doc.lines ? rect.bottom : rect.top
-      }px`;
-      this.indicator.style.width = `${Math.max(16, contentRect.width - indentOffset)}px`;
-    }
-
-    private scheduleRefresh(): void {
-      if (this.refreshFrame !== null) return;
-      this.refreshFrame = window.requestAnimationFrame(() => {
-        this.refreshFrame = null;
-        this.render(this.current);
+    private queue(): void {
+      if (this.raf !== null) return;
+      this.raf = window.requestAnimationFrame(() => {
+        this.raf = null;
+        this.paint();
       });
     }
+
+    private paint(): void {
+      const target = this.target;
+      if (!target || target.targetLineNumber < 1) {
+        this.el.hidden = true;
+        return;
+      }
+
+      const pastEnd = target.targetLineNumber > this.view.state.doc.lines;
+      const lineNumber = Math.min(target.targetLineNumber, this.view.state.doc.lines);
+      const line = this.view.state.doc.line(lineNumber);
+      const lineEl = lineElementAt(this.view, line.from);
+      if (!lineEl) {
+        this.el.hidden = true;
+        return;
+      }
+
+      const rect = lineEl.getBoundingClientRect();
+      const indent = (target.listIntent?.targetIndentWidth ?? 0)
+        * defaultCharacterWidth(this.view);
+      const left = rect.left + indent;
+      const width = Math.max(24, rect.right - left);
+      const y = pastEnd ? rect.bottom : rect.top;
+
+      this.el.hidden = false;
+      this.el.style.transform = `translate3d(${left}px, ${y}px, 0)`;
+      this.el.style.width = `${width}px`;
+    }
   });
+}
+
+function lineElementAt(view: EditorView, pos: number): HTMLElement | null {
+  const dom = view.domAtPos(pos);
+  let node: Node | null = dom.node;
+  if (node.nodeType === Node.TEXT_NODE) node = node.parentNode;
+  if (!(node instanceof Element)) return null;
+  return node.closest('.cm-line');
 }
 
 function defaultCharacterWidth(view: EditorView): number {

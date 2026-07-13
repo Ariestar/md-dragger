@@ -122,18 +122,17 @@
   --md-dragger-gutter-background: transparent;
   --md-dragger-handle-color: var(--muted-foreground);
   --md-dragger-handle-color-hover: var(--foreground);
-  --md-dragger-indicator: var(--ring);
-  --md-dragger-indicator-shadow: color-mix(in oklch, var(--ring) 35%, transparent);
-  --md-dragger-selection-background: color-mix(in oklch, var(--ring) 14%, transparent);
+  /* Site tokens only — no custom blue palette. */
+  --md-dragger-indicator: var(--foreground);
+  --md-dragger-selection-background: color-mix(in oklch, var(--foreground) 8%, transparent);
 }
 
 .dark {
   --md-dragger-gutter-background: transparent;
   --md-dragger-handle-color: var(--muted-foreground);
   --md-dragger-handle-color-hover: var(--foreground);
-  --md-dragger-indicator: var(--primary);
-  --md-dragger-indicator-shadow: color-mix(in oklch, var(--primary) 35%, transparent);
-  --md-dragger-selection-background: color-mix(in oklch, var(--primary) 12%, transparent);
+  --md-dragger-indicator: var(--foreground);
+  --md-dragger-selection-background: color-mix(in oklch, var(--foreground) 12%, transparent);
 }
 
 @layer base {
@@ -196,16 +195,34 @@
 }
 
 .md-dragger-cm-editor .md-dragger-cm-selected-line {
+  /* Same token family as the drop line. */
   background: var(--md-dragger-selection-background);
 }
 
+/* Notion-like insert cue: thin line across the same band as selection highlight. */
 .md-dragger-cm-drop-indicator {
   position: fixed;
+  top: 0;
+  left: 0;
   z-index: 1000;
   height: 2px;
+  border-radius: 999px;
   pointer-events: none;
+  will-change: transform, width;
   background: var(--md-dragger-indicator);
-  box-shadow: 0 0 0 1px var(--md-dragger-indicator-shadow);
+  opacity: 0.9;
+}
+
+.md-dragger-cm-drop-indicator-cap {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--md-dragger-indicator);
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 2px var(--background);
 }
 
 /* ink-mde katex widgets */
