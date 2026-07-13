@@ -18,7 +18,6 @@ export {
   HANDLE_CLASS,
   EDITOR_CLASS,
   resolveConfig,
-  resolveGestureConfig,
   resolveLocateOptions,
   resolveTabSize,
   type MdDraggerCodeMirrorOptions,

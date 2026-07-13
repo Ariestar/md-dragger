@@ -81,7 +81,7 @@ export {
 } from './move/move-plan';
 
 // --- transaction (result types + top-level builders) ---
-export { type TextChange, type BlockEffect, type DocEdit } from './transaction/block-transaction';
+export { type TextChange, type DocEdit } from './transaction/block-transaction';
 export {
   moveTx,
   planSourceDeletion,

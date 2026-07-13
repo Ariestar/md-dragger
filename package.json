@@ -55,6 +55,17 @@
         "default": "./dist/npm/runtime.cjs"
       }
     },
+    "./runtime/modules": {
+      "source": "./src/runtime/modules/index.ts",
+      "import": {
+        "types": "./dist/npm/types/runtime/modules/index.d.mts",
+        "default": "./dist/npm/runtime/modules.mjs"
+      },
+      "require": {
+        "types": "./dist/npm/types/runtime/modules/index.d.cts",
+        "default": "./dist/npm/runtime/modules.cjs"
+      }
+    },
     "./adapter/codemirror": {
       "source": "./src/adapter/codemirror/index.ts",
       "import": {

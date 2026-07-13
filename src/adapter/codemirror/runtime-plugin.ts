@@ -3,7 +3,6 @@ import { EditorView, ViewPlugin } from '@codemirror/view';
 import { DraggerRuntime } from '../../runtime';
 import {
   resolveConfig,
-  resolveGestureConfig,
   resolveLocateOptions,
   type MdDraggerCodeMirrorOptions,
 } from './config';
@@ -45,7 +44,7 @@ export function dragRuntime(options: MdDraggerCodeMirrorOptions = {}): Extension
           options.onChange?.(output);
         },
         config: resolveConfig(options.config),
-        gestureConfig: () => resolveGestureConfig(options.gestureConfig) ?? {},
+        ux: options.ux,
       });
       this.runtime.mount();
     }

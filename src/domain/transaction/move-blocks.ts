@@ -3,7 +3,7 @@ import type { Doc } from '../markdown/document-types';
 import type { ListDropTarget } from '../command/drop-target';
 import { resolveDeleteRange, resolveInsertionChange } from '../mutation/document-change';
 import { normalizeCompositeRanges, type CompositeLineRange } from '../selection/selection-ranges';
-import type { BlockSelection } from '../selection/block-selection';
+import { createBlockSelection, type BlockSelection } from '../selection/block-selection';
 import type { MoveDeps, MovePlan } from '../move/move-plan';
 import type { DocEdit, TextChange } from './block-transaction';
 import { rejectCommand, type CommandReject } from './command-reject';
@@ -165,18 +165,10 @@ function planInsertionAndDeletionTransaction(params: {
         ].sort((a, b) => b.from - a.from);
 
     const finalInsertedStartLineNumber = resolveFinalInsertedStartLineNumber(targetLineNumber, payload);
-    const renumberTargets = new Set<number>([targetLineNumber, finalInsertedStartLineNumber]);
-    for (const segment of payload.segments) {
-        renumberTargets.add(segment.startLineNumber);
-    }
-
     return {
         doc,
         changes,
-        effects: [
-            { type: 'restore-fold-state', lineNumber: finalInsertedStartLineNumber },
-            ...Array.from(renumberTargets).map((lineNumber) => ({ type: 'renumber-ordered-list' as const, lineNumber })),
-        ],
+        selectionAfter: selectionAfterMove(sourceBlock, payload, finalInsertedStartLineNumber),
     };
 }
 
@@ -205,10 +197,7 @@ function planInsertOnlyTransaction(params: {
     return {
         doc,
         changes,
-        effects: [
-            { type: 'restore-fold-state', lineNumber: targetLineNumber },
-            { type: 'renumber-ordered-list', lineNumber: targetLineNumber },
-        ],
+        selectionAfter: selectionAfterMove(sourceBlock, payload, targetLineNumber),
     };
 }
 
@@ -220,4 +209,26 @@ export function resolveFinalInsertedStartLineNumber(targetLineNumber: number, pa
         }
     }
     return Math.max(1, targetLineNumber - removedLineCountBeforeTarget);
+}
+
+function selectionAfterMove(
+    sourceBlock: BlockInfo,
+    payload: MoveSourcePayload,
+    startLineNumber: number,
+): BlockSelection {
+    const lineCount = payload.ranges.reduce(
+        (sum, range) => sum + (range.endLine - range.startLine + 1),
+        0,
+    );
+    const startLine = startLineNumber - 1;
+    const endLine = startLine + Math.max(1, lineCount) - 1;
+    const block: BlockInfo = {
+        ...sourceBlock,
+        startLine,
+        endLine,
+        from: 0,
+        to: 0,
+        content: payload.content,
+    };
+    return createBlockSelection(block, [{ startLine, endLine }]);
 }

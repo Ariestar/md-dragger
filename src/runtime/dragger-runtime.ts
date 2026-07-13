@@ -15,15 +15,18 @@ import { DragPipeline } from '../pipeline/drag-pipeline';
 import type { DragDropSnapshot, DropResolution } from '../pipeline/pipeline-drop';
 import type { DragCancelReason } from '../pipeline/pipeline-event';
 import type { PipelineState } from '../pipeline/pipeline-state';
+import type { DocEdit } from '../domain/transaction/block-transaction';
 import {
     type Point,
     type Pointer,
     type ResolvedConfig,
+    type DefaultUxConfig,
     type RuntimeOptions,
     type Ux,
     DEFAULT_GESTURE_CONFIG,
 } from './dragger-runtime-types';
 import { DefaultUx } from './default-ux';
+import type { CommitResult } from './ux-module';
 
 const DEFAULT_CONFIG: ResolvedConfig = {
     tabSize: 4,
@@ -48,7 +51,9 @@ export type RuntimeController = {
     markHoldReady(sessionId: string, pointerType: string | null): void;
     beginDrag(sessionId: string, selection: BlockSelection, point: Point, pointer: Pointer, pointerType: string | null, releaseCapture?: () => void): void;
     moveDrag(sessionId: string, point: Point, pointer: Pointer, pointerType: string | null): void;
-    commitDrop(sessionId: string, point: Point, pointer: Pointer, pointerType: string | null): void;
+    // Returns how the drop finished so DefaultUx modules (e.g. fold-restore)
+    // can run after apply without Runtime knowing about those modules.
+    commitDrop(sessionId: string, point: Point, pointer: Pointer, pointerType: string | null): CommitResult | void;
     startRangeSelection(block: BlockInfo, selectedBlocks?: SelectedBlockRange[]): void;
     extendSelection(lineNumber: number): void;
     finishSelection(): void;
@@ -151,7 +156,7 @@ export class DraggerRuntime implements RuntimeController {
         });
     }
 
-    commitDrop(sessionId: string, point: Point, pointer: Pointer, pointerType: string | null): void {
+    commitDrop(sessionId: string, point: Point, pointer: Pointer, pointerType: string | null): CommitResult | void {
         const drag = this.activeDragSession;
         if (!drag || drag.sessionId !== sessionId || !samePointer(drag.pointer, pointer)) return;
 
@@ -167,7 +172,7 @@ export class DraggerRuntime implements RuntimeController {
                 pointerType,
             });
             this.endDragSession();
-            return;
+            return { kind: 'rejected' };
         }
 
         if (this.commitMode() === 'command') {
@@ -182,7 +187,7 @@ export class DraggerRuntime implements RuntimeController {
                 pointerType,
             });
             this.endDragSession();
-            return;
+            return { kind: 'command' };
         }
 
         const edits = moveTx({ sourceDoc: this.options.document.getDoc(), plan: planned.value });
@@ -194,7 +199,7 @@ export class DraggerRuntime implements RuntimeController {
                 pointerType,
             });
             this.endDragSession();
-            return;
+            return { kind: 'rejected' };
         }
 
         this.pipeline.enter({
@@ -204,7 +209,8 @@ export class DraggerRuntime implements RuntimeController {
             pointerType,
         });
         this.endDragSession();
-        this.options.commit.apply?.(edits);
+        this.options.commit.apply?.(edits as DocEdit[]);
+        return { kind: 'applied', edits: edits as DocEdit[] };
     }
 
     startRangeSelection(block: BlockInfo, selectedBlocks: SelectedBlockRange[] = []): void {
@@ -269,7 +275,9 @@ export class DraggerRuntime implements RuntimeController {
     // --- internals ---
 
     private buildUx(): Ux {
-        if (this.options.ux) return this.options.ux(this);
+        // Function = full Ux replacement. Object / omit = DefaultUx + its config.
+        if (typeof this.options.ux === 'function') return this.options.ux(this);
+        const uxConfig = this.options.ux ?? {};
         const scheduler = this.options.scheduler ?? {
             setTimer: (cb, ms) => setTimeout(cb, ms),
             clearTimer: (token) => clearTimeout(token),
@@ -281,15 +289,16 @@ export class DraggerRuntime implements RuntimeController {
             sourceLineFromInput: (input) => this.options.locate.sourceLineFromInput(input),
             lineFromPoint: (point) => this.options.locate.lineFromPoint?.(point) ?? null,
             tabSize: this.config().tabSize,
-            gestureConfig: () => this.resolveGestureConfig(),
+            gestureConfig: () => this.resolveGestureConfig(uxConfig),
             scheduler,
+            modules: uxConfig.modules ?? [],
         });
     }
 
-    private resolveGestureConfig() {
-        const raw = typeof this.options.gestureConfig === 'function'
-            ? this.options.gestureConfig()
-            : this.options.gestureConfig;
+    private resolveGestureConfig(uxConfig: DefaultUxConfig) {
+        const raw = typeof uxConfig.gesture === 'function'
+            ? uxConfig.gesture()
+            : uxConfig.gesture;
         return { ...DEFAULT_GESTURE_CONFIG, ...raw };
     }
 

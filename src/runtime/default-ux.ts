@@ -17,6 +17,11 @@ import {
     type TimerToken,
     DEFAULT_GESTURE_CONFIG,
 } from './dragger-runtime-types';
+import {
+    notifyModules,
+    type DefaultUxModule,
+    type DragUxContext,
+} from './ux-module';
 
 export type Ux = {
     mount(): void;
@@ -35,6 +40,8 @@ export type UxDeps = {
         setTimer(callback: () => void, delayMs: number): TimerToken;
         clearTimer(token: TimerToken): void;
     };
+    // Optional capabilities registered by the host. Runtime does not name them.
+    modules?: readonly DefaultUxModule[];
 };
 
 // multiSelect off:
@@ -47,11 +54,16 @@ export type UxDeps = {
 //   hold to dragArmMs → ready (move past threshold → drag)
 //   hold to multiSelectMs → selecting (persistent multi-select)
 //   later sweeps toggle; long-press (dragArmMs) on selected block → group drag
+//
+// Optional modules (auto-scroll, fold-restore, …) hook drag lifecycle only.
 export class DefaultUx implements Ux {
     private readonly disposables: Disposable[] = [];
     private pressSession: PressSession | null = null;
+    private readonly modules: readonly DefaultUxModule[];
 
-    constructor(private readonly deps: UxDeps) {}
+    constructor(private readonly deps: UxDeps) {
+        this.modules = deps.modules ?? [];
+    }
 
     mount(): void {
         const input = this.deps.input;
@@ -125,6 +137,7 @@ export class DefaultUx implements Ux {
                 armTimer: timer,
                 multiSelectTimer: null,
                 releaseCapture: input.releaseCapture,
+                dragActive: false,
             };
             if (!selectedDragCandidate) this.startRangeSweep(this.pressSession);
             return;
@@ -162,6 +175,7 @@ export class DefaultUx implements Ux {
                 armTimer,
                 multiSelectTimer,
                 releaseCapture: input.releaseCapture,
+                dragActive: false,
             };
             if (armMs <= 0) this.runtime().markHoldReady(sessionId, input.pointer.type);
             if (multiMs <= 0) this.startRangeSweep(this.pressSession);
@@ -190,6 +204,7 @@ export class DefaultUx implements Ux {
             armTimer,
             multiSelectTimer: null,
             releaseCapture: input.releaseCapture,
+            dragActive: false,
         };
         if (armMs <= 0) this.markReady(sessionId, input.pointer);
     }
@@ -200,6 +215,7 @@ export class DefaultUx implements Ux {
 
         if (this.runtime().isGestureActive()) {
             this.runtime().moveDrag(session.sessionId, input.point, input.pointer, input.pointer.type);
+            this.emitModule('onDragMove', session, input.point, input.pointer);
             return;
         }
 
@@ -212,13 +228,11 @@ export class DefaultUx implements Ux {
             if (state.type !== 'selecting' || state.selection.selection.ranges.length === 0) return;
             input.claim?.();
             this.clearTimers();
-            this.runtime().beginDrag(
-                session.sessionId,
+            this.startDrag(
+                session,
                 state.selection.selection,
                 input.point,
                 input.pointer,
-                input.pointer.type,
-                session.releaseCapture,
             );
             return;
         }
@@ -251,14 +265,7 @@ export class DefaultUx implements Ux {
             if (this.runtime().state.type === 'holding') {
                 this.runtime().markHoldReady(session.sessionId, input.pointer.type);
             }
-            this.runtime().beginDrag(
-                session.sessionId,
-                session.selection,
-                input.point,
-                input.pointer,
-                input.pointer.type,
-                session.releaseCapture,
-            );
+            this.startDrag(session, session.selection, input.point, input.pointer);
             return;
         }
     }
@@ -266,7 +273,13 @@ export class DefaultUx implements Ux {
     private handleRelease(input: ReleaseInput): void {
         const session = this.pressSession;
         if (this.runtime().isGestureActive() && session && samePointer(session.pointer, input.pointer)) {
-            this.runtime().commitDrop(session.sessionId, input.point, input.pointer, input.pointer.type);
+            const result = this.runtime().commitDrop(
+                session.sessionId,
+                input.point,
+                input.pointer,
+                input.pointer.type,
+            );
+            this.emitModule('onDragEnd', session, input.point, input.pointer, result ?? { kind: 'rejected' });
             this.pressSession = null;
             return;
         }
@@ -295,10 +308,49 @@ export class DefaultUx implements Ux {
         const session = this.pressSession;
         releaseCapture?.();
         if (this.runtime().isGestureActive()) {
+            if (session) {
+                this.emitModule('onCancel', session, session.start, pointer);
+            }
             this.runtime().cancel('pointer_cancelled', pointer.type);
+            this.pressSession = null;
         } else if (session && samePointer(session.pointer, pointer)) {
             this.cancelPress('pointer_cancelled', pointer.type);
         }
+    }
+
+    private startDrag(
+        session: PressSession,
+        selection: BlockSelection,
+        point: Point,
+        pointer: Pointer,
+    ): void {
+        session.selection = selection;
+        session.dragActive = true;
+        this.runtime().beginDrag(
+            session.sessionId,
+            selection,
+            point,
+            pointer,
+            pointer.type,
+            session.releaseCapture,
+        );
+        this.emitModule('onDragStart', session, point, pointer);
+    }
+
+    private emitModule(
+        hook: 'onDragStart' | 'onDragMove' | 'onDragEnd' | 'onCancel',
+        session: PressSession,
+        point: Point,
+        pointer: Pointer,
+        result?: Parameters<typeof notifyModules>[3],
+    ): void {
+        if (this.modules.length === 0) return;
+        const ctx: DragUxContext = {
+            selection: session.selection,
+            point,
+            pointer,
+        };
+        notifyModules(this.modules, hook, ctx, result);
     }
 
     private markReady(sessionId: string, pointer: Pointer): void {
@@ -348,6 +400,10 @@ export class DefaultUx implements Ux {
     }
 
     private cancelPress(reason: DragCancelReason, pointerType: string | null): void {
+        const session = this.pressSession;
+        if (session?.dragActive) {
+            this.emitModule('onCancel', session, session.start, session.pointer);
+        }
         this.clearPress();
         this.runtime().cancel(reason, pointerType);
     }
@@ -387,6 +443,7 @@ type PressSession = {
     armTimer: TimerToken | null;
     multiSelectTimer: TimerToken | null;
     releaseCapture?: () => void;
+    dragActive: boolean;
 };
 
 function samePointer(a: Pointer, b: Pointer): boolean {

@@ -27,12 +27,14 @@ export function demoDraggerExtensions(options: DemoUxOptions = {}): Extension[] 
 
   return [
     ...mdDragger({
-      gestureConfig: {
-        dragArmMs,
-        multiSelectMs,
-        multiSelectEnabled: true,
-        dragStartMoveThresholdPx: 4,
-        dragCancelMoveThresholdPx: Number.POSITIVE_INFINITY,
+      ux: {
+        gesture: {
+          dragArmMs,
+          multiSelectMs,
+          multiSelectEnabled: true,
+          dragStartMoveThresholdPx: 4,
+          dragCancelMoveThresholdPx: Number.POSITIVE_INFINITY,
+        },
       },
       onChange: (result) => {
         dropIndicatorOnChange(result);

@@ -129,6 +129,17 @@ export type Ux = {
     destroy(): void;
 };
 
+// Settings for the built-in DefaultUx. Runtime does not interpret these itself —
+// it only forwards them when constructing DefaultUx.
+// Omit the whole object, or any field, to use defaults:
+//   gesture → DEFAULT_GESTURE_CONFIG
+//   modules → []
+export type DefaultUxConfig = {
+    gesture?: Partial<GestureConfig> | (() => Partial<GestureConfig>);
+    // Optional capabilities (auto-scroll, fold-restore, …). Host builds the list.
+    modules?: readonly import('./ux-module').DefaultUxModule[];
+};
+
 export type PipelineResult = Change;
 
 export type RuntimeOptions = {
@@ -138,7 +149,8 @@ export type RuntimeOptions = {
     commit: CommitHost;
     onChange?(result: PipelineResult): void;
     config?: Config;
-    gestureConfig?: Partial<GestureConfig> | (() => Partial<GestureConfig>);
     scheduler?: SchedulerHost;
-    ux?: UxFactory;
+    // Omit = DefaultUx with default gesture + no modules.
+    // Object = DefaultUx config. Function = full Ux replacement.
+    ux?: DefaultUxConfig | UxFactory;
 };

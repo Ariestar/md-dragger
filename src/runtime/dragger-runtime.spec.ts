@@ -64,13 +64,6 @@ describe('DraggerRuntime pipeline result + commit', () => {
             },
             commit: { apply: () => {} },
             onChange: (result) => { results.push(result); },
-            gestureConfig: {
-                dragArmMs: 0,
-                multiSelectMs: 500,
-                dragStartMoveThresholdPx: 4,
-                dragCancelMoveThresholdPx: 12,
-                multiSelectEnabled: false,
-            },
         });
         rt.mount();
 
@@ -114,13 +107,6 @@ describe('DraggerRuntime pipeline result + commit', () => {
                 apply: (edits) => { applies.push(edits); },
             },
             onChange: (result) => { results.push(result); },
-            gestureConfig: {
-                dragArmMs: 0,
-                multiSelectMs: 500,
-                dragStartMoveThresholdPx: 4,
-                dragCancelMoveThresholdPx: 12,
-                multiSelectEnabled: false,
-            },
         });
         rt.mount();
 
@@ -156,13 +142,6 @@ describe('DraggerRuntime pipeline result + commit', () => {
                 apply,
             },
             onChange: (result) => { results.push(result); },
-            gestureConfig: {
-                dragArmMs: 0,
-                multiSelectMs: 500,
-                dragStartMoveThresholdPx: 4,
-                dragCancelMoveThresholdPx: 12,
-                multiSelectEnabled: false,
-            },
         });
         rt.mount();
 
@@ -202,12 +181,6 @@ describe('DraggerRuntime pipeline result + commit', () => {
                     resolveDropTarget: () => dropTarget,
                 },
                 commit: { apply: () => {} },
-                gestureConfig: {
-                    dragArmMs: 0, multiSelectMs: 0,
-                    dragStartMoveThresholdPx: 4,
-                    dragCancelMoveThresholdPx: 12,
-                    multiSelectEnabled: false,
-                },
             });
             rt.mount();
             input.press(pressAt(releaseCapture));
@@ -230,12 +203,6 @@ describe('DraggerRuntime pipeline result + commit', () => {
                     resolveDropTarget: () => dropTarget,
                 },
                 commit: { apply: () => {} },
-                gestureConfig: {
-                    dragArmMs: 0, multiSelectMs: 0,
-                    dragStartMoveThresholdPx: 4,
-                    dragCancelMoveThresholdPx: 12,
-                    multiSelectEnabled: false,
-                },
             });
             rt.mount();
             input.press(pressAt(releaseCapture));
@@ -259,12 +226,6 @@ describe('DraggerRuntime pipeline result + commit', () => {
                     resolveDropTarget: () => dropTarget,
                 },
                 commit: { apply: () => {} },
-                gestureConfig: {
-                    dragArmMs: 0, multiSelectMs: 0,
-                    dragStartMoveThresholdPx: 4,
-                    dragCancelMoveThresholdPx: 12,
-                    multiSelectEnabled: false,
-                },
             });
             rt.mount();
             input.press(pressAt(releaseCapture));

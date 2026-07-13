@@ -1,5 +1,10 @@
 import type { EditorView } from '@codemirror/view';
-import type { Config, GestureConfig, LocateHost, PipelineResult } from '../../runtime';
+import type {
+  Config,
+  DefaultUxConfig,
+  LocateHost,
+  PipelineResult,
+} from '../../runtime';
 
 export const HANDLE_CLASS = 'md-dragger-cm-handle';
 export const EDITOR_CLASS = 'md-dragger-cm-editor';
@@ -33,17 +38,12 @@ export type MdDraggerCodeMirrorOptions = {
   locate?: LocateOptionInput;
   // Extra host observer for pipeline output (in addition to dragTransitionEffect).
   onChange?: (result: PipelineResult) => void;
-  // Gesture config for the runtime's default ux (long-press ms, thresholds,
-  // multi-select toggle). Partial — merged onto the defaults. Omit for defaults.
-  gestureConfig?: Partial<GestureConfig> | (() => Partial<GestureConfig>);
+  // DefaultUx settings (gesture knobs + optional modules). Forwarded to Runtime.
+  ux?: DefaultUxConfig;
 };
 
 export function resolveConfig(config: Config | undefined) {
   return typeof config === 'function' ? config() : config;
-}
-
-export function resolveGestureConfig(gestureConfig: MdDraggerCodeMirrorOptions['gestureConfig']) {
-  return typeof gestureConfig === 'function' ? gestureConfig() : gestureConfig;
 }
 
 export function resolveLocateOptions(
