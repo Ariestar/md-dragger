@@ -1,11 +1,9 @@
 import type { EditorView } from '@codemirror/view';
+import type { DropTarget } from '../../domain';
 import { createLineParsingContext } from '../../domain/markdown/line-parsing-service';
 
-// Host geometry for the CodeMirror adapter only.
-// Domain/runtime never import this file.
-//
-// Line band = rendered line box with leading indent cut off (marker in).
-// Right edge is always the line box, not text end.
+// Adapter-only: pixels for a domain DropTarget.
+// Domain stays host-agnostic (line + indent only). No UX here — just measure.
 
 export type LineBand = {
   left: number;
@@ -22,42 +20,38 @@ export type DropSeam = {
   y: number;
 };
 
-export type DropSeamOptions = {
-  tabSize: number;
-  /**
-   * Absolute indent columns for the drop (listIntent.targetIndentWidth).
-   * Omit to use the anchor line's own indent.
-   */
-  indent?: number;
-};
-
-/** Line box minus this line's own indent. */
+/** Line box minus this line's own indent (marker stays in). */
 export function lineBand(
   view: EditorView,
   line: number,
   tabSize: number,
 ): LineBand | null {
-  return bandAt(view, line, tabSize);
+  return measureBand(view, line, tabSize);
 }
 
 /**
- * Drop line before `beforeLine`:
+ * Paint geometry for a domain drop target:
  *   anchor = previous line (line 1 at top)
- *   right  = anchor line box right (block width)
- *   left   = anchor line box after `indent` columns (nest level preview)
+ *   left   = after list indent when present, else anchor's own indent
+ *   right  = anchor line box (block width, not text end)
  *   y      = top of first line, else bottom of previous
  */
 export function dropSeam(
   view: EditorView,
-  beforeLine: number,
-  options: DropSeamOptions,
+  target: DropTarget,
+  tabSize: number,
 ): DropSeam | null {
-  const doc = view.state.doc;
-  if (doc.lines < 1 || beforeLine < 1) return null;
+  const beforeLine = target.targetLineNumber;
+  if (beforeLine < 1 || view.state.doc.lines < 1) return null;
 
   const atTop = beforeLine <= 1;
-  const anchor = atTop ? 1 : Math.min(beforeLine - 1, doc.lines);
-  const band = bandAt(view, anchor, options.tabSize, options.indent);
+  const anchor = atTop ? 1 : Math.min(beforeLine - 1, view.state.doc.lines);
+  const band = measureBand(
+    view,
+    anchor,
+    tabSize,
+    target.listIntent?.targetIndentWidth,
+  );
   if (!band) return null;
 
   return {
@@ -67,7 +61,7 @@ export function dropSeam(
   };
 }
 
-function bandAt(
+function measureBand(
   view: EditorView,
   line: number,
   tabSize: number,
@@ -84,7 +78,6 @@ function bandAt(
   const parsed = createLineParsingContext(tabSize).parseLine(docLine.text);
   const targetIndent = Math.max(0, indent ?? parsed.indentWidth);
 
-  // Walk leading columns on this line; project any remaining with char width.
   const walked = walkIndent(docLine.text, parsed.quotePrefix.length, targetIndent, tabSize);
   let left = box.left;
   if (walked.chars > 0) {
@@ -135,7 +128,6 @@ function lineEl(view: EditorView, pos: number): HTMLElement | null {
   let node: Node | null = dom.node;
   if (node.nodeType === Node.TEXT_NODE) node = node.parentNode;
   if (!(node instanceof Element)) return null;
-  // Host line node class from the editor implementation.
   return node.closest('.cm-line');
 }
 

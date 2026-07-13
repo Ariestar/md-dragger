@@ -4,10 +4,7 @@ import { dropSeam } from 'md-dragger/adapter/codemirror';
 import type { DropTarget } from 'md-dragger/domain';
 import type { PipelineResult } from 'md-dragger/runtime';
 
-// Demo drop line. Geometry is adapter-owned; this only paints.
-//
-// Band = previous line's block width.
-// Left shifts with listIntent.targetIndentWidth so nest level is visible.
+// Demo drop line: paint only. Adapter turns DropTarget → pixels.
 
 const TAB_SIZE = 4;
 
@@ -75,15 +72,12 @@ export function dropIndicator(): Extension {
 
     private paint(): void {
       const target = this.target;
-      if (!target || target.targetLineNumber < 1) {
+      if (!target) {
         this.el.hidden = true;
         return;
       }
 
-      const seam = dropSeam(this.view, target.targetLineNumber, {
-        tabSize: TAB_SIZE,
-        indent: target.listIntent?.targetIndentWidth,
-      });
+      const seam = dropSeam(this.view, target, TAB_SIZE);
       if (!seam) {
         this.el.hidden = true;
         return;
