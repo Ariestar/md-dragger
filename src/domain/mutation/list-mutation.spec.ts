@@ -44,6 +44,37 @@ describe('list-mutation', () => {
         expect(plan.indentDelta).toBe(2);
     });
 
+    it('mode child with empty indent sample is one level (2), not tabSize (4)', () => {
+        const doc = createDoc(['- existing']);
+        const plan = computeListIndentPlan({
+            doc,
+            sourceBase: { indentWidth: 0, indentRaw: '' },
+            targetLineNumber: 2,
+            parseLineWithQuote: parse,
+            // Same as runtime: sample-based unit (empty parent indent).
+            getIndentUnitWidth: (sample) => {
+                if (sample.includes('\t')) return 4;
+                if (sample.length > 0) return Math.min(sample.length, 4);
+                return 2;
+            },
+            listIntent: { mode: 'child', contextLineNumber: 1 },
+        });
+        expect(plan.targetIndentWidth).toBe(2);
+    });
+
+    it('absolute targetIndentWidth is not combined with mode delta', () => {
+        const doc = createDoc(['- existing']);
+        const plan = computeListIndentPlan({
+            doc,
+            sourceBase: { indentWidth: 0, indentRaw: '' },
+            targetLineNumber: 2,
+            parseLineWithQuote: parse,
+            getIndentUnitWidth: () => 2,
+            listIntent: { mode: 'child', contextLineNumber: 1, targetIndentWidth: 2 },
+        });
+        expect(plan.targetIndentWidth).toBe(2);
+    });
+
     it('keeps source markers while adjusting list indentation', () => {
         const doc = createDoc(['- [ ] existing']);
         const sourceContent = '- parent\n  - child';
