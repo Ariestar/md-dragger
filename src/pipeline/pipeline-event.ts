@@ -2,7 +2,7 @@ import type { Doc } from '../domain/markdown/document-types';
 import type { BlockSelection } from '../domain/selection/block-selection';
 import type { RangeSelectionOperation } from '../domain/selection/block-range-selection';
 import type { LineRange } from '../domain/markdown/line-range-types';
-import type { RangeSelectionBoundary, RangeSelectionBoundaryResolver } from '../domain/selection/range-selection';
+import type { LineRangeResolver } from '../domain/selection/range-selection';
 import type { DragDropSnapshot, DropResolution } from './pipeline-drop';
 
 export type GuardId = string;
@@ -34,11 +34,11 @@ export type SelectionSeed = {
 export type SelectionRangeSeed = {
     type: 'range';
     doc: Doc;
-    anchorBoundary: RangeSelectionBoundary;
-    initialBoundary?: RangeSelectionBoundary;
+    anchor: LineRange;
+    initial?: LineRange;
     selectedBlocks: LineRange[];
     operation?: RangeSelectionOperation;
-    resolveBoundary?: RangeSelectionBoundaryResolver;
+    resolveRange?: LineRangeResolver;
 };
 
 export type PipelineEvent<TPreview = unknown> =
@@ -47,9 +47,9 @@ export type PipelineEvent<TPreview = unknown> =
     | { type: 'selection_start'; seed: SelectionSeed; guardDeps?: GuardId[] }
     | {
         type: 'selection_change';
-        boundary: RangeSelectionBoundary;
+        target: LineRange;
         docLines?: number;
-        resolveBoundary?: RangeSelectionBoundaryResolver;
+        resolveRange?: LineRangeResolver;
     }
     | { type: 'selection_clear' }
     | { type: 'drag_start'; sessionId: string; drop: DragDropSnapshot<TPreview>; pointerType?: string | null }

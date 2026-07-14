@@ -115,7 +115,14 @@ function createSelectionRangeState(
     seed: Extract<PipelineEvent, { type: 'selection_start' }>['seed']
 ): BlockRangeSelectionState | null | undefined {
     if (!seed.range) return undefined;
-    return createBlockRangeSelectionState(seed.range);
+    return createBlockRangeSelectionState({
+        doc: seed.range.doc,
+        anchor: seed.range.anchor,
+        initial: seed.range.initial,
+        selectedBlocks: seed.range.selectedBlocks,
+        operation: seed.range.operation,
+        resolveRange: seed.range.resolveRange,
+    });
 }
 
 function onSelectionChange<TPreview>(
@@ -125,14 +132,14 @@ function onSelectionChange<TPreview>(
     if (state.type !== 'selecting') {
         return { state, outputs: [] };
     }
-    if (!state.selection.rangeState || event.docLines === undefined || !event.resolveBoundary) {
+    if (!state.selection.rangeState || event.docLines === undefined || !event.resolveRange) {
         return { state, outputs: [] };
     }
 
     const rangeState = updateBlockRangeSelectionState(state.selection.rangeState, {
         docLines: event.docLines,
-        target: event.boundary,
-        resolveBoundary: event.resolveBoundary,
+        target: event.target,
+        resolveRange: event.resolveRange,
     });
     const selection = buildSelectionFromRangeState(state.selection.selection, rangeState.selectionBlocks);
     const next: PipelineState = {

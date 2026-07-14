@@ -45,10 +45,7 @@ export {
   groupSelectedBlocksIntoSegments,
 } from './selection/block-ranges';
 export {
-  type RangeSelectionBoundary,
-  type RangeSelectionBoundaryResolver,
-  buildSelectedBlockRangeFromBlock,
-  buildRangeSelectionBoundaryFromBlock,
+  type LineRangeResolver,
   collectSelectedBlocksBetween,
 } from './selection/range-selection';
 export {

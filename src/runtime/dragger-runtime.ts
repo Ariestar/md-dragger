@@ -4,7 +4,6 @@ import type { DropPosition } from '../domain/command/drop-position';
 import { createMoveCommand } from '../domain/command/move-command';
 import { selectOne, type BlockSelection } from '../domain/selection/block-selection';
 import type { LineRange } from '../domain/markdown/line-range-types';
-import { buildSelectedBlockRangeFromBlock, type RangeSelectionBoundary, type RangeSelectionBoundaryResolver } from '../domain/selection/range-selection';
 import { planMove, type MoveResult } from '../domain/move/move-plan';
 import { moveTx } from '../domain/transaction/move-blocks';
 import { DragPipeline } from '../pipeline/drag-pipeline';
@@ -23,6 +22,7 @@ import {
 } from './dragger-runtime-types';
 import { DefaultUx } from './default-ux';
 import type { CommitResult } from './ux-module';
+import type { LineRangeResolver } from '../domain/selection/range-selection';
 
 type ActiveDragSession = {
     sessionId: string;
@@ -201,7 +201,7 @@ export class DraggerRuntime implements RuntimeController {
 
     startRangeSelection(block: Block, selectedBlocks: LineRange[] = []): void {
         const doc = this.options.document.getDoc();
-        const anchorBoundary = boundaryFromBlock(block);
+        const anchor = block.lines;
         this.pipeline.enter({
             type: 'selection_start',
             seed: {
@@ -209,10 +209,10 @@ export class DraggerRuntime implements RuntimeController {
                 range: {
                     type: 'range',
                     doc,
-                    anchorBoundary,
-                    initialBoundary: anchorBoundary,
+                    anchor,
+                    initial: anchor,
                     selectedBlocks,
-                    resolveBoundary: this.createBoundaryResolver(),
+                    resolveRange: this.createRangeResolver(),
                 },
             },
         });
@@ -223,9 +223,9 @@ export class DraggerRuntime implements RuntimeController {
         const doc = this.options.document.getDoc();
         this.pipeline.enter({
             type: 'selection_change',
-            boundary: this.boundaryAtLine(lineNumber),
+            target: this.rangeAtLine(lineNumber),
             docLines: doc.lines,
-            resolveBoundary: this.createBoundaryResolver(),
+            resolveRange: this.createRangeResolver(),
         });
     }
 
@@ -343,25 +343,15 @@ export class DraggerRuntime implements RuntimeController {
         return state.selection.selection;
     }
 
-    private boundaryAtLine(lineNumber: number): RangeSelectionBoundary {
+    private rangeAtLine(lineNumber: number): LineRange {
         const doc = this.options.document.getDoc();
         const block = detectBlock(doc, lineNumber, { tabSize: this.config().tabSize });
-        if (block) return boundaryFromBlock(block);
-        return {
-            startLine: lineNumber,
-            endLine: lineNumber,
-            representativeLine: lineNumber,
-        };
+        if (block) return block.lines;
+        return { startLine: lineNumber, endLine: lineNumber };
     }
 
-    private createBoundaryResolver(): RangeSelectionBoundaryResolver {
-        return (lineNumber) => {
-            const doc = this.options.document.getDoc();
-            const block = detectBlock(doc, lineNumber, { tabSize: this.config().tabSize });
-            return block
-                ? { startLine: block.lines.startLine, endLine: block.lines.endLine }
-                : { startLine: lineNumber, endLine: lineNumber };
-        };
+    private createRangeResolver(): LineRangeResolver {
+        return (lineNumber) => this.rangeAtLine(lineNumber);
     }
 
     private config(): ResolvedConfig {
@@ -383,11 +373,6 @@ export class DraggerRuntime implements RuntimeController {
 
 function samePointer(a: Pointer, b: Pointer): boolean {
     return a.id === b.id;
-}
-
-function boundaryFromBlock(block: Block): RangeSelectionBoundary {
-    const range = buildSelectedBlockRangeFromBlock(block);
-    return { ...range, representativeLine: range.startLine };
 }
 
 function isDragCancelReason(reason: string): reason is DragCancelReason {

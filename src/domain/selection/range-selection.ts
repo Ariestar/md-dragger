@@ -1,61 +1,36 @@
-import type { Block } from '../block/block-types';
-import { clampLine } from '../markdown/line-number';
-import { mergeSelectedBlocks } from './block-ranges';
 import type { LineRange } from '../markdown/line-range-types';
+import { mergeSelectedBlocks } from './block-ranges';
 
-export type RangeSelectionBoundary = {
-    startLine: number;
-    endLine: number;
-    representativeLine: number;
-};
+/** Resolve the block line span covering a document line. */
+export type LineRangeResolver = (lineNumber: number) => LineRange;
 
-export type RangeSelectionBoundaryResolver = (
-    lineNumber: number
-) => { startLine: number; endLine: number };
-
-export function buildSelectedBlockRangeFromBlock(block: Block): LineRange {
-    return { ...block.lines };
-}
-
-export function buildRangeSelectionBoundaryFromBlock(
-    docLines: number,
-    block: Block
-): RangeSelectionBoundary {
-    const startLine = clampLine(docLines, block.lines.startLine);
-    const endLine = clampLine(docLines, block.lines.endLine);
-    return {
-        startLine,
-        endLine,
-        representativeLine: startLine,
-    };
-}
-
+/**
+ * Walk from anchor span through target span, collecting each block's LineRange.
+ */
 export function collectSelectedBlocksBetween(
     docLines: number,
-    anchorStartLine: number,
-    anchorEndLine: number,
-    targetBlockStartLine: number,
-    targetBlockEndLine: number,
-    resolveBoundary: RangeSelectionBoundaryResolver
+    anchor: LineRange,
+    target: LineRange,
+    resolveRange: LineRangeResolver
 ): LineRange[] {
     const startLine = Math.max(
         1,
-        Math.min(docLines, Math.min(anchorStartLine, targetBlockStartLine))
+        Math.min(docLines, Math.min(anchor.startLine, target.startLine))
     );
     const endLine = Math.max(
         1,
-        Math.min(docLines, Math.max(anchorEndLine, targetBlockEndLine))
+        Math.min(docLines, Math.max(anchor.endLine, target.endLine))
     );
 
     const blocks: LineRange[] = [];
     let cursor = startLine;
     while (cursor <= endLine) {
-        const boundary = resolveBoundary(cursor);
+        const range = resolveRange(cursor);
         blocks.push({
-            startLine: boundary.startLine,
-            endLine: boundary.endLine,
+            startLine: range.startLine,
+            endLine: range.endLine,
         });
-        cursor = Math.max(cursor + 1, boundary.endLine + 1);
+        cursor = Math.max(cursor + 1, range.endLine + 1);
     }
 
     return mergeSelectedBlocks(docLines, blocks);
