@@ -24,12 +24,6 @@ export interface ContainerPolicyResolveOptions {
     tabSize: number;
 }
 
-function clampInsertionLineNumber(doc: Doc, lineNumber: number): number {
-    if (lineNumber < 1) return 1;
-    if (lineNumber > doc.lines + 1) return doc.lines + 1;
-    return lineNumber;
-}
-
 function getImmediateLineText(doc: Doc, lineNumber: number): string | null {
     if (lineNumber < 1 || lineNumber > doc.lines) return null;
     return doc.line(lineNumber).text;
@@ -206,7 +200,7 @@ export function resolveSlotContextAtInsertion(
     options: ContainerPolicyResolveOptions
 ): InsertionSlotContext {
     const lineMap = getActiveLineMap(doc, options);
-    const clampedTarget = clampInsertionLineNumber(doc, targetLineNumber);
+    const clampedTarget = Math.max(1, Math.min(doc.lines + 1, targetLineNumber));
     const prevImmediateLine = clampedTarget - 1;
     const nextImmediateLine = clampedTarget <= doc.lines ? clampedTarget : null;
     const prevMeta = getLineMetaAt(lineMap, prevImmediateLine);
@@ -264,25 +258,10 @@ export function resolveSlotContextAtInsertion(
     return 'outside';
 }
 
-export function resolveDropRuleContextAtInsertion(
-    doc: Doc,
-    sourceBlock: Block,
-    targetLineNumber: number,
-    detectBlockFn: DetectBlockFn | undefined,
-    options: ContainerPolicyResolveOptions
-): DropRuleContext {
-    const slotContext = resolveSlotContextAtInsertion(doc, targetLineNumber, detectBlockFn, options);
-    const decision = resolveInsertionRule({
-        sourceType: sourceBlock.type,
-        slotContext,
-    });
-    return {
-        slotContext,
-        decision,
-    };
-}
-
-/** Default detectBlock wrapper used by planMove. */
+/**
+ * Can this source block be dropped at the insert seam?
+ * Uses default detectBlock; lineMap optional for reuse.
+ */
 export function resolveDropRuleAtInsertion(
     doc: Doc,
     sourceBlock: Block,
@@ -290,13 +269,17 @@ export function resolveDropRuleAtInsertion(
     options: { lineMap?: LineMap; tabSize: number }
 ): DropRuleContext {
     const lineMap = options.lineMap ?? getLineMap(doc, { tabSize: options.tabSize });
-    return resolveDropRuleContextAtInsertion(
+    const slotContext = resolveSlotContextAtInsertion(
         doc,
-        sourceBlock,
         targetLineNumber,
         undefined,
         { lineMap, tabSize: options.tabSize }
     );
+    const decision = resolveInsertionRule({
+        sourceType: sourceBlock.type,
+        slotContext,
+    });
+    return { slotContext, decision };
 }
 
 

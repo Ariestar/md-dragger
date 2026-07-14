@@ -108,5 +108,4 @@ export {
   subtractLineRange,
   lineCount,
 } from './markdown/line-range';
-export { clampLine, clampInsertLine } from './markdown/line-number';
 export { type FenceRange, findCodeBlockRange, findMathBlockRange } from './markdown/fence-scanner';

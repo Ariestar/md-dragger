@@ -3,7 +3,6 @@ import type { Doc } from './document-types';
 import { BlockType, type Block } from '../block/block-types';
 import { detectBlock } from '../block/block-detector';
 import type { DropPosition } from '../command/drop-position';
-import { clampInsertLine } from './line-number';
 import { getLineMap, getLineMetaAt, getNearestListLineAtOrBefore, type LineMap } from './line-map';
 import { computeListIntent } from './list-target';
 import { isLineNumberInRanges } from './line-range';
@@ -48,11 +47,11 @@ export function locateDropPosition(input: DropLocateInput): DropPosition | null 
     const lineMap = getLineMap(doc, { tabSize });
     const hitMeta = getLineMetaAt(lineMap, hitLine);
 
-    let line = clampInsertLine(doc.lines, belowMid ? hitLine + 1 : hitLine);
+    let line = Math.max(1, Math.min(doc.lines + 1, belowMid ? hitLine + 1 : hitLine));
 
     const nestZone = !!hitMeta?.isList && pastMarker;
     if (nestZone && !belowMid) {
-        line = clampInsertLine(doc.lines, hitLine + 1);
+        line = Math.max(1, Math.min(doc.lines + 1, hitLine + 1));
     }
 
     if (nestZone) {
