@@ -149,8 +149,8 @@
 
 /* Host chrome. `.cm-*` selectors below are host DOM classes from the editor. */
 .md-dragger-editor .md-dragger-gutter {
-  width: 1.75rem;
-  min-width: 1.75rem;
+  width: 1.125rem;
+  min-width: 1.125rem;
   color: var(--md-dragger-handle-color);
   background: var(--md-dragger-gutter-background);
   border: 0;
@@ -161,6 +161,9 @@
   border: 0;
   /* Keep the handle column visible beside ink-mde content. */
   display: flex;
+  /* Sit flush against content (no gutter/content gap). */
+  margin-right: 0;
+  padding-right: 0;
 }
 
 .md-dragger-editor .cm-gutter,
@@ -169,26 +172,41 @@
   border: 0;
 }
 
+/* Pin handle to the right edge of the gutter = left of text. */
+.md-dragger-editor .cm-gutterElement {
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-start;
+  padding: 0;
+  margin: 0;
+}
+
 .md-dragger-editor .md-dragger-handle {
-  width: 1.35rem;
-  height: 1.35rem;
-  margin: 0.15rem 0.2rem 0 0.15rem;
+  width: 1rem;
+  height: 1.15rem;
+  margin: 0.2rem 0 0 0;
+  padding: 0;
   border: 0;
-  border-radius: 0.25rem;
+  border-radius: 0.2rem;
   background: transparent;
   color: var(--md-dragger-handle-color, var(--muted-foreground));
   cursor: grab;
   font: inherit;
-  font-size: 0.95rem;
+  font-size: 0.8rem;
   line-height: 1;
-  opacity: 0.75;
-  transition: opacity 120ms ease, color 120ms ease;
+  letter-spacing: -0.05em;
+  opacity: 0.55;
+  box-shadow: none;
+  filter: none;
+  transition: opacity 100ms ease, color 100ms ease;
 }
 
 .md-dragger-editor .md-dragger-handle:hover,
 .md-dragger-editor .md-dragger-handle:focus-visible {
   opacity: 1;
   color: var(--md-dragger-handle-color-hover, var(--foreground));
+  outline: none;
+  box-shadow: none;
 }
 
 .md-dragger-editor .md-dragger-handle:active {
@@ -213,23 +231,26 @@
   left: 0;
   z-index: 1000;
   height: 2px;
-  border-radius: 999px;
+  border-radius: 0;
   pointer-events: none;
   will-change: transform, width;
   background: var(--md-dragger-indicator);
-  opacity: 0.9;
+  opacity: 0.85;
+  box-shadow: none;
+  filter: none;
 }
 
 .md-dragger-drop-indicator-cap {
   position: absolute;
   top: 50%;
   left: 0;
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
+  width: 6px;
+  height: 6px;
+  border-radius: 0;
   background: var(--md-dragger-indicator);
   transform: translate(-50%, -50%);
-  box-shadow: 0 0 0 2px var(--background);
+  box-shadow: none;
+  filter: none;
 }
 
 /* Handle click → convert menu (host chrome). */
@@ -237,14 +258,13 @@
   position: fixed;
   z-index: 1100;
   min-width: 10.5rem;
-  padding: 0.3rem;
-  border-radius: 0.5rem;
+  padding: 0.25rem;
+  border-radius: 0.35rem;
   border: 1px solid var(--border);
   background: var(--popover);
   color: var(--popover-foreground);
-  box-shadow:
-    0 10px 30px color-mix(in oklch, var(--foreground) 18%, transparent),
-    0 1px 0 color-mix(in oklch, var(--foreground) 6%, transparent);
+  box-shadow: none;
+  filter: none;
 }
 
 .md-block-menu-item {

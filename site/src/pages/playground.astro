@@ -109,10 +109,28 @@ That's it! Try rearranging this document to see how it feels.
     <style is:global>
         #editor .ink-mde { height: 100%; display: flex; flex-direction: column; border: none; border-radius: 0; }
         #editor .ink-mde .cm-editor { flex: 1; }
-        #editor .ink-mde .cm-editor.cm-focused { outline: none; }
+        #editor .ink-mde .cm-editor.cm-focused { outline: none; box-shadow: none; }
         #editor .ink-mde .ink-mde-toolbar { border: none; }
         #editor .ink-mde .cm-scroller { overflow: auto; }
-        #editor .ink-mde .cm-content { max-width: 48rem; margin: 0 auto; padding: 2rem 1.5rem; }
+        /*
+          Center the whole editor column (gutters + content) so handles sit
+          on the left edge of the text, not stuck to the viewport left while
+          content is max-width centered alone.
+        */
+        #editor .ink-mde .cm-scroller {
+          max-width: calc(48rem + 1.125rem);
+          margin: 0 auto;
+        }
+        #editor .ink-mde .cm-content {
+          max-width: none;
+          margin: 0;
+          /* Small left pad: handle almost touches text */
+          padding: 2rem 1.5rem 2rem 0.35rem;
+        }
+        #editor .ink-mde .cm-gutters {
+          margin-right: 0 !important;
+          padding-right: 0 !important;
+        }
 
         /* Scrollbar */
         #editor *  {

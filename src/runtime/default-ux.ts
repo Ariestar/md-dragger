@@ -106,7 +106,8 @@ export class DefaultUx implements Ux {
         const block = detectBlock(this.deps.getDoc(), lineNumber, { tabSize: this.deps.tabSize });
         if (!block) return;
 
-        input.claim?.();
+        // Do not claim (preventDefault) on press — that kills the browser click,
+        // which hosts use for handle menus. Capture moves only; claim when drag starts.
         input.capture?.();
         this.clearPress();
 
