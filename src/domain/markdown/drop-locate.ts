@@ -23,7 +23,9 @@ export type DropLocateInput = {
 
 /**
  * Resolve where a drop lands structurally.
- * Nest (inside) is driven by hit geometry on the target, not selection primary.
+ * - inside: nest under a list item (child)
+ * - out: list sibling / outdent with explicit target indent
+ * - seam: plain insert-before (no list relevel)
  */
 export function locateDropPosition(input: DropLocateInput): DropPosition | null {
     const {
@@ -62,13 +64,10 @@ export function locateDropPosition(input: DropLocateInput): DropPosition | null 
             if (!selfHit) {
                 return { kind: 'inside', doc, parent, line };
             }
-            // Self: still allow indent slots via list intent geometry → seam with line
         }
     }
 
-    // Optional: list column snap only adjusts seam line / future projection; structure stays seam
-    // unless computeListIntent says child toward a non-self ref.
-    const listPos = listInsideIfChild({
+    const listPos = listPositionFromIntent({
         doc,
         lineMap,
         selection,
@@ -84,7 +83,7 @@ export function locateDropPosition(input: DropLocateInput): DropPosition | null 
     return { kind: 'seam', doc, line };
 }
 
-function listInsideIfChild(params: {
+function listPositionFromIntent(params: {
     doc: Doc;
     lineMap: LineMap;
     selection: BlockSelection;
@@ -125,24 +124,37 @@ function listInsideIfChild(params: {
         indentUnit,
         allowChild: !self,
     });
-    if (!intent || intent.mode !== 'child') return null;
+    if (!intent) return null;
 
-    const parent = detectBlock(doc, intent.contextLineNumber, { tabSize });
-    if (!parent || parent.type !== BlockType.ListItem) return null;
+    if (intent.mode === 'child') {
+        const parent = detectBlock(doc, intent.contextLineNumber, { tabSize });
+        if (!parent || parent.type !== BlockType.ListItem) return null;
+        return {
+            kind: 'inside',
+            doc,
+            parent,
+            line: targetLine,
+        };
+    }
 
+    // sibling | outdent — explicit indent so projection does not stick to nested nearest-line
     return {
-        kind: 'inside',
+        kind: 'out',
         doc,
-        parent,
         line: targetLine,
+        indent: intent.targetIndentWidth,
+        contextLine: intent.contextLineNumber,
     };
 }
 
-/** Indent columns for paint/compile from a position (derived, not stored on DropPosition). */
+/** Indent columns for paint/compile from a position (derived, not stored on seam). */
 export function dropIndentWidth(
     position: DropPosition,
     options: { tabSize: number; indentUnit: number }
 ): number {
+    if (position.kind === 'out') {
+        return Math.max(0, position.indent);
+    }
     if (position.kind === 'inside' && position.parent.type === BlockType.ListItem) {
         const lineMap = getLineMap(position.doc, { tabSize: options.tabSize });
         const meta = getLineMetaAt(lineMap, position.parent.lines.startLine);

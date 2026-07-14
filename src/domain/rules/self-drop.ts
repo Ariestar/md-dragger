@@ -108,7 +108,9 @@ export function selfDrop(params: {
         ? dropIndentWidth(position, { tabSize, indentUnit })
         : undefined;
     const hasListIntent = targetIndentWidth !== undefined && (
-        position?.kind === 'inside' || sourceBlock.type === BlockType.ListItem
+        position?.kind === 'inside'
+        || position?.kind === 'out'
+        || sourceBlock.type === BlockType.ListItem
     );
     if (!hasListIntent || targetIndentWidth === undefined) {
         return {
@@ -152,7 +154,9 @@ export function selfDrop(params: {
 
     const listContextLineNumber = position?.kind === 'inside'
         ? position.parent.lines.startLine
-        : targetLineNumber;
+        : position?.kind === 'out'
+            ? position.contextLine
+            : targetLineNumber;
 
     const indentPlan = computeListIndentPlan({
         doc,

@@ -3,7 +3,7 @@ import type { Doc } from '../markdown/document-types';
 
 /**
  * Structural where — the only drop type.
- * Paint and indent are derived; not stored here.
+ * Paint fields are not stored; indent for list relevel is on `out` only.
  */
 export type DropPosition =
     | {
@@ -18,4 +18,18 @@ export type DropPosition =
         parent: Block;
         /** Insert-before line inside / under the parent */
         line: number;
+    }
+    | {
+        /**
+         * List relevel without nesting into a container:
+         * sibling of a list item, or outdent to an ancestor level (incl. root).
+         */
+        kind: 'out';
+        doc: Doc;
+        /** Insert-before line (same seam geometry as `seam`) */
+        line: number;
+        /** Absolute indent width for the moved list root after drop */
+        indent: number;
+        /** Sample list line for marker/indent style (1-based) */
+        contextLine: number;
     };

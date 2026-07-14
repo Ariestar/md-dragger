@@ -31,7 +31,12 @@ export function buildInsertTextForDrop(params: {
     const targetIndentWidth = dropIndentWidth(position, { tabSize, indentUnit });
     const contextLineNumber = position.kind === 'inside'
         ? position.parent.lines.startLine
-        : targetLineNumber;
+        : position.kind === 'out'
+            ? position.contextLine
+            : targetLineNumber;
+    const relevelList = sourceBlock.type === BlockType.ListItem
+        || position.kind === 'inside'
+        || position.kind === 'out';
 
     return buildInsertText({
         sourceBlockType: sourceBlock.type,
@@ -43,9 +48,7 @@ export function buildInsertTextForDrop(params: {
             parseLineWithQuote: lineParsing.parseLine,
             buildIndentStringFromSample: lineParsing.buildIndentStringFromSample,
             getListContext: getListContextForDoc,
-            targetIndentWidth: sourceBlock.type === BlockType.ListItem || position.kind === 'inside'
-                ? targetIndentWidth
-                : undefined,
+            targetIndentWidth: relevelList ? targetIndentWidth : undefined,
             contextLineNumber,
         }),
     });

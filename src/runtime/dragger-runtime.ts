@@ -263,9 +263,20 @@ export class DraggerRuntime implements RuntimeController {
         if (!position) return null;
         const doc = position.doc;
         const line = Math.max(1, Math.min(doc.lines + 1, position.line));
-        return position.kind === 'seam'
-            ? { kind: 'seam', doc, line }
-            : { kind: 'inside', doc, parent: position.parent, line };
+        switch (position.kind) {
+            case 'seam':
+                return { kind: 'seam', doc, line };
+            case 'inside':
+                return { kind: 'inside', doc, parent: position.parent, line };
+            case 'out':
+                return {
+                    kind: 'out',
+                    doc,
+                    line,
+                    indent: Math.max(0, position.indent),
+                    contextLine: Math.max(1, Math.min(doc.lines, position.contextLine)),
+                };
+        }
     }
 
     private plan(selection: BlockSelection, position: DropPosition | null): MoveResult {
