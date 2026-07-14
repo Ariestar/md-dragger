@@ -3,7 +3,7 @@ import { selectionMergedLineRanges, type BlockSelection } from '../selection/blo
 import type { DocEdit, TextChange } from './block-transaction';
 import { rejectCommand, type CommandReject } from './command-reject';
 
-export function planDeleteBlocksTransaction(params: {
+export function planDelete(params: {
     doc: Doc;
     selection: BlockSelection;
 }): DocEdit | CommandReject {

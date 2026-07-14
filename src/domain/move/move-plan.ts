@@ -2,7 +2,7 @@ import type { DropPosition } from '../command/drop-position';
 import type { Doc } from '../markdown/document-types';
 import { getLineMap } from '../markdown/line-map';
 import { createLineParsingContext } from '../markdown/line-parsing-service';
-import { resolveDropRuleAtInsertion } from '../rules/container-policy';
+import { canDropAt } from '../rules/container-policy';
 import { selfDrop } from '../rules/self-drop';
 import type { BlockSelection } from '../selection/block-selection';
 import { selectOne } from '../selection/block-selection';
@@ -56,7 +56,7 @@ export function planMove(input: PlanMoveInput): MoveResult {
         : { kind: 'inside', doc: targetDoc, parent: input.position.parent, line };
 
     const lineMap = getLineMap(targetDoc, { tabSize: input.tabSize });
-    const slot = resolveDropRuleAtInsertion(targetDoc, captured.block, line, {
+    const slot = canDropAt(targetDoc, captured.block, line, {
         lineMap,
         tabSize: input.tabSize,
     });

@@ -259,10 +259,10 @@ export function resolveSlotContextAtInsertion(
 }
 
 /**
- * Can this source block be dropped at the insert seam?
- * Uses default detectBlock; lineMap optional for reuse.
+ * Can this source block land at the insert seam (before targetLineNumber)?
+ * Classifies the seam (list/quote/table/…) then applies insertion rules.
  */
-export function resolveDropRuleAtInsertion(
+export function canDropAt(
     doc: Doc,
     sourceBlock: Block,
     targetLineNumber: number,

@@ -65,7 +65,7 @@ export {
   type MoveSourceSegment,
 } from './transaction/move-blocks';
 export { type CommandReject, type CommandRejectReason, rejectCommand } from './transaction/command-reject';
-export { planDelete } from './transaction/block-command-transaction';
+export { planDelete } from './transaction/delete-blocks';
 
 // --- markdown ---
 export {
