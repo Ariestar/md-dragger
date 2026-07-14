@@ -1,8 +1,4 @@
-import type { Doc } from '../domain/markdown/document-types';
 import type { BlockSelection } from '../domain/selection/block-selection';
-import type { RangeSelectionOperation } from '../domain/selection/block-range-selection';
-import type { LineRange } from '../domain/markdown/line-range-types';
-import type { LineRangeResolver } from '../domain/selection/range-selection';
 import type { DragDropSnapshot, DropResolution } from './pipeline-drop';
 
 export type GuardId = string;
@@ -26,31 +22,14 @@ export type DragCancelReason =
     | 'table_before'
     | 'hr_before';
 
-export type SelectionSeed = {
-    selection: BlockSelection;
-    range?: SelectionRangeSeed;
-};
-
-export type SelectionRangeSeed = {
-    type: 'range';
-    doc: Doc;
-    anchor: LineRange;
-    initial?: LineRange;
-    selectedBlocks: LineRange[];
-    operation?: RangeSelectionOperation;
-    resolveRange?: LineRangeResolver;
-};
-
+/**
+ * Pipeline stores selection results only.
+ * Multi-select construction (range drag, modifiers, …) lives in UX.
+ */
 export type PipelineEvent<TPreview = unknown> =
     | { type: 'hold_start'; sessionId: string; selection: BlockSelection; guardDeps?: GuardId[]; pointerType?: string | null }
     | { type: 'hold_ready'; sessionId: string; pointerType?: string | null }
-    | { type: 'selection_start'; seed: SelectionSeed; guardDeps?: GuardId[] }
-    | {
-        type: 'selection_change';
-        target: LineRange;
-        docLines?: number;
-        resolveRange?: LineRangeResolver;
-    }
+    | { type: 'selection_set'; selection: BlockSelection; guardDeps?: GuardId[] }
     | { type: 'selection_clear' }
     | { type: 'drag_start'; sessionId: string; drop: DragDropSnapshot<TPreview>; pointerType?: string | null }
     | { type: 'drag_over'; sessionId: string; drop: DragDropSnapshot<TPreview>; pointerType?: string | null }

@@ -34,26 +34,12 @@ export {
   type BlockSelection,
   selectOne,
   selectBlocks,
+  addBlocks,
+  removeBlocks,
+  hasBlock,
   selectionLineRanges,
   selectionMergedLineRanges,
 } from './selection/block-selection';
-export {
-  type BlockSelectionSegment,
-  normalizeSelectedBlockRange,
-  mergeSelectedBlocks,
-  subtractSelectedBlocks,
-  groupSelectedBlocksIntoSegments,
-} from './selection/block-ranges';
-export {
-  type LineRangeResolver,
-  collectSelectedBlocksBetween,
-} from './selection/range-selection';
-export {
-  type BlockRangeSelectionState,
-  type RangeSelectionOperation,
-  createBlockRangeSelectionState,
-  updateBlockRangeSelectionState,
-} from './selection/block-range-selection';
 
 // --- move planning ---
 export {

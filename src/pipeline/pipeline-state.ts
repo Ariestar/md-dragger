@@ -1,5 +1,4 @@
 import type { BlockSelection } from '../domain/selection/block-selection';
-import type { BlockRangeSelectionState } from '../domain/selection/block-range-selection';
 import type { DragDropSnapshot } from './pipeline-drop';
 import type { GuardId } from './pipeline-event';
 
@@ -19,7 +18,6 @@ export type HoldContext = {
 export type SelectionContext = {
     selection: BlockSelection;
     guardDeps: GuardId[];
-    rangeState?: BlockRangeSelectionState;
 };
 
 export type DragContext<TPreview = unknown> = {

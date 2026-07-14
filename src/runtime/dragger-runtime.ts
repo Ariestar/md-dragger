@@ -1,9 +1,6 @@
-import { detectBlock } from '../domain/block/block-detector';
-import type { Block } from '../domain/block/block-types';
 import type { DropPosition } from '../domain/command/drop-position';
 import { createMoveCommand } from '../domain/command/move-command';
-import { selectOne, type BlockSelection } from '../domain/selection/block-selection';
-import type { LineRange } from '../domain/markdown/line-range-types';
+import type { BlockSelection } from '../domain/selection/block-selection';
 import { planMove, type MoveResult } from '../domain/move/move-plan';
 import { moveTx } from '../domain/transaction/move-blocks';
 import { DragPipeline } from '../pipeline/drag-pipeline';
@@ -22,7 +19,6 @@ import {
 } from './dragger-runtime-types';
 import { DefaultUx } from './default-ux';
 import type { CommitResult } from './ux-module';
-import type { LineRangeResolver } from '../domain/selection/range-selection';
 
 type ActiveDragSession = {
     sessionId: string;
@@ -32,6 +28,10 @@ type ActiveDragSession = {
     releaseCapture?: () => void;
 };
 
+/**
+ * Protocol for UX layers. Selection is a finished BlockSelection —
+ * multi-select construction stays in DefaultUx / host.
+ */
 export type RuntimeController = {
     readonly state: PipelineState;
     isGestureActive(): boolean;
@@ -41,10 +41,9 @@ export type RuntimeController = {
     beginDrag(sessionId: string, selection: BlockSelection, point: Point, pointer: Pointer, pointerType: string | null, releaseCapture?: () => void): void;
     moveDrag(sessionId: string, point: Point, pointer: Pointer, pointerType: string | null): void;
     commitDrop(sessionId: string, point: Point, pointer: Pointer, pointerType: string | null): CommitResult | void;
-    startRangeSelection(block: Block, selectedBlocks?: LineRange[]): void;
-    extendSelection(lineNumber: number): void;
-    finishSelection(): void;
-    enterRangeSelectionMode(anchorLine: number): void;
+    /** Replace the persistent multi-select result. */
+    setSelection(selection: BlockSelection): void;
+    clearSelection(): void;
     cancel(reason: DragCancelReason, pointerType: string | null): void;
     clearSelectionOrCancel(): void;
     guardUnavailable(guardId: string): void;
@@ -199,60 +198,22 @@ export class DraggerRuntime implements RuntimeController {
         return { kind: 'applied', edits: edits as DocEdit[] };
     }
 
-    startRangeSelection(block: Block, selectedBlocks: LineRange[] = []): void {
-        const doc = this.options.document.getDoc();
-        const anchor = block.lines;
-        this.pipeline.enter({
-            type: 'selection_start',
-            seed: {
-                selection: selectOne(block),
-                range: {
-                    type: 'range',
-                    doc,
-                    anchor,
-                    initial: anchor,
-                    selectedBlocks,
-                    resolveRange: this.createRangeResolver(),
-                },
-            },
-        });
+    setSelection(selection: BlockSelection): void {
+        this.pipeline.enter({ type: 'selection_set', selection });
     }
 
-    extendSelection(lineNumber: number): void {
-        if (this.pipeline.state.type !== 'selecting') return;
-        const doc = this.options.document.getDoc();
-        this.pipeline.enter({
-            type: 'selection_change',
-            target: this.rangeAtLine(lineNumber),
-            docLines: doc.lines,
-            resolveRange: this.createRangeResolver(),
-        });
-    }
-
-    enterRangeSelectionMode(anchorLine: number): void {
-        if (this.isGestureActive()) return;
-        const doc = this.options.document.getDoc();
-        const block = detectBlock(doc, anchorLine, { tabSize: this.config().tabSize });
-        if (!block) return;
-        this.startRangeSelection(block);
-    }
-
-    finishSelection(): void {
-        if (this.pipeline.state.type !== 'selecting') return;
-        if (this.currentSelection()?.blocks.length === 0) {
-            this.pipeline.enter({ type: 'selection_clear' });
-        }
+    clearSelection(): void {
+        this.pipeline.enter({ type: 'selection_clear' });
     }
 
     cancel(reason: DragCancelReason = 'press_cancelled', pointerType: string | null = null): void {
-        const sessionId = this.activeDragSession?.sessionId;
         this.endDragSession();
-        this.pipeline.enter({ type: 'cancel', sessionId, reason, pointerType });
+        this.pipeline.enter({ type: 'cancel', reason, pointerType });
     }
 
     clearSelectionOrCancel(): void {
         if (!this.isGestureActive() && this.pipeline.state.type === 'selecting') {
-            this.pipeline.enter({ type: 'selection_clear' });
+            this.clearSelection();
             return;
         }
         this.cancel();
@@ -335,23 +296,6 @@ export class DraggerRuntime implements RuntimeController {
             drop,
             reason: isDragCancelReason(reason) ? reason : 'selection_invalid',
         };
-    }
-
-    private currentSelection(): BlockSelection | null {
-        const state = this.pipeline.state;
-        if (state.type !== 'selecting') return null;
-        return state.selection.selection;
-    }
-
-    private rangeAtLine(lineNumber: number): LineRange {
-        const doc = this.options.document.getDoc();
-        const block = detectBlock(doc, lineNumber, { tabSize: this.config().tabSize });
-        if (block) return block.lines;
-        return { startLine: lineNumber, endLine: lineNumber };
-    }
-
-    private createRangeResolver(): LineRangeResolver {
-        return (lineNumber) => this.rangeAtLine(lineNumber);
     }
 
     private config(): ResolvedConfig {

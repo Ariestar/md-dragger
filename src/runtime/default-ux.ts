@@ -1,7 +1,11 @@
 import { detectBlock } from '../domain/block/block-detector';
 import type { Block } from '../domain/block/block-types';
-import { selectOne, type BlockSelection } from '../domain/selection/block-selection';
-import type { LineRange } from '../domain/markdown/line-range-types';
+import {
+    hasBlock,
+    selectBlocks,
+    selectOne,
+    type BlockSelection,
+} from '../domain/selection/block-selection';
 import type { Doc } from '../domain/markdown/document-types';
 import type { DragCancelReason } from '../pipeline/pipeline-event';
 import type { RuntimeController } from './dragger-runtime';
@@ -40,7 +44,6 @@ export type UxDeps = {
         setTimer(callback: () => void, delayMs: number): TimerToken;
         clearTimer(token: TimerToken): void;
     };
-    // Optional capabilities registered by the host. Runtime does not name them.
     modules?: readonly DefaultUxModule[];
 };
 
@@ -52,10 +55,10 @@ export type UxDeps = {
 //   press → hold
 //   short release before multiSelectMs → press_cancelled (host menu)
 //   hold to dragArmMs → ready (move past threshold → drag)
-//   hold to multiSelectMs → selecting (persistent multi-select)
-//   later sweeps toggle; long-press (dragArmMs) on selected block → group drag
+//   hold to multiSelectMs → selecting; pointer move range-selects in UX
+//   long-press on already-selected block → group drag
 //
-// Optional modules (auto-scroll, fold-restore, …) hook drag lifecycle only.
+// Range multi-select (anchor → current block span) lives here, not in domain.
 export class DefaultUx implements Ux {
     private readonly disposables: Disposable[] = [];
     private pressSession: PressSession | null = null;
@@ -110,11 +113,10 @@ export class DefaultUx implements Ux {
         const cfg = this.cfg();
         const sessionId = this.runtime().createSessionId();
         const selection = selectOne(block);
-        const existingSelectedBlocks = this.currentSelectedBlocks();
+        const existing = this.currentSelection();
         const inSelecting = cfg.multiSelectEnabled && this.runtime().state.type === 'selecting';
-        const selectedDragCandidate = inSelecting && isBlockSelected(block, existingSelectedBlocks);
+        const selectedDragCandidate = inSelecting && existing !== null && hasBlock(existing, block);
 
-        // Already selecting: arm group-drag on a selected block, or toggle-sweep.
         if (inSelecting) {
             const armMs = cfg.dragArmMs;
             const timer = selectedDragCandidate && armMs > 0
@@ -128,12 +130,11 @@ export class DefaultUx implements Ux {
                 pointer: input.pointer,
                 start: input.point,
                 anchorBlock: block,
-                selection,
+                selection: existing ?? selection,
                 ready: false,
                 rangeActive: false,
                 selectedDragCandidate,
                 selectedDragReady: selectedDragCandidate && armMs <= 0,
-                selectedBlocksAtPress: existingSelectedBlocks,
                 armTimer: timer,
                 multiSelectTimer: null,
                 releaseCapture: input.releaseCapture,
@@ -143,7 +144,6 @@ export class DefaultUx implements Ux {
             return;
         }
 
-        // Fresh press: hold first so short release can cancel → host menu.
         this.runtime().beginHold(sessionId, selection, input.pointer.type);
 
         if (cfg.multiSelectEnabled) {
@@ -171,7 +171,6 @@ export class DefaultUx implements Ux {
                 rangeActive: false,
                 selectedDragCandidate: false,
                 selectedDragReady: false,
-                selectedBlocksAtPress: [],
                 armTimer,
                 multiSelectTimer,
                 releaseCapture: input.releaseCapture,
@@ -182,7 +181,6 @@ export class DefaultUx implements Ux {
             return;
         }
 
-        // Single-block only.
         const armMs = Math.max(0, cfg.dragArmMs);
         const armTimer = armMs > 0
             ? this.deps.scheduler.setTimer(
@@ -200,7 +198,6 @@ export class DefaultUx implements Ux {
             rangeActive: false,
             selectedDragCandidate: false,
             selectedDragReady: false,
-            selectedBlocksAtPress: [],
             armTimer,
             multiSelectTimer: null,
             releaseCapture: input.releaseCapture,
@@ -242,17 +239,13 @@ export class DefaultUx implements Ux {
             this.startRangeSweep(session);
         }
 
-        if (session.rangeActive && this.runtime().state.type === 'selecting') {
-            const lineNumber = this.deps.lineFromPoint(input.point);
-            if (lineNumber !== null) this.runtime().extendSelection(lineNumber);
+        if (session.rangeActive) {
+            this.updateRangeSelection(session, input.point);
             return;
         }
 
-        // Armed for multi-select or single drag: moving past threshold starts a
-        // drag once ready (dragArmMs elapsed, or dragArmMs=0).
         if (!session.rangeActive) {
             if (!session.ready) {
-                // Not armed yet: cancel if the pointer drifts too far.
                 if (distance > cfg.dragCancelMoveThresholdPx) {
                     this.cancelPress('press_cancelled', input.pointer.type);
                 }
@@ -261,12 +254,10 @@ export class DefaultUx implements Ux {
             if (distance < cfg.dragStartMoveThresholdPx) return;
             input.claim?.();
             this.clearTimers();
-            // Ensure pipeline is ready_to_drag before drag_start.
             if (this.runtime().state.type === 'holding') {
                 this.runtime().markHoldReady(session.sessionId, input.pointer.type);
             }
             this.startDrag(session, session.selection, input.point, input.pointer);
-            return;
         }
     }
 
@@ -285,8 +276,8 @@ export class DefaultUx implements Ux {
         }
         if (!(session && samePointer(session.pointer, input.pointer))) return;
 
-        if (session.rangeActive && this.runtime().state.type === 'selecting') {
-            this.runtime().finishSelection();
+        if (session.rangeActive) {
+            // Leave selecting state with last setSelection result.
             this.clearPress();
             return;
         }
@@ -294,13 +285,11 @@ export class DefaultUx implements Ux {
         if (session.selectedDragCandidate) {
             if (!session.selectedDragReady) {
                 this.startRangeSweep(session);
-                this.runtime().finishSelection();
             }
             this.clearPress();
             return;
         }
 
-        // Short press: cancel → host may open handle-tap menu.
         this.cancelPress('press_cancelled', input.pointer.type);
     }
 
@@ -387,13 +376,30 @@ export class DefaultUx implements Ux {
         session.rangeActive = true;
         session.selectedDragReady = false;
         session.ready = false;
-        this.runtime().startRangeSelection(session.anchorBlock, session.selectedBlocksAtPress);
+        // Cancel hold if still holding — multi-select is persistent selection, not a hold.
+        if (this.runtime().state.type === 'holding' || this.runtime().state.type === 'ready_to_drag') {
+            this.runtime().cancel('press_cancelled', session.pointer.type);
+        }
+        this.runtime().setSelection(selectOne(session.anchorBlock));
+        session.selection = selectOne(session.anchorBlock);
     }
 
-    private currentSelectedBlocks(): LineRange[] {
+    private updateRangeSelection(session: PressSession, point: Point): void {
+        const lineNumber = this.deps.lineFromPoint(point);
+        if (lineNumber === null) return;
+        const doc = this.deps.getDoc();
+        const focus = detectBlock(doc, lineNumber, { tabSize: this.deps.tabSize });
+        if (!focus) return;
+        const blocks = blocksBetween(doc, this.deps.tabSize, session.anchorBlock, focus);
+        const selection = selectBlocks(blocks);
+        session.selection = selection;
+        this.runtime().setSelection(selection);
+    }
+
+    private currentSelection(): BlockSelection | null {
         const state = this.runtime().state;
-        if (state.type !== 'selecting') return [];
-        return state.selection.selection.blocks.map((block) => ({ ...block.lines }));
+        if (state.type !== 'selecting') return null;
+        return state.selection.selection;
     }
 
     private cancelPress(reason: DragCancelReason, pointerType: string | null): void {
@@ -436,7 +442,6 @@ type PressSession = {
     rangeActive: boolean;
     selectedDragCandidate: boolean;
     selectedDragReady: boolean;
-    selectedBlocksAtPress: LineRange[];
     armTimer: TimerToken | null;
     multiSelectTimer: TimerToken | null;
     releaseCapture?: () => void;
@@ -451,9 +456,20 @@ function distanceBetween(a: Point, b: Point): number {
     return Math.hypot(b.x - a.x, b.y - a.y);
 }
 
-function isBlockSelected(block: Block, selectedBlocks: LineRange[]): boolean {
-    return selectedBlocks.some((selected) => (
-        selected.startLine === block.lines.startLine
-        && selected.endLine === block.lines.endLine
-    ));
+/** Whole blocks covering [anchor, focus] by document order. */
+function blocksBetween(doc: Doc, tabSize: number, anchor: Block, focus: Block): Block[] {
+    const start = Math.min(anchor.lines.startLine, focus.lines.startLine);
+    const end = Math.max(anchor.lines.endLine, focus.lines.endLine);
+    const blocks: Block[] = [];
+    let cursor = start;
+    while (cursor <= end) {
+        const block = detectBlock(doc, cursor, { tabSize });
+        if (!block) {
+            cursor += 1;
+            continue;
+        }
+        blocks.push(block);
+        cursor = block.lines.endLine + 1;
+    }
+    return blocks;
 }

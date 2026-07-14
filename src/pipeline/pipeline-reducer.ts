@@ -1,8 +1,6 @@
 import type { PipelineEvent } from './pipeline-event';
 import type { PipelineOutput } from './pipeline-output';
 import type { BlockSelection } from '../domain/selection/block-selection';
-import type { LineRange } from '../domain/markdown/line-range-types';
-import { createBlockRangeSelectionState, updateBlockRangeSelectionState, type BlockRangeSelectionState } from '../domain/selection/block-range-selection';
 import { drop, dragOver, startDragDrop } from './pipeline-drop';
 import { clearSelection, cancelPipeline, destroyPipeline, exitForUnavailableGuard } from './pipeline-exit';
 import { withGuardDeps } from './pipeline-guard';
@@ -22,10 +20,8 @@ export function transitionPipelineState<TPreview>(
             return onHoldStart(state, event);
         case 'hold_ready':
             return onHoldReady(state, event);
-        case 'selection_start':
-            return onSelectionStart(state, event);
-        case 'selection_change':
-            return onSelectionChange(state, event);
+        case 'selection_set':
+            return onSelectionSet(state, event);
         case 'selection_clear':
             return clearSelection(state);
         case 'drag_start':
@@ -82,94 +78,23 @@ function onHoldReady<TPreview>(
     };
 }
 
-function onSelectionStart<TPreview>(
-    state: PipelineState,
-    event: Extract<PipelineEvent<TPreview>, { type: 'selection_start' }>
+function onSelectionSet<TPreview>(
+    _state: PipelineState,
+    event: Extract<PipelineEvent<TPreview>, { type: 'selection_set' }>
 ): PipelineTransitionResult<TPreview> {
-    const rangeState = createSelectionRangeState(event.seed);
-    if (event.seed.range && !rangeState) {
-        return { state, outputs: [] };
-    }
-    const selectionRangeState = rangeState ?? undefined;
-    const selection = rangeState
-        ? buildSelectionFromRangeState(event.seed.selection, rangeState.selectionBlocks)
-        : event.seed.selection;
     const next: PipelineState = {
         type: 'selecting',
         selection: {
-            selection,
+            selection: event.selection,
             guardDeps: withGuardDeps(event.guardDeps),
-            rangeState: selectionRangeState,
         },
     };
     return {
         state: next,
         outputs: [
             { type: 'state_changed', state: next },
-            { type: 'selection_changed', selection },
+            { type: 'selection_changed', selection: event.selection },
         ],
-    };
-}
-
-function createSelectionRangeState(
-    seed: Extract<PipelineEvent, { type: 'selection_start' }>['seed']
-): BlockRangeSelectionState | null | undefined {
-    if (!seed.range) return undefined;
-    return createBlockRangeSelectionState({
-        doc: seed.range.doc,
-        anchor: seed.range.anchor,
-        initial: seed.range.initial,
-        selectedBlocks: seed.range.selectedBlocks,
-        operation: seed.range.operation,
-        resolveRange: seed.range.resolveRange,
-    });
-}
-
-function onSelectionChange<TPreview>(
-    state: PipelineState,
-    event: Extract<PipelineEvent<TPreview>, { type: 'selection_change' }>
-): PipelineTransitionResult<TPreview> {
-    if (state.type !== 'selecting') {
-        return { state, outputs: [] };
-    }
-    if (!state.selection.rangeState || event.docLines === undefined || !event.resolveRange) {
-        return { state, outputs: [] };
-    }
-
-    const rangeState = updateBlockRangeSelectionState(state.selection.rangeState, {
-        docLines: event.docLines,
-        target: event.target,
-        resolveRange: event.resolveRange,
-    });
-    const selection = buildSelectionFromRangeState(state.selection.selection, rangeState.selectionBlocks);
-    const next: PipelineState = {
-        type: 'selecting',
-        selection: {
-            ...state.selection,
-            selection,
-            rangeState,
-        },
-    };
-    return {
-        state: next,
-        outputs: [
-            { type: 'state_changed', state: next },
-            { type: 'selection_changed', selection },
-        ],
-    };
-}
-
-function buildSelectionFromRangeState(
-    base: BlockSelection,
-    ranges: LineRange[]
-): BlockSelection {
-    // Multi-select range state stores line spans; keep primary type from base.
-    const primaryType = base.blocks[0]?.type;
-    if (!primaryType || ranges.length === 0) {
-        return base;
-    }
-    return {
-        blocks: ranges.map((lines) => ({ type: primaryType, lines })),
     };
 }
 
@@ -188,10 +113,6 @@ function onDragStart<TPreview>(
     state: PipelineState,
     event: Extract<PipelineEvent<TPreview>, { type: 'drag_start' }>
 ): PipelineTransitionResult<TPreview> {
-    // drag_start may come from a ready_to_drag hold OR from a selecting range
-    // that is being upgraded to a drag (long-press range-select → continue
-    // holding + drag past threshold). Either way the drag source is the
-    // selection held in that state.
     if (state.type !== 'ready_to_drag' && state.type !== 'selecting') {
         return { state, outputs: [] };
     }
