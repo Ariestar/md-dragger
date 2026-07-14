@@ -9,9 +9,8 @@ export {
   getHeadingSectionRange,
 } from './block/block-detector';
 export {
-  type BlockTypeConversion,
-  type BlockTypeConversionChange,
-  planBlockTypeConversionChanges,
+  type ConvertTo,
+  planConvert,
 } from './block/block-type-conversion';
 export {
   isHorizontalRuleLine,
