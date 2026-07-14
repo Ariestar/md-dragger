@@ -53,9 +53,8 @@ export function planMove(input: PlanMoveInput): MoveResult {
     const line = Math.max(1, Math.min(targetDoc.lines + 1, input.position.line));
     const position: DropPosition = {
         doc: targetDoc,
-        parent: input.position.parent,
-        index: Math.max(0, input.position.index),
         line,
+        parent: input.position.parent,
     };
 
     const lineMap = getLineMap(targetDoc, { tabSize: input.tabSize });

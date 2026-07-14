@@ -265,9 +265,8 @@ export class DraggerRuntime implements RuntimeController {
         const line = Math.max(1, Math.min(doc.lines + 1, position.line));
         return {
             doc,
-            parent: position.parent,
-            index: Math.max(0, position.index),
             line,
+            parent: position.parent,
         };
     }
 
