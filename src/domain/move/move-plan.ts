@@ -51,7 +51,12 @@ export function planMove(input: PlanMoveInput): MoveResult {
     if (!captured) return { type: 'reject', reason: 'empty_selection' };
 
     const line = Math.max(1, Math.min(targetDoc.lines + 1, input.position.line));
-    const position = clampDropPosition(input.position, targetDoc, line);
+    const position: DropPosition = {
+        doc: targetDoc,
+        parent: input.position.parent,
+        index: Math.max(0, input.position.index),
+        line,
+    };
 
     const lineMap = getLineMap(targetDoc, { tabSize: input.tabSize });
     const slot = canDropAt(targetDoc, captured.block, line, {
@@ -99,21 +104,4 @@ export function planMove(input: PlanMoveInput): MoveResult {
             indentUnit: input.indentUnit,
         },
     };
-}
-
-function clampDropPosition(position: DropPosition, doc: Doc, line: number): DropPosition {
-    switch (position.kind) {
-        case 'seam':
-            return { kind: 'seam', doc, line };
-        case 'inside':
-            return { kind: 'inside', doc, parent: position.parent, line };
-        case 'out':
-            return {
-                kind: 'out',
-                doc,
-                line,
-                indent: Math.max(0, position.indent),
-                contextLine: Math.max(1, Math.min(doc.lines, position.contextLine)),
-            };
-    }
 }

@@ -89,8 +89,10 @@ export {
 export {
   locateDropPosition,
   dropIndentWidth,
+  dropContextLine,
   type DropLocateInput,
 } from './markdown/drop-locate';
+
 export {
   normalizeLineRange,
   mergeLineRanges,

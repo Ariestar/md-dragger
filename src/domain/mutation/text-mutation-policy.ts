@@ -2,7 +2,7 @@ import type { Block } from '../block/block-types';
 import { BlockType } from '../block/block-types';
 import { adjustListToTargetContext, buildInsertText, getListContextNearLine } from './list-mutation';
 import type { DropPosition } from '../command/drop-position';
-import { dropIndentWidth } from '../markdown/drop-locate';
+import { dropContextLine, dropIndentWidth } from '../markdown/drop-locate';
 import { Doc } from '../markdown/document-types';
 import { LineParsingContext } from '../markdown/line-parsing-service';
 
@@ -29,14 +29,9 @@ export function buildInsertTextForDrop(params: {
 
     const tabSize = lineParsing.getTabSize();
     const targetIndentWidth = dropIndentWidth(position, { tabSize, indentUnit });
-    const contextLineNumber = position.kind === 'inside'
-        ? position.parent.lines.startLine
-        : position.kind === 'out'
-            ? position.contextLine
-            : targetLineNumber;
+    const contextLineNumber = dropContextLine(position);
     const relevelList = sourceBlock.type === BlockType.ListItem
-        || position.kind === 'inside'
-        || position.kind === 'out';
+        || position.parent?.type === BlockType.ListItem;
 
     return buildInsertText({
         sourceBlockType: sourceBlock.type,

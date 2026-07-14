@@ -8,7 +8,7 @@ import { computeListIntent } from './list-target';
 import { isLineNumberInRanges } from './line-range';
 import { selectionLineRanges } from '../selection/block-selection';
 
-// Pointer metrics → structural DropPosition. No paint fields.
+// Pointer metrics → structural DropPosition { parent, index, line }.
 
 export type DropLocateInput = {
     doc: Doc;
@@ -22,10 +22,8 @@ export type DropLocateInput = {
 };
 
 /**
- * Resolve where a drop lands structurally.
- * - inside: nest under a list item (child)
- * - out: list sibling / outdent with explicit target indent
- * - seam: plain insert-before (no list relevel)
+ * Resolve drop as a tree site (parent + index) + insert-before line.
+ * List child / sibling / outdent are locate gestures; result is only parent+index.
  */
 export function locateDropPosition(input: DropLocateInput): DropPosition | null {
     const {
@@ -40,15 +38,14 @@ export function locateDropPosition(input: DropLocateInput): DropPosition | null 
     } = input;
 
     if (hitLine < 1) {
-        return { kind: 'seam', doc, line: 1 };
+        return rootPosition(doc, 1, 0);
     }
     if (hitLine > doc.lines) {
-        return { kind: 'seam', doc, line: doc.lines + 1 };
+        return rootPosition(doc, doc.lines + 1, estimateRootIndex(doc, doc.lines + 1, tabSize));
     }
 
     const lineMap = getLineMap(doc, { tabSize });
     const hitMeta = getLineMetaAt(lineMap, hitLine);
-
     let line = Math.max(1, Math.min(doc.lines + 1, belowMid ? hitLine + 1 : hitLine));
 
     const nestZone = !!hitMeta?.isList && pastMarker;
@@ -56,18 +53,23 @@ export function locateDropPosition(input: DropLocateInput): DropPosition | null 
         line = Math.max(1, Math.min(doc.lines + 1, hitLine + 1));
     }
 
+    // Explicit nest under the list item under the pointer (not self).
     if (nestZone) {
         const parent = detectBlock(doc, hitLine, { tabSize });
         if (parent && parent.type === BlockType.ListItem) {
             const sourceLines = selectionLineRanges(doc.lines, selection);
-            const selfHit = isLineNumberInRanges(hitLine, sourceLines);
-            if (!selfHit) {
-                return { kind: 'inside', doc, parent, line };
+            if (!isLineNumberInRanges(hitLine, sourceLines)) {
+                return {
+                    doc,
+                    parent,
+                    index: childIndexUnderParent(doc, parent, line, tabSize),
+                    line,
+                };
             }
         }
     }
 
-    const listPos = listPositionFromIntent({
+    const fromIntent = listTreePositionFromIntent({
         doc,
         lineMap,
         selection,
@@ -78,12 +80,12 @@ export function locateDropPosition(input: DropLocateInput): DropPosition | null 
         indentUnit,
         tabSize,
     });
-    if (listPos) return listPos;
+    if (fromIntent) return fromIntent;
 
-    return { kind: 'seam', doc, line };
+    return rootPosition(doc, line, estimateRootIndex(doc, line, tabSize));
 }
 
-function listPositionFromIntent(params: {
+function listTreePositionFromIntent(params: {
     doc: Doc;
     lineMap: LineMap;
     selection: BlockSelection;
@@ -130,39 +132,105 @@ function listPositionFromIntent(params: {
         const parent = detectBlock(doc, intent.contextLineNumber, { tabSize });
         if (!parent || parent.type !== BlockType.ListItem) return null;
         return {
-            kind: 'inside',
             doc,
             parent,
+            index: childIndexUnderParent(doc, parent, targetLine, tabSize),
             line: targetLine,
         };
     }
 
-    // sibling | outdent — explicit indent so projection does not stick to nested nearest-line
+    // sibling | outdent → parent = list parent of context (null = document root)
+    const contextLine = intent.contextLineNumber;
+    const parentLine = lineMap.listParentLine[contextLine] ?? 0;
+    const parent = parentLine > 0
+        ? detectBlock(doc, parentLine, { tabSize })
+        : null;
+    if (parentLine > 0 && (!parent || parent.type !== BlockType.ListItem)) {
+        return rootPosition(doc, targetLine, estimateRootIndex(doc, targetLine, tabSize));
+    }
+
     return {
-        kind: 'out',
         doc,
+        parent: parentLine > 0 ? parent : null,
+        index: parent
+            ? childIndexUnderParent(doc, parent, targetLine, tabSize)
+            : estimateRootIndex(doc, targetLine, tabSize),
         line: targetLine,
-        indent: intent.targetIndentWidth,
-        contextLine: intent.contextLineNumber,
     };
 }
 
-/** Indent columns for paint/compile from a position (derived, not stored on seam). */
+function rootPosition(doc: Doc, line: number, index: number): DropPosition {
+    return { doc, parent: null, index, line };
+}
+
+/** Child index under a list parent: count sibling list items starting before `line`. */
+function childIndexUnderParent(
+    doc: Doc,
+    parent: Block,
+    line: number,
+    tabSize: number,
+): number {
+    const lineMap = getLineMap(doc, { tabSize });
+    const parentStart = parent.lines.startLine;
+    const parentEnd = Math.min(
+        parent.lines.endLine,
+        lineMap.listSubtreeEndLine[parentStart] || parent.lines.endLine,
+    );
+    let index = 0;
+    for (let n = parentStart + 1; n < line && n <= parentEnd; n++) {
+        const meta = getLineMetaAt(lineMap, n);
+        if (!meta?.isList) continue;
+        if ((lineMap.listParentLine[n] ?? 0) === parentStart) {
+            index += 1;
+        }
+    }
+    return index;
+}
+
+/** Approximate root-level block index for insert-before `line`. */
+function estimateRootIndex(doc: Doc, line: number, tabSize: number): number {
+    let index = 0;
+    let n = 1;
+    while (n < line && n <= doc.lines) {
+        const block = detectBlock(doc, n, { tabSize });
+        if (!block) {
+            n += 1;
+            continue;
+        }
+        // only count top-level-ish: list items at indent 0, or non-list blocks
+        const lineMap = getLineMap(doc, { tabSize });
+        const meta = getLineMetaAt(lineMap, block.lines.startLine);
+        const isNestedList = block.type === BlockType.ListItem
+            && (meta?.indentWidth ?? 0) > 0;
+        if (!isNestedList) {
+            index += 1;
+        }
+        n = block.lines.endLine + 1;
+    }
+    return index;
+}
+
+/**
+ * Indent columns for paint/compile.
+ * Derived only from tree parent — never from "nearest line" heuristics.
+ * - under list parent → parentIndent + indentUnit
+ * - document root → 0
+ */
 export function dropIndentWidth(
     position: DropPosition,
     options: { tabSize: number; indentUnit: number }
 ): number {
-    if (position.kind === 'out') {
-        return Math.max(0, position.indent);
-    }
-    if (position.kind === 'inside' && position.parent.type === BlockType.ListItem) {
+    if (position.parent && position.parent.type === BlockType.ListItem) {
         const lineMap = getLineMap(position.doc, { tabSize: options.tabSize });
         const meta = getLineMetaAt(lineMap, position.parent.lines.startLine);
         const base = meta?.indentWidth ?? 0;
         return base + options.indentUnit;
     }
-    const lineMap = getLineMap(position.doc, { tabSize: options.tabSize });
-    const near = getNearestListLineAtOrBefore(lineMap, position.line - 1);
-    if (near === null) return 0;
-    return getLineMetaAt(lineMap, near)?.indentWidth ?? 0;
+    return 0;
+}
+
+/** Context line for list marker style sampling. */
+export function dropContextLine(position: DropPosition): number {
+    if (position.parent) return position.parent.lines.startLine;
+    return Math.max(1, position.line - 1);
 }

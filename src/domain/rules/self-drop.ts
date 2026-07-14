@@ -5,7 +5,7 @@ import type { DropPosition } from '../command/drop-position';
 import { InsertionRuleRejectReason, InsertionSlotContext, resolveInsertionRule } from './insertion-rules';
 import { getLineMetaAt, LineMap } from '../markdown/line-map';
 import { computeListIndentPlan } from '../mutation/list-mutation';
-import { dropIndentWidth } from '../markdown/drop-locate';
+import { dropContextLine, dropIndentWidth } from '../markdown/drop-locate';
 import { Doc, ListContext, ParsedLine } from '../markdown/document-types';
 import type { LineRange } from '../markdown/line-range-types';
 import { isLineNumberInRanges } from '../markdown/line-range';
@@ -108,8 +108,7 @@ export function selfDrop(params: {
         ? dropIndentWidth(position, { tabSize, indentUnit })
         : undefined;
     const hasListIntent = targetIndentWidth !== undefined && (
-        position?.kind === 'inside'
-        || position?.kind === 'out'
+        position?.parent?.type === BlockType.ListItem
         || sourceBlock.type === BlockType.ListItem
     );
     if (!hasListIntent || targetIndentWidth === undefined) {
@@ -152,11 +151,9 @@ export function selfDrop(params: {
         };
     }
 
-    const listContextLineNumber = position?.kind === 'inside'
-        ? position.parent.lines.startLine
-        : position?.kind === 'out'
-            ? position.contextLine
-            : targetLineNumber;
+    const listContextLineNumber = position
+        ? dropContextLine(position)
+        : targetLineNumber;
 
     const indentPlan = computeListIndentPlan({
         doc,
