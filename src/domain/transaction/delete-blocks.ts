@@ -1,15 +1,15 @@
 import type { Doc } from '../markdown/document-types';
 import { selectionLineRanges, type BlockSelection } from '../selection/block-selection';
 import type { DocEdit, TextChange } from './block-transaction';
-import { rejectCommand, type CommandReject } from './command-reject';
+import { reject, type Reject } from '../result';
 
 export function planDelete(params: {
     doc: Doc;
     selection: BlockSelection;
-}): DocEdit | CommandReject {
+}): DocEdit | Reject {
     const { doc, selection } = params;
     const ranges = selectionLineRanges(doc.lines, selection);
-    if (ranges.length === 0) return rejectCommand('empty_selection');
+    if (ranges.length === 0) return reject('empty_selection');
 
     const changes: TextChange[] = ranges
         .map((range) => {
@@ -29,6 +29,6 @@ export function planDelete(params: {
         .filter((change) => change.to > change.from)
         .sort((a, b) => b.from - a.from);
 
-    if (changes.length === 0) return rejectCommand('empty_selection');
+    if (changes.length === 0) return reject('empty_selection');
     return { doc, changes };
 }

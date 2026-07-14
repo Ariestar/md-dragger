@@ -2,24 +2,19 @@ import { BlockType } from '../block/block-types';
 import type { BlockSelection } from '../selection/block-selection';
 import { selectionLineRanges } from '../selection/block-selection';
 import type { DropPosition } from '../command/drop-position';
-import { InsertionRuleRejectReason, InsertionSlotContext, resolveInsertionRule } from './insertion-rules';
+import { InsertionSlotContext, resolveInsertionRule } from './insertion-rules';
 import { getLineMetaAt, LineMap } from '../markdown/line-map';
 import { computeListIndentPlan } from '../mutation/list-mutation';
 import { dropContextLine, dropIndentWidth } from '../markdown/drop-locate';
 import { Doc, ListContext, ParsedLine } from '../markdown/document-types';
 import type { LineRange } from '../markdown/line-range-types';
 import { isLineNumberInRanges } from '../markdown/line-range';
-
-export type SelfDropRejectReason =
-    | 'self_range_blocked'
-    | 'self_embedding'
-    | 'container_policy'
-    | InsertionRuleRejectReason;
+import type { RejectReason } from '../result';
 
 export type SelfDropResult = {
     inSelfRange: boolean;
     allowInPlaceIndentChange: boolean;
-    rejectReason?: SelfDropRejectReason;
+    rejectReason?: RejectReason;
     listContextLineNumber?: number;
     targetIndentWidth?: number;
 };

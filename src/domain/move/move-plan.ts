@@ -8,20 +8,9 @@ import type { BlockSelection } from '../selection/block-selection';
 import { selectOne } from '../selection/block-selection';
 import { getListContextNearLine } from '../mutation/list-mutation';
 import { captureMoveSource, type CapturedMoveSource } from '../transaction/move-blocks';
+import type { RejectReason } from '../result';
 
-export type RejectReason =
-    | 'table_cell'
-    | 'no_target'
-    | 'self_range_blocked'
-    | 'self_embedding'
-    | 'inside_list'
-    | 'inside_quote_run'
-    | 'quote_boundary'
-    | 'callout_after'
-    | 'table_before'
-    | 'hr_before'
-    | 'container_policy'
-    | 'empty_selection';
+export type { RejectReason };
 
 export type PlanMoveInput = {
     sourceDoc: Doc;

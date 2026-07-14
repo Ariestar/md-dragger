@@ -37,13 +37,15 @@ export {
   selectionLineRanges,
 } from './selection/block-selection';
 
+// --- results ---
+export { type Reject, type RejectReason, reject } from './result';
+
 // --- move planning ---
 export {
   planMove,
   type MovePlan,
   type MoveResult,
   type PlanMoveInput,
-  type RejectReason,
 } from './move/move-plan';
 
 // --- transaction ---
@@ -56,7 +58,6 @@ export {
   type MoveSourcePayload,
   type MoveSourceSegment,
 } from './transaction/move-blocks';
-export { type CommandReject, type CommandRejectReason, rejectCommand } from './transaction/command-reject';
 export { planDelete } from './transaction/delete-blocks';
 
 // --- markdown ---

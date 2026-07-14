@@ -9,7 +9,7 @@ import { createLineParsingContext } from '../markdown/line-parsing-service';
 import { buildInsertTextForDrop } from '../mutation/text-mutation-policy';
 import type { MovePlan } from '../move/move-plan';
 import type { DocEdit, TextChange } from './block-transaction';
-import { rejectCommand, type CommandReject } from './command-reject';
+import { reject, type Reject } from '../result';
 
 export type MoveSourceSegment = {
     lines: LineRange;
@@ -68,7 +68,7 @@ export function captureMoveSourcePayload(doc: Doc, selection: BlockSelection): M
 export function moveTx(params: {
     sourceDoc: Doc;
     plan: MovePlan;
-}): DocEdit[] | CommandReject {
+}): DocEdit[] | Reject {
     const { sourceDoc, plan } = params;
     const targetDoc = plan.position.doc;
     const targetLine = plan.position.line;
@@ -83,7 +83,7 @@ export function moveTx(params: {
         position: plan.position,
         indentUnit: plan.indentUnit,
     });
-    if (!insertText.length) return rejectCommand('no_insert_text');
+    if (!insertText.length) return reject('no_insert_text');
 
     if (sourceDoc !== targetDoc) {
         const target = planInsertOnlyTransaction({
@@ -122,7 +122,7 @@ function planInsertionAndDeletionTransaction(params: {
     targetLineNumber: number;
     insertText: string;
     allowInPlaceIndentChange: boolean;
-}): DocEdit | CommandReject {
+}): DocEdit | Reject {
     const { doc, payload, targetLineNumber, insertText, allowInPlaceIndentChange } = params;
 
     const totalDeletedLength = payload.segments.reduce(
@@ -133,7 +133,7 @@ function planInsertionAndDeletionTransaction(params: {
         remainingLengthAfterDelete: doc.length - totalDeletedLength,
     });
     if (payload.segments.some((segment) => insertion.pos > segment.deleteFrom && insertion.pos < segment.deleteTo)) {
-        return rejectCommand('insertion_inside_deleted_range');
+        return reject('insertion_inside_deleted_range');
     }
 
     const firstSegment = payload.segments[0];
@@ -152,7 +152,7 @@ function planInsertOnlyTransaction(params: {
     payload: MoveSourcePayload;
     targetLineNumber: number;
     insertText: string;
-}): DocEdit | CommandReject {
+}): DocEdit | Reject {
     const { doc, targetLineNumber, insertText } = params;
     const insertion = resolveInsertionChange(doc, targetLineNumber, insertText, {
         remainingLengthAfterDelete: doc.length,
