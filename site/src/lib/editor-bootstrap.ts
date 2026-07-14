@@ -7,6 +7,7 @@ import {
 } from 'md-dragger/adapter/codemirror';
 import type { PressInput } from 'md-dragger/runtime';
 import { dropIndicator, dropIndicatorOnChange } from './drop-indicator';
+import { handleBlockMenu } from './handle-menu';
 import { selectionHighlight, selectionHighlightOnChange } from './selection-highlight';
 
 // Host wiring: config + gesture + optional row-as-handle. No geometry math.
@@ -70,5 +71,6 @@ export function demoDraggerExtensions(options: DemoUxOptions = {}): Extension[] 
     }),
     dropIndicator(),
     selectionHighlight(),
+    handleBlockMenu(),
   ];
 }
