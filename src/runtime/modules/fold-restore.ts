@@ -2,7 +2,7 @@ import type { BlockSelection } from '../../domain/selection/block-selection';
 import type { DefaultUxModule } from '../ux-module';
 
 // Optional module for hosts that restore fold UI after a move.
-// selectionAfter was removed from DocEdit — restore with null until redesign.
+// Post-apply selection mapping is deferred; restore receives null selectionAfter.
 
 export type FoldPort = {
     capture(selection: BlockSelection): unknown | null;

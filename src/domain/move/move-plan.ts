@@ -1,19 +1,17 @@
 import type { DropPosition } from '../command/drop-position';
 import type { Doc } from '../markdown/document-types';
 import { getLineMap } from '../markdown/line-map';
-import { clampInsertLine } from '../markdown/line-number';
 import { createLineParsingContext } from '../markdown/line-parsing-service';
-import { resolveDropRuleAtInsertion } from '../rules/container-policy-service';
+import { resolveDropRuleAtInsertion } from '../rules/container-policy';
 import { selfDrop } from '../rules/self-drop';
 import type { BlockSelection } from '../selection/block-selection';
 import { selectOne } from '../selection/block-selection';
 import { getListContextNearLine } from '../mutation/list-mutation';
 import { captureMoveSource, type CapturedMoveSource } from '../transaction/move-blocks';
 
-export type DropRejectReason =
+export type RejectReason =
     | 'table_cell'
     | 'no_target'
-    | 'no_anchor'
     | 'self_range_blocked'
     | 'self_embedding'
     | 'inside_list'
@@ -24,8 +22,6 @@ export type DropRejectReason =
     | 'hr_before'
     | 'container_policy'
     | 'empty_selection';
-
-export type MoveRejectReason = DropRejectReason;
 
 export type PlanMoveInput = {
     sourceDoc: Doc;
@@ -47,18 +43,14 @@ export type MovePlan = {
 
 export type MoveResult =
     | { type: 'ok'; value: MovePlan }
-    | { type: 'reject'; reason: MoveRejectReason };
+    | { type: 'reject'; reason: RejectReason };
 
-export type DropCheck =
-    | { type: 'ok'; value: MovePlan }
-    | { type: 'reject'; reason: DropRejectReason };
-
-export function checkDrop(input: PlanMoveInput): DropCheck {
+export function planMove(input: PlanMoveInput): MoveResult {
     const targetDoc = input.position.doc;
     const captured = input.captured ?? captureMoveSource(input.sourceDoc, input.selection);
     if (!captured) return { type: 'reject', reason: 'empty_selection' };
 
-    const line = clampInsertLine(targetDoc.lines, input.position.line);
+    const line = Math.max(1, Math.min(targetDoc.lines + 1, input.position.line));
     const position: DropPosition = input.position.kind === 'seam'
         ? { kind: 'seam', doc: targetDoc, line }
         : { kind: 'inside', doc: targetDoc, parent: input.position.parent, line };
@@ -109,8 +101,4 @@ export function checkDrop(input: PlanMoveInput): DropCheck {
             indentUnit: input.indentUnit,
         },
     };
-}
-
-export function planMove(input: PlanMoveInput): MoveResult {
-    return checkDrop(input);
 }

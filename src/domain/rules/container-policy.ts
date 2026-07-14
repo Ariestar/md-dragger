@@ -282,4 +282,21 @@ export function resolveDropRuleContextAtInsertion(
     };
 }
 
+/** Default detectBlock wrapper used by planMove. */
+export function resolveDropRuleAtInsertion(
+    doc: Doc,
+    sourceBlock: Block,
+    targetLineNumber: number,
+    options: { lineMap?: LineMap; tabSize: number }
+): DropRuleContext {
+    const lineMap = options.lineMap ?? getLineMap(doc, { tabSize: options.tabSize });
+    return resolveDropRuleContextAtInsertion(
+        doc,
+        sourceBlock,
+        targetLineNumber,
+        undefined,
+        { lineMap, tabSize: options.tabSize }
+    );
+}
+
 

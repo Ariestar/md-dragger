@@ -35,7 +35,7 @@ export function lineAtPoint(view: EditorView, point: Point): number | null {
 }
 
 /** Adapter measures pointer → domain DropPosition. */
-export function resolveDropTarget(
+export function resolveDropPosition(
   view: EditorView,
   point: Point,
   selection: BlockSelection,

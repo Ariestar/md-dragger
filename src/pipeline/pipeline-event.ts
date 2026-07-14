@@ -10,7 +10,6 @@ export type DragCancelReason =
     | 'selection_invalid'
     | 'guard_unavailable'
     | 'no_target'
-    | 'no_anchor'
     | 'table_cell'
     | 'self_range_blocked'
     | 'self_embedding'

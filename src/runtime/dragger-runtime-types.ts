@@ -74,7 +74,7 @@ export type DocumentHost = {
 export type LocateHost = {
     sourceLineFromInput(input: PressInput): number | null;
     /** Resolves structural drop position. */
-    resolveDropTarget(point: Point, context: { selection: BlockSelection }): DropPosition | null;
+    resolveDropPosition(point: Point, context: { selection: BlockSelection }): DropPosition | null;
     lineFromPoint?(point: Point): number | null;
 };
 

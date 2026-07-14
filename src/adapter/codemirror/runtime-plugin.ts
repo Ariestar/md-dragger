@@ -7,7 +7,7 @@ import {
   type MdDraggerCodeMirrorOptions,
 } from './config';
 import { pointerInput } from './pointer-input';
-import { sourceLineFromInput, resolveDropTarget, lineAtPoint } from './locate';
+import { sourceLineFromInput, resolveDropPosition, lineAtPoint } from './locate';
 import { applyCommit } from './commit';
 import { dragTransitionEffect } from './drag-events';
 
@@ -29,9 +29,9 @@ export function dragRuntime(options: MdDraggerCodeMirrorOptions): Extension {
           sourceLineFromInput: (input) =>
             locateOverride?.sourceLineFromInput?.(input)
             ?? sourceLineFromInput(view, input),
-          resolveDropTarget: (point, context) =>
-            locateOverride?.resolveDropTarget?.(point, context)
-            ?? resolveDropTarget(view, point, context.selection, options),
+          resolveDropPosition: (point, context) =>
+            locateOverride?.resolveDropPosition?.(point, context)
+            ?? resolveDropPosition(view, point, context.selection, options),
           lineFromPoint: (point) =>
             locateOverride?.lineFromPoint?.(point)
             ?? lineAtPoint(view, point),

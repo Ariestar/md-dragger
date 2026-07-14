@@ -22,10 +22,10 @@ export type HandleOptions = {
 
 // Host-owned locate overrides. Default adapter only arms on the handle;
 // a consumer (web playground, Obsidian mobile mode, …) can replace
-// sourceLineFromInput / resolveDropTarget without forking the runtime.
+// sourceLineFromInput / resolveDropPosition without forking the runtime.
 export type LocateOptions = {
   sourceLineFromInput?: LocateHost['sourceLineFromInput'];
-  resolveDropTarget?: LocateHost['resolveDropTarget'];
+  resolveDropPosition?: LocateHost['resolveDropPosition'];
   lineFromPoint?: LocateHost['lineFromPoint'];
 };
 

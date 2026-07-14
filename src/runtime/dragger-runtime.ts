@@ -1,5 +1,5 @@
 import type { DropPosition } from '../domain/command/drop-position';
-import { createMoveCommand } from '../domain/command/move-command';
+import { createMoveCommand } from '../domain/command/block-command';
 import type { BlockSelection } from '../domain/selection/block-selection';
 import { planMove, type MoveResult } from '../domain/move/move-plan';
 import { moveTx } from '../domain/transaction/move-blocks';
@@ -256,7 +256,7 @@ export class DraggerRuntime implements RuntimeController {
     }
 
     private resolvePosition(point: Point, selection: BlockSelection): DropPosition | null {
-        const position = this.options.locate.resolveDropTarget(point, { selection });
+        const position = this.options.locate.resolveDropPosition(point, { selection });
         if (!position) return null;
         const doc = position.doc;
         const line = Math.max(1, Math.min(doc.lines + 1, position.line));

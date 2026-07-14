@@ -24,10 +24,14 @@ export {
 } from './block/block-guards';
 
 // --- command / drop ---
-export { type BlockCommand } from './command/block-command';
 export { type DropPosition } from './command/drop-position';
-export { type MoveBlockCommand, createMoveCommand } from './command/move-command';
-export { type DeleteBlockCommand, createDeleteCommand } from './command/delete-command';
+export {
+  type BlockCommand,
+  type MoveBlockCommand,
+  type DeleteBlockCommand,
+  createMoveCommand,
+  createDeleteCommand,
+} from './command/block-command';
 
 // --- selection ---
 export {
@@ -44,12 +48,10 @@ export {
 // --- move planning ---
 export {
   planMove,
-  checkDrop,
   type MovePlan,
   type MoveResult,
   type PlanMoveInput,
-  type DropRejectReason,
-  type MoveRejectReason,
+  type RejectReason,
 } from './move/move-plan';
 
 // --- transaction ---
@@ -63,10 +65,7 @@ export {
   type MoveSourceSegment,
 } from './transaction/move-blocks';
 export { type CommandReject, type CommandRejectReason, rejectCommand } from './transaction/command-reject';
-export {
-  planDelete,
-  planBlockCommandTransaction,
-} from './transaction/block-command-transaction';
+export { planDelete } from './transaction/block-command-transaction';
 
 // --- markdown ---
 export {
