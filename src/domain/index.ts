@@ -25,13 +25,7 @@ export {
 
 // --- command / drop ---
 export { type DropPosition } from './command/drop-position';
-export {
-  type BlockCommand,
-  type MoveBlockCommand,
-  type DeleteBlockCommand,
-  createMoveCommand,
-  createDeleteCommand,
-} from './command/block-command';
+export { type BlockCommand } from './command/block-command';
 
 // --- selection ---
 export {
@@ -42,7 +36,6 @@ export {
   removeBlocks,
   hasBlock,
   selectionLineRanges,
-  selectionMergedLineRanges,
 } from './selection/block-selection';
 
 // --- move planning ---

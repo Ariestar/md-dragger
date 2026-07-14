@@ -6,7 +6,7 @@ import type { DropPosition } from '../command/drop-position';
 import { getLineMap, getLineMetaAt, getNearestListLineAtOrBefore, type LineMap } from './line-map';
 import { computeListIntent } from './list-target';
 import { isLineNumberInRanges } from './line-range';
-import { selectionMergedLineRanges } from '../selection/block-selection';
+import { selectionLineRanges } from '../selection/block-selection';
 
 // Pointer metrics → structural DropPosition. No paint fields.
 
@@ -57,7 +57,7 @@ export function locateDropPosition(input: DropLocateInput): DropPosition | null 
     if (nestZone) {
         const parent = detectBlock(doc, hitLine, { tabSize });
         if (parent && parent.type === BlockType.ListItem) {
-            const sourceLines = selectionMergedLineRanges(doc.lines, selection);
+            const sourceLines = selectionLineRanges(doc.lines, selection);
             const selfHit = isLineNumberInRanges(hitLine, sourceLines);
             if (!selfHit) {
                 return { kind: 'inside', doc, parent, line };
@@ -115,7 +115,7 @@ function listInsideIfChild(params: {
     const offset = markerOffset(refLine);
     if (offset === null) return null;
 
-    const sourceLines = selectionMergedLineRanges(doc.lines, selection);
+    const sourceLines = selectionLineRanges(doc.lines, selection);
     const self = isLineNumberInRanges(refLine, sourceLines);
     const intent = computeListIntent({
         doc,

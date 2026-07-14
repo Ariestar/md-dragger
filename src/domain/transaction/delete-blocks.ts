@@ -1,5 +1,5 @@
 import type { Doc } from '../markdown/document-types';
-import { selectionMergedLineRanges, type BlockSelection } from '../selection/block-selection';
+import { selectionLineRanges, type BlockSelection } from '../selection/block-selection';
 import type { DocEdit, TextChange } from './block-transaction';
 import { rejectCommand, type CommandReject } from './command-reject';
 
@@ -8,7 +8,7 @@ export function planDelete(params: {
     selection: BlockSelection;
 }): DocEdit | CommandReject {
     const { doc, selection } = params;
-    const ranges = selectionMergedLineRanges(doc.lines, selection);
+    const ranges = selectionLineRanges(doc.lines, selection);
     if (ranges.length === 0) return rejectCommand('empty_selection');
 
     const changes: TextChange[] = ranges

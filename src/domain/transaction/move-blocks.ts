@@ -2,7 +2,7 @@ import type { Block } from '../block/block-types';
 import type { Doc } from '../markdown/document-types';
 import type { DropPosition } from '../command/drop-position';
 import { resolveDeleteRange, resolveInsertionChange } from '../mutation/document-change';
-import { selectionMergedLineRanges, type BlockSelection } from '../selection/block-selection';
+import { selectionLineRanges, type BlockSelection } from '../selection/block-selection';
 import type { LineRange } from '../markdown/line-range-types';
 import { lineCount } from '../markdown/line-range';
 import { createLineParsingContext } from '../markdown/line-parsing-service';
@@ -46,7 +46,7 @@ export function captureMoveSource(doc: Doc, selection: BlockSelection): Captured
 }
 
 export function captureMoveSourcePayload(doc: Doc, selection: BlockSelection): MoveSourcePayload | null {
-    const ranges = selectionMergedLineRanges(doc.lines, selection);
+    const ranges = selectionLineRanges(doc.lines, selection);
     if (ranges.length === 0) return null;
 
     const segments = ranges.map((range) => {

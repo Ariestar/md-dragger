@@ -1,6 +1,6 @@
 import { BlockType } from '../block/block-types';
 import type { BlockSelection } from '../selection/block-selection';
-import { selectionMergedLineRanges } from '../selection/block-selection';
+import { selectionLineRanges } from '../selection/block-selection';
 import type { DropPosition } from '../command/drop-position';
 import { InsertionRuleRejectReason, InsertionSlotContext, resolveInsertionRule } from './insertion-rules';
 import { getLineMetaAt, LineMap } from '../markdown/line-map';
@@ -89,7 +89,7 @@ export function selfDrop(params: {
         }
     }
 
-    const sourceRanges = selectionMergedLineRanges(doc.lines, source);
+    const sourceRanges = selectionLineRanges(doc.lines, source);
     if (sourceRanges.length === 0) {
         return { inSelfRange: false, allowInPlaceIndentChange: false };
     }

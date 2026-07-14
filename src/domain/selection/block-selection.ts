@@ -46,10 +46,7 @@ export function hasBlock(selection: BlockSelection, block: Block): boolean {
     return selection.blocks.some((b) => blockKey(b) === key);
 }
 
-export function selectionLineRanges(selection: BlockSelection): LineRange[] {
-    return selection.blocks.map((block) => block.lines);
-}
-
-export function selectionMergedLineRanges(docLines: number, selection: BlockSelection): LineRange[] {
-    return mergeLineRanges(docLines, selectionLineRanges(selection));
+/** Line ranges of the selection; adjacent/overlapping blocks are merged. */
+export function selectionLineRanges(docLines: number, selection: BlockSelection): LineRange[] {
+    return mergeLineRanges(docLines, selection.blocks.map((block) => block.lines));
 }

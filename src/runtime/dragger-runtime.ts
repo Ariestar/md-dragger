@@ -1,5 +1,4 @@
 import type { DropPosition } from '../domain/command/drop-position';
-import { createMoveCommand } from '../domain/command/block-command';
 import type { BlockSelection } from '../domain/selection/block-selection';
 import { planMove, type MoveResult } from '../domain/move/move-plan';
 import { moveTx } from '../domain/transaction/move-blocks';
@@ -166,7 +165,11 @@ export class DraggerRuntime implements RuntimeController {
                 sessionId: drag.sessionId,
                 resolution: {
                     type: 'command',
-                    command: createMoveCommand(drag.selection, drag.position),
+                    command: {
+                        type: 'move',
+                        selection: drag.selection,
+                        position: drag.position,
+                    },
                     drop: dropSnapshot,
                 },
                 pointerType,
