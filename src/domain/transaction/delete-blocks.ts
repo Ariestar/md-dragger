@@ -1,6 +1,5 @@
 import type { Doc } from '../markdown/document-types';
-import { normalizeCompositeRanges } from '../selection/selection-ranges';
-import type { BlockSelection } from '../selection/block-selection';
+import { selectionMergedLineRanges, type BlockSelection } from '../selection/block-selection';
 import type { DocEdit, TextChange } from './block-transaction';
 import { rejectCommand, type CommandReject } from './command-reject';
 
@@ -9,21 +8,19 @@ export function planDeleteBlocksTransaction(params: {
     selection: BlockSelection;
 }): DocEdit | CommandReject {
     const { doc, selection } = params;
-    const ranges = normalizeCompositeRanges(selection.ranges, doc.lines);
+    const ranges = selectionMergedLineRanges(doc.lines, selection);
     if (ranges.length === 0) return rejectCommand('empty_selection');
 
     const changes: TextChange[] = ranges
         .map((range) => {
-            const startLineNumber = range.startLine + 1;
-            const endLineNumber = range.endLine + 1;
-            const startLine = doc.line(startLineNumber);
-            const endLine = doc.line(endLineNumber);
-            const deletesOnlyFinalLine = startLineNumber === endLineNumber
-                && endLineNumber === doc.lines
-                && startLineNumber > 1;
+            const startLine = doc.line(range.startLine);
+            const endLine = doc.line(range.endLine);
+            const deletesOnlyFinalLine = range.startLine === range.endLine
+                && range.endLine === doc.lines
+                && range.startLine > 1;
             return {
                 from: deletesOnlyFinalLine ? startLine.from - 1 : startLine.from,
-                to: endLineNumber === doc.lines
+                to: range.endLine === doc.lines
                     ? doc.length
                     : Math.min(doc.length, endLine.to + 1),
                 insert: '',

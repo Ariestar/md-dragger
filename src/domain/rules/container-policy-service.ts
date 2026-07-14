@@ -1,4 +1,4 @@
-import { BlockInfo } from '../block/block-types';
+import type { Block } from '../block/block-types';
 import type { Doc } from '../markdown/document-types';
 import { getLineMap, LineMap } from '../markdown/line-map';
 
@@ -6,7 +6,7 @@ import { resolveDropRuleContextAtInsertion, type DropRuleContext } from './conta
 
 export function resolveDropRuleAtInsertion(
     doc: Doc,
-    sourceBlock: BlockInfo,
+    sourceBlock: Block,
     targetLineNumber: number,
     options: { lineMap?: LineMap; tabSize: number }
 ): DropRuleContext {

@@ -1,26 +1,31 @@
-import type { BlockInfo } from '../block/block-types';
+import type { Block } from '../block/block-types';
+import { mergeLineRanges } from '../markdown/line-range';
+import type { LineRange } from '../markdown/line-range-types';
 
-export type BlockSelectionRange = {
-    startLine: number;
-    endLine: number;
-};
-
+/**
+ * Blocks involved in one gesture/command.
+ * Non-empty after normalize; sorted by startLine; non-overlapping.
+ */
 export type BlockSelection = {
-    anchorBlock: BlockInfo;
-    focusBlock: BlockInfo;
-    ranges: BlockSelectionRange[];
+    blocks: Block[];
 };
 
-export type RangeSelectionOperation = 'add' | 'remove';
-
-export function createBlockSelection(
-    anchorBlock: BlockInfo,
-    ranges: BlockSelectionRange[],
-    focusBlock: BlockInfo = anchorBlock
-): BlockSelection {
-    return { anchorBlock, focusBlock, ranges };
+export function selectOne(block: Block): BlockSelection {
+    return { blocks: [block] };
 }
 
-export function createSingleBlockSelection(block: BlockInfo): BlockSelection {
-    return createBlockSelection(block, [{ startLine: block.startLine, endLine: block.endLine }]);
+/** Sort by document order; drop empty. Does not merge overlapping blocks. */
+export function selectBlocks(blocks: Block[]): BlockSelection {
+    const sorted = [...blocks].sort(
+        (a, b) => a.lines.startLine - b.lines.startLine || a.lines.endLine - b.lines.endLine
+    );
+    return { blocks: sorted };
+}
+
+export function selectionLineRanges(selection: BlockSelection): LineRange[] {
+    return selection.blocks.map((block) => block.lines);
+}
+
+export function selectionMergedLineRanges(docLines: number, selection: BlockSelection): LineRange[] {
+    return mergeLineRanges(docLines, selectionLineRanges(selection));
 }

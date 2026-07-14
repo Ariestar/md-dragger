@@ -1,7 +1,7 @@
 import type { Doc } from '../domain/markdown/document-types';
 import type { BlockSelection } from '../domain/selection/block-selection';
-import type { RangeSelectionOperation } from '../domain/selection/block-selection';
-import type { SelectedBlockRange } from '../domain/selection/block-ranges';
+import type { RangeSelectionOperation } from '../domain/selection/block-range-selection';
+import type { LineRange } from '../domain/markdown/line-range-types';
 import type { RangeSelectionBoundary, RangeSelectionBoundaryResolver } from '../domain/selection/range-selection';
 import type { DragDropSnapshot, DropResolution } from './pipeline-drop';
 
@@ -36,7 +36,7 @@ export type SelectionRangeSeed = {
     doc: Doc;
     anchorBoundary: RangeSelectionBoundary;
     initialBoundary?: RangeSelectionBoundary;
-    selectedBlocks: SelectedBlockRange[];
+    selectedBlocks: LineRange[];
     operation?: RangeSelectionOperation;
     resolveBoundary?: RangeSelectionBoundaryResolver;
 };

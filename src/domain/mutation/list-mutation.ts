@@ -1,5 +1,4 @@
 import { BlockType } from '../block/block-types';
-import type { ListDropTarget } from '../command/drop-target';
 import { Doc, ListContext, ListContextValue, ParsedLine } from '../markdown/document-types';
 
 export interface ListContextNearLineOptions {
@@ -109,7 +108,9 @@ export function computeListIndentPlan(params: {
     targetLineNumber: number;
     parseLineWithQuote: (line: string) => ParsedLine;
     getListContext?: (doc: Doc, lineNumber: number) => ListContext;
-    listIntent?: ListDropTarget;
+    /** Absolute target indent width (columns). When set, drives delta. */
+    targetIndentWidth?: number;
+    contextLineNumber?: number;
 }): ListIndentPlan {
     const {
         doc,
@@ -117,24 +118,18 @@ export function computeListIndentPlan(params: {
         targetLineNumber,
         parseLineWithQuote,
         getListContext: getListContextFn,
-        listIntent,
+        targetIndentWidth: explicitTargetIndent,
+        contextLineNumber,
     } = params;
 
-    const listContextLineNumber = listIntent?.contextLineNumber ?? targetLineNumber;
+    const listContextLineNumber = contextLineNumber ?? targetLineNumber;
     const targetContext = getListContextFn
         ? getListContextFn(doc, listContextLineNumber)
         : getListContextNearLine(doc, listContextLineNumber, parseLineWithQuote);
     const indentSample = targetContext ? targetContext.indentRaw : sourceBase.indentRaw;
 
-    if (
-        (listIntent?.mode === 'child' || listIntent?.mode === 'outdent')
-        && typeof listIntent.targetIndentWidth !== 'number'
-    ) {
-        throw new Error('listIntent.targetIndentWidth is required for child/outdent');
-    }
-
-    const indentDelta = typeof listIntent?.targetIndentWidth === 'number'
-        ? listIntent.targetIndentWidth - sourceBase.indentWidth
+    const indentDelta = typeof explicitTargetIndent === 'number'
+        ? explicitTargetIndent - sourceBase.indentWidth
         : (targetContext ? targetContext.indentWidth : 0) - sourceBase.indentWidth;
 
     return {
@@ -155,7 +150,8 @@ export function adjustListToTargetContext(params: {
     parseLineWithQuote: (line: string) => ParsedLine;
     buildIndentStringFromSample: (sample: string, width: number) => string;
     getListContext?: (doc: Doc, lineNumber: number) => ListContext;
-    listIntent?: ListDropTarget;
+    targetIndentWidth?: number;
+    contextLineNumber?: number;
 }): string {
     const {
         doc,
@@ -164,7 +160,8 @@ export function adjustListToTargetContext(params: {
         parseLineWithQuote,
         buildIndentStringFromSample: buildIndentStringFromSampleFn,
         getListContext: getListContextFn,
-        listIntent,
+        targetIndentWidth,
+        contextLineNumber,
     } = params;
 
     const lines = sourceContent.split('\n');
@@ -176,7 +173,8 @@ export function adjustListToTargetContext(params: {
         targetLineNumber,
         parseLineWithQuote,
         getListContext: getListContextFn,
-        listIntent,
+        targetIndentWidth,
+        contextLineNumber,
     });
 
     const quoteAdjustedLines = lines.map((line) => {

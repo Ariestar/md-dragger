@@ -1,226 +1,157 @@
 import type { BlockSelection } from '../selection/block-selection';
 import type { Doc } from './document-types';
-import type { DropGuide, ListDropTarget } from '../command/drop-target';
-import { BlockType } from '../block/block-types';
-import { clampTargetLineNumber } from './line-target-number';
+import { BlockType, type Block } from '../block/block-types';
+import { detectBlock } from '../block/block-detector';
+import type { DropPosition } from '../command/drop-position';
+import { clampInsertLine } from './line-number';
 import { getLineMap, getLineMetaAt, getNearestListLineAtOrBefore, type LineMap } from './line-map';
 import { computeListIntent } from './list-target';
+import { isLineNumberInRanges } from './line-range';
+import { selectionMergedLineRanges } from '../selection/block-selection';
 
-// Pure drop-target resolution (vertical half-line + list intent + paint guide).
-// No pixels. Adapter only maps guide line/char indices to screen coords.
+// Pointer metrics → structural DropPosition. No paint fields.
 
 export type DropLocateInput = {
-  doc: Doc;
-  selection: BlockSelection;
-  /** 1-based line under pointer (or doc.lines+1 past end). */
-  hitLine: number;
-  /** Pointer in lower half of hit line. */
-  belowMid: boolean;
-  /** Pointer past list marker text — nest into this row. */
-  pastMarker: boolean;
-  /** Columns from a list line's marker to the pointer; null if not a list. */
-  markerOffset: (listLine: number) => number | null;
-  tabSize: number;
-  indentUnit: number;
+    doc: Doc;
+    selection: BlockSelection;
+    hitLine: number;
+    belowMid: boolean;
+    pastMarker: boolean;
+    markerOffset: (listLine: number) => number | null;
+    tabSize: number;
+    indentUnit: number;
 };
-
-export type DropLocateResult = {
-  targetLineNumber: number;
-  placement: 'before';
-  listIntent?: ListDropTarget;
-  guide: DropGuide;
-};
-
-export function locateDropTarget(input: DropLocateInput): DropLocateResult | null {
-  const {
-    doc,
-    selection,
-    hitLine,
-    belowMid,
-    pastMarker,
-    markerOffset,
-    tabSize,
-    indentUnit,
-  } = input;
-
-  if (hitLine < 1) {
-    return {
-      targetLineNumber: 1,
-      placement: 'before',
-      guide: buildGuide(doc, 1, 0, tabSize),
-    };
-  }
-  if (hitLine > doc.lines) {
-    const targetLine = doc.lines + 1;
-    return {
-      targetLineNumber: targetLine,
-      placement: 'before',
-      guide: buildGuide(doc, targetLine, 0, tabSize),
-    };
-  }
-
-  const lineMap = getLineMap(doc, { tabSize });
-  const hitMeta = getLineMetaAt(lineMap, hitLine);
-  const nestHere = selection.anchorBlock.type === BlockType.ListItem
-    && !!hitMeta?.isList
-    && pastMarker;
-
-  let targetLine = clampTargetLineNumber(
-    doc.lines,
-    belowMid ? hitLine + 1 : hitLine,
-  );
-
-  if (nestHere && !belowMid) {
-    targetLine = clampTargetLineNumber(doc.lines, hitLine + 1);
-  }
-
-  const listIntent = listIntentAt({
-    doc,
-    lineMap,
-    selection,
-    hitLine,
-    targetLine,
-    nestHere,
-    markerOffset,
-    indentUnit,
-  });
-
-  const indent = listIntent?.targetIndentWidth ?? 0;
-
-  return {
-    targetLineNumber: targetLine,
-    placement: 'before',
-    listIntent,
-    guide: buildGuide(doc, targetLine, indent, tabSize, lineMap),
-  };
-}
 
 /**
- * Build paint guide: reuse an existing list line at the drop indent for left X.
- * No pixel math — only line numbers and a char offset into that line.
+ * Resolve where a drop lands structurally.
+ * Nest (inside) is driven by hit geometry on the target, not selection primary.
  */
-export function buildGuide(
-  doc: Doc,
-  targetLine: number,
-  indentWidth: number,
-  tabSize: number,
-  lineMap?: LineMap,
-): DropGuide {
-  const bandLine = targetLine <= 1 ? 1 : Math.min(targetLine - 1, doc.lines);
-  const indent = Math.max(0, indentWidth);
+export function locateDropPosition(input: DropLocateInput): DropPosition | null {
+    const {
+        doc,
+        selection,
+        hitLine,
+        belowMid,
+        pastMarker,
+        markerOffset,
+        tabSize,
+        indentUnit,
+    } = input;
 
-  // Prefer a list item already at this indent — its content start IS the left edge.
-  const map = lineMap ?? getLineMap(doc, { tabSize });
-  const leftLine = findListLineAtIndent(map, indent) ?? bandLine;
-  const leftChars = contentStartChars(doc.line(leftLine).text, indent, tabSize);
+    if (hitLine < 1) {
+        return { kind: 'seam', doc, line: 1 };
+    }
+    if (hitLine > doc.lines) {
+        return { kind: 'seam', doc, line: doc.lines + 1 };
+    }
 
-  return { bandLine, leftLine, leftChars };
+    const lineMap = getLineMap(doc, { tabSize });
+    const hitMeta = getLineMetaAt(lineMap, hitLine);
+
+    let line = clampInsertLine(doc.lines, belowMid ? hitLine + 1 : hitLine);
+
+    const nestZone = !!hitMeta?.isList && pastMarker;
+    if (nestZone && !belowMid) {
+        line = clampInsertLine(doc.lines, hitLine + 1);
+    }
+
+    if (nestZone) {
+        const parent = detectBlock(doc, hitLine, { tabSize });
+        if (parent && parent.type === BlockType.ListItem) {
+            const sourceLines = selectionMergedLineRanges(doc.lines, selection);
+            const selfHit = isLineNumberInRanges(hitLine, sourceLines);
+            if (!selfHit) {
+                return { kind: 'inside', doc, parent, line };
+            }
+            // Self: still allow indent slots via list intent geometry → seam with line
+        }
+    }
+
+    // Optional: list column snap only adjusts seam line / future projection; structure stays seam
+    // unless computeListIntent says child toward a non-self ref.
+    const listPos = listInsideIfChild({
+        doc,
+        lineMap,
+        selection,
+        hitLine,
+        targetLine: line,
+        nestZone,
+        markerOffset,
+        indentUnit,
+        tabSize,
+    });
+    if (listPos) return listPos;
+
+    return { kind: 'seam', doc, line };
 }
 
-function listIntentAt(params: {
-  doc: Doc;
-  lineMap: LineMap;
-  selection: BlockSelection;
-  hitLine: number;
-  targetLine: number;
-  nestHere: boolean;
-  markerOffset: (listLine: number) => number | null;
-  indentUnit: number;
-}): ListDropTarget | undefined {
-  const {
-    doc,
-    lineMap,
-    selection,
-    hitLine,
-    targetLine,
-    nestHere,
-    markerOffset,
-    indentUnit,
-  } = params;
+function listInsideIfChild(params: {
+    doc: Doc;
+    lineMap: LineMap;
+    selection: BlockSelection;
+    hitLine: number;
+    targetLine: number;
+    nestZone: boolean;
+    markerOffset: (listLine: number) => number | null;
+    indentUnit: number;
+    tabSize: number;
+}): DropPosition | null {
+    const {
+        doc,
+        lineMap,
+        selection,
+        hitLine,
+        targetLine,
+        nestZone,
+        markerOffset,
+        indentUnit,
+        tabSize,
+    } = params;
 
-  if (selection.anchorBlock.type !== BlockType.ListItem) return undefined;
+    const refLine = nestZone
+        ? hitLine
+        : getNearestListLineAtOrBefore(lineMap, targetLine - 1);
+    if (refLine === null || refLine < 1) return null;
 
-  const refLine = nestHere
-    ? hitLine
-    : getNearestListLineAtOrBefore(lineMap, targetLine - 1);
-  if (refLine === null || refLine < 1) return undefined;
+    const offset = markerOffset(refLine);
+    if (offset === null) return null;
 
-  const baseIndent = getLineMetaAt(lineMap, refLine)?.indentWidth;
-  if (baseIndent === undefined) return undefined;
+    const sourceLines = selectionMergedLineRanges(doc.lines, selection);
+    const self = isLineNumberInRanges(refLine, sourceLines);
+    const intent = computeListIntent({
+        doc,
+        lineMap,
+        refLine,
+        offset,
+        indentUnit,
+        allowChild: !self,
+    });
+    if (!intent || intent.mode !== 'child') return null;
 
-  const offset = markerOffset(refLine);
-  if (offset === null) {
+    const parent = detectBlock(doc, intent.contextLineNumber, { tabSize });
+    if (!parent || parent.type !== BlockType.ListItem) return null;
+
     return {
-      mode: 'sibling',
-      contextLineNumber: refLine,
-      targetIndentWidth: baseIndent,
+        kind: 'inside',
+        doc,
+        parent,
+        line: targetLine,
     };
-  }
-
-  const self = refLine === selection.anchorBlock.startLine + 1;
-  const intent = computeListIntent({
-    doc,
-    lineMap,
-    refLine,
-    offset,
-    indentUnit,
-    allowChild: !self,
-  });
-  if (!intent) {
-    return {
-      mode: 'sibling',
-      contextLineNumber: refLine,
-      targetIndentWidth: baseIndent,
-    };
-  }
-
-  let indent = Math.min(intent.targetIndentWidth, baseIndent + indentUnit);
-  if (targetLine <= doc.lines) {
-    const next = getLineMetaAt(lineMap, targetLine);
-    if (next?.isList) {
-      indent = Math.max(indent, Math.max(0, next.indentWidth - indentUnit));
-    }
-  }
-
-  return {
-    mode: intent.mode,
-    contextLineNumber: intent.contextLineNumber,
-    targetIndentWidth: indent,
-  };
 }
 
-function findListLineAtIndent(lineMap: LineMap, indentWidth: number): number | null {
-  for (let n = 1; n < lineMap.lineMeta.length; n += 1) {
-    const meta = lineMap.lineMeta[n];
-    if (meta?.isList && meta.indentWidth === indentWidth) return n;
-  }
-  return null;
-}
-
-/** Chars from line start to content edge after `indentWidth` columns (marker stays in). */
-function contentStartChars(text: string, indentWidth: number, tabSize: number): number {
-  // Skip blockquote prefix the same way line-parser does: leading `> ` runs.
-  let i = 0;
-  while (i < text.length) {
-    const m = text.slice(i).match(/^\s*> ?/);
-    if (!m) break;
-    i += m[0].length;
-  }
-  let width = 0;
-  let chars = i;
-  while (chars < text.length && width < indentWidth) {
-    const ch = text[chars];
-    if (ch === ' ') {
-      width += 1;
-      chars += 1;
-      continue;
+/** Indent columns for paint/compile from a position (derived, not stored on DropPosition). */
+export function dropIndentWidth(
+    position: DropPosition,
+    options: { tabSize: number; indentUnit: number }
+): number {
+    if (position.kind === 'inside' && position.parent.type === BlockType.ListItem) {
+        const lineMap = getLineMap(position.doc, { tabSize: options.tabSize });
+        const meta = getLineMetaAt(lineMap, position.parent.lines.startLine);
+        const base = meta?.indentWidth ?? 0;
+        return base + options.indentUnit;
     }
-    if (ch === '\t') {
-      width += tabSize;
-      chars += 1;
-      continue;
-    }
-    break;
-  }
-  return chars;
+    const lineMap = getLineMap(position.doc, { tabSize: options.tabSize });
+    const near = getNearestListLineAtOrBefore(lineMap, position.line - 1);
+    if (near === null) return 0;
+    return getLineMetaAt(lineMap, near)?.indentWidth ?? 0;
 }

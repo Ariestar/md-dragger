@@ -1,8 +1,8 @@
 import type { BlockSelection } from '../../domain/selection/block-selection';
 import type { DefaultUxModule } from '../ux-module';
 
-// Optional module shipped for hosts that can restore editor fold UI after a move.
-// Not imported by Runtime; host registers it via ux: { modules: [foldRestore(...)] }.
+// Optional module for hosts that restore fold UI after a move.
+// selectionAfter was removed from DocEdit — restore with null until redesign.
 
 export type FoldPort = {
     capture(selection: BlockSelection): unknown | null;
@@ -21,8 +21,7 @@ export function foldRestore(port: FoldPort): DefaultUxModule {
                 snapshot = null;
                 return;
             }
-            const selectionAfter = result.edits.find((edit) => edit.selectionAfter)?.selectionAfter ?? null;
-            port.restore(snapshot, selectionAfter);
+            port.restore(snapshot, null);
             snapshot = null;
         },
         onCancel() {

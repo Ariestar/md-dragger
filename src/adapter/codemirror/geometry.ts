@@ -1,9 +1,16 @@
 import type { EditorView } from '@codemirror/view';
-import type { DropTarget } from '../../domain';
-import { createLineParsingContext } from '../../domain/markdown/line-parsing-service';
+import type { DropPosition } from '../../domain';
+import { dropIndentWidth } from '../../domain';
+import {
+  resolveListIndentUnit,
+  resolveTabSize,
+  type MdDraggerCodeMirrorOptions,
+} from './config';
 
-// Adapter UX mapping only — no indent math, no column estimation.
-// Domain DropTarget.guide already chose bandLine / leftLine / leftChars.
+// Adapter: pixels only.
+//
+// ink-mde list indent is laid out as nest-level widgets, not plain spaces.
+// left = origin + (indentWidth / listIndentUnit) * nestStepPx
 
 export type LineBand = {
   left: number;
@@ -19,7 +26,12 @@ export type DropSeam = {
   y: number;
 };
 
-/** Line box minus own indent (selection). */
+export type DropSeamOptions = {
+  listIndentUnit: number;
+  tabSize?: number;
+};
+
+/** Selection: line box; left = marker start (after own indent only). */
 export function lineBand(view: EditorView, line: number, tabSize: number): LineBand | null {
   const doc = view.state.doc;
   if (line < 1 || line > doc.lines) return null;
@@ -28,15 +40,7 @@ export function lineBand(view: EditorView, line: number, tabSize: number): LineB
   if (!el) return null;
   const box = el.getBoundingClientRect();
 
-  const parsed = createLineParsingContext(tabSize).parseLine(docLine.text);
-  const from = Math.min(
-    docLine.to,
-    docLine.from + parsed.quotePrefix.length + parsed.indentRaw.length,
-  );
-  const left = from > docLine.from
-    ? (view.coordsAtPos(from, 1)?.left ?? box.left)
-    : box.left;
-
+  const left = markerStartX(view, line, tabSize) ?? box.left;
   return {
     left,
     right: Math.max(left + 24, box.right),
@@ -46,26 +50,38 @@ export function lineBand(view: EditorView, line: number, tabSize: number): LineB
   };
 }
 
-/** Map domain DropTarget.guide → screen seam. No calculations beyond coords. */
-export function dropSeam(view: EditorView, target: DropTarget): DropSeam | null {
-  const guide = target.guide;
-  if (!guide) return null;
-  const { bandLine, leftLine, leftChars } = guide;
-  const doc = view.state.doc;
+/** Drop seam from DropPosition (no guide field). */
+export function dropSeam(
+  view: EditorView,
+  position: DropPosition,
+  options: DropSeamOptions,
+): DropSeam | null {
+  if (!(options.listIndentUnit > 0)) {
+    throw new Error(`dropSeam: listIndentUnit must be positive, got ${String(options.listIndentUnit)}`);
+  }
+
+  const doc = position.doc;
+  const targetLine = position.line;
+  const bandLine = targetLine <= 1 ? 1 : Math.min(targetLine - 1, doc.lines);
   if (bandLine < 1 || bandLine > doc.lines) return null;
-  if (leftLine < 1 || leftLine > doc.lines) return null;
 
   const band = doc.line(bandLine);
-  const bandEl = lineEl(view, band.from);
-  if (!bandEl) return null;
-  const box = bandEl.getBoundingClientRect();
+  const el = lineEl(view, band.from);
+  if (!el) return null;
+  const box = el.getBoundingClientRect();
 
-  const leftDoc = doc.line(leftLine);
-  const leftPos = Math.min(leftDoc.to, leftDoc.from + Math.max(0, leftChars));
-  const left = view.coordsAtPos(leftPos, 1)?.left;
-  if (left === undefined) return null;
+  const origin = view.coordsAtPos(band.from, 1)?.left;
+  if (origin === undefined) return null;
 
-  const atTop = target.targetLineNumber <= 1;
+  const tabSize = options.tabSize ?? 4;
+  const indentCols = Math.max(0, dropIndentWidth(position, {
+    tabSize,
+    indentUnit: options.listIndentUnit,
+  }));
+  const levels = indentCols / options.listIndentUnit;
+  const left = origin + levels * nestStepPx(view, options.listIndentUnit);
+
+  const atTop = targetLine <= 1;
   return {
     left,
     right: Math.max(left + 24, box.right),
@@ -73,10 +89,40 @@ export function dropSeam(view: EditorView, target: DropTarget): DropSeam | null 
   };
 }
 
+export function dropSeamFromOptions(
+  view: EditorView,
+  position: DropPosition,
+  options: MdDraggerCodeMirrorOptions,
+): DropSeam | null {
+  return dropSeam(view, position, {
+    listIndentUnit: resolveListIndentUnit(options),
+    tabSize: resolveTabSize(options),
+  });
+}
+
+function nestStepPx(view: EditorView, listIndentUnit: number): number {
+  const indentEl = view.contentDOM.querySelector('.ink-mde-indent') as HTMLElement | null;
+  if (indentEl) {
+    const w = indentEl.getBoundingClientRect().width;
+    if (w > 0) return w;
+  }
+  const rem = parseFloat(getComputedStyle(view.contentDOM).fontSize || '16') || 16;
+  return 2 * rem;
+}
+
+function markerStartX(view: EditorView, line: number, _tabSize: number): number | null {
+  const docLine = view.state.doc.line(line);
+  return view.coordsAtPos(docLine.from, 1)?.left ?? null;
+}
+
 function lineEl(view: EditorView, pos: number): HTMLElement | null {
-  const dom = view.domAtPos(pos);
-  let node: Node | null = dom.node;
-  if (node.nodeType === Node.TEXT_NODE) node = node.parentNode;
-  if (!(node instanceof Element)) return null;
-  return node.closest('.cm-line');
+  try {
+    const block = view.lineBlockAt(pos);
+    const dom = view.domAtPos(block.from);
+    let node: Node | null = dom.node;
+    if (node.nodeType === 3) node = node.parentElement;
+    return node instanceof HTMLElement ? node.closest('.cm-line') : null;
+  } catch {
+    return null;
+  }
 }

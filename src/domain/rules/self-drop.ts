@@ -1,11 +1,14 @@
 import { BlockType } from '../block/block-types';
 import type { BlockSelection } from '../selection/block-selection';
-import type { ListDropTarget } from '../command/drop-target';
+import { selectionMergedLineRanges } from '../selection/block-selection';
+import type { DropPosition } from '../command/drop-position';
 import { InsertionRuleRejectReason, InsertionSlotContext, resolveInsertionRule } from './insertion-rules';
 import { getLineMetaAt, LineMap } from '../markdown/line-map';
 import { computeListIndentPlan } from '../mutation/list-mutation';
+import { dropIndentWidth } from '../markdown/drop-locate';
 import { Doc, ListContext, ParsedLine } from '../markdown/document-types';
-import { normalizeCompositeRanges } from '../selection/selection-ranges';
+import type { LineRange } from '../markdown/line-range-types';
+import { isLineNumberInRanges } from '../markdown/line-range';
 
 export type SelfDropRejectReason =
     | 'self_range_blocked'
@@ -25,14 +28,14 @@ function sourceRangesAreListStructured(params: {
     doc: Doc;
     source: BlockSelection;
     parseLineWithQuote: (line: string) => ParsedLine;
-    ranges: Array<{ startLine: number; endLine: number }>;
+    ranges: LineRange[];
 }): boolean {
     const { doc, source, parseLineWithQuote, ranges } = params;
-    if (source.anchorBlock.type !== BlockType.ListItem) return false;
+    if (source.blocks[0]?.type !== BlockType.ListItem) return false;
 
     for (const range of ranges) {
         let foundContent = false;
-        for (let lineNumber = range.startLine + 1; lineNumber <= range.endLine + 1; lineNumber++) {
+        for (let lineNumber = range.startLine; lineNumber <= range.endLine; lineNumber++) {
             const text = doc.line(lineNumber).text;
             if (text.trim().length === 0) continue;
             foundContent = true;
@@ -40,7 +43,6 @@ function sourceRangesAreListStructured(params: {
         }
         if (!foundContent) return false;
     }
-
     return true;
 }
 
@@ -52,7 +54,9 @@ export function selfDrop(params: {
     getListContext: (doc: Doc, lineNumber: number) => ListContext;
     slotContext?: InsertionSlotContext;
     lineMap?: LineMap;
-    listIntent?: ListDropTarget;
+    position?: DropPosition;
+    tabSize?: number;
+    indentUnit?: number;
 }): SelfDropResult {
     const {
         doc,
@@ -62,9 +66,14 @@ export function selfDrop(params: {
         getListContext,
         slotContext,
         lineMap,
-        listIntent,
+        position,
+        tabSize = 4,
+        indentUnit = 2,
     } = params;
-    const sourceBlock = source.anchorBlock;
+    const sourceBlock = source.blocks[0];
+    if (!sourceBlock) {
+        return { inSelfRange: false, allowInPlaceIndentChange: false, rejectReason: 'self_range_blocked' };
+    }
 
     if (typeof slotContext === 'string') {
         const containerRule = resolveInsertionRule({
@@ -80,23 +89,28 @@ export function selfDrop(params: {
         }
     }
 
-    const targetLineIdx = targetLineNumber - 1;
-    const sourceRanges = normalizeCompositeRanges(source.ranges, doc.lines);
+    const sourceRanges = selectionMergedLineRanges(doc.lines, source);
+    if (sourceRanges.length === 0) {
+        return { inSelfRange: false, allowInPlaceIndentChange: false };
+    }
     const effectiveSourceRange = {
         startLine: sourceRanges[0].startLine,
         endLine: sourceRanges[sourceRanges.length - 1].endLine,
     };
 
-    const inSelectedRange = sourceRanges.some((range) => (
-        targetLineIdx >= range.startLine && targetLineIdx <= range.endLine
-    ));
-    const inSelfRange = inSelectedRange || targetLineIdx === effectiveSourceRange.endLine + 1;
+    const inSelectedRange = isLineNumberInRanges(targetLineNumber, sourceRanges);
+    const inSelfRange = inSelectedRange || targetLineNumber === effectiveSourceRange.endLine + 1;
     if (!inSelfRange) {
         return { inSelfRange: false, allowInPlaceIndentChange: false };
     }
 
-    const hasListIntent = listIntent?.targetIndentWidth !== undefined || listIntent?.mode !== undefined;
-    if (!hasListIntent) {
+    const targetIndentWidth = position
+        ? dropIndentWidth(position, { tabSize, indentUnit })
+        : undefined;
+    const hasListIntent = targetIndentWidth !== undefined && (
+        position?.kind === 'inside' || sourceBlock.type === BlockType.ListItem
+    );
+    if (!hasListIntent || targetIndentWidth === undefined) {
         return {
             inSelfRange: true,
             allowInPlaceIndentChange: false,
@@ -117,7 +131,7 @@ export function selfDrop(params: {
         };
     }
 
-    const sourceLineNumber = effectiveSourceRange.startLine + 1;
+    const sourceLineNumber = effectiveSourceRange.startLine;
     const sourceLineMeta = lineMap ? getLineMetaAt(lineMap, sourceLineNumber) : null;
     if (sourceLineMeta && !sourceLineMeta.isList) {
         return {
@@ -136,6 +150,10 @@ export function selfDrop(params: {
         };
     }
 
+    const listContextLineNumber = position?.kind === 'inside'
+        ? position.parent.lines.startLine
+        : targetLineNumber;
+
     const indentPlan = computeListIndentPlan({
         doc,
         sourceBase: {
@@ -145,32 +163,30 @@ export function selfDrop(params: {
         targetLineNumber,
         parseLineWithQuote,
         getListContext,
-        listIntent,
+        targetIndentWidth,
+        contextLineNumber: listContextLineNumber,
     });
-    const targetIndentWidth = indentPlan.targetIndentWidth;
-    const listContextLineNumber = indentPlan.listContextLineNumber;
 
-    const isAfterSelf = targetLineIdx === effectiveSourceRange.endLine + 1;
-    const isSameLine = targetLineIdx === effectiveSourceRange.startLine;
-    const sourceEndLineNumber = effectiveSourceRange.endLine + 1;
-    const isSelfContext = listContextLineNumber === sourceLineNumber;
-    const isContextInsideSource = listContextLineNumber >= sourceLineNumber
-        && listContextLineNumber <= sourceEndLineNumber;
+    const isAfterSelf = targetLineNumber === effectiveSourceRange.endLine + 1;
+    const isSameLine = targetLineNumber === effectiveSourceRange.startLine;
+    const isSelfContext = indentPlan.listContextLineNumber === sourceLineNumber;
+    const isContextInsideSource = indentPlan.listContextLineNumber >= sourceLineNumber
+        && indentPlan.listContextLineNumber <= effectiveSourceRange.endLine;
 
-    if (isAfterSelf && isContextInsideSource && targetIndentWidth > sourceParsed.indentWidth) {
+    if (isAfterSelf && isContextInsideSource && indentPlan.targetIndentWidth > sourceParsed.indentWidth) {
         return {
             inSelfRange: true,
             allowInPlaceIndentChange: false,
             rejectReason: 'self_embedding',
-            listContextLineNumber,
-            targetIndentWidth,
+            listContextLineNumber: indentPlan.listContextLineNumber,
+            targetIndentWidth: indentPlan.targetIndentWidth,
         };
     }
 
     const allowInPlaceIndentChange = (
-        (isAfterSelf && targetIndentWidth !== sourceParsed.indentWidth)
-        || (isSameLine && targetIndentWidth !== sourceParsed.indentWidth && !isSelfContext)
-        || (!isAfterSelf && targetIndentWidth < sourceParsed.indentWidth)
+        (isAfterSelf && indentPlan.targetIndentWidth !== sourceParsed.indentWidth)
+        || (isSameLine && indentPlan.targetIndentWidth !== sourceParsed.indentWidth && !isSelfContext)
+        || (!isAfterSelf && indentPlan.targetIndentWidth < sourceParsed.indentWidth)
     );
 
     if (!allowInPlaceIndentChange) {
@@ -178,15 +194,15 @@ export function selfDrop(params: {
             inSelfRange: true,
             allowInPlaceIndentChange: false,
             rejectReason: 'self_range_blocked',
-            listContextLineNumber,
-            targetIndentWidth,
+            listContextLineNumber: indentPlan.listContextLineNumber,
+            targetIndentWidth: indentPlan.targetIndentWidth,
         };
     }
 
     return {
         inSelfRange: true,
         allowInPlaceIndentChange: true,
-        listContextLineNumber,
-        targetIndentWidth,
+        listContextLineNumber: indentPlan.listContextLineNumber,
+        targetIndentWidth: indentPlan.targetIndentWidth,
     };
 }

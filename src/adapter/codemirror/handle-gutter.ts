@@ -40,6 +40,6 @@ function isDraggableBlockStart(view: EditorView, line: ViewBlockInfo, options: M
   const block = detectBlock(view.state.doc, docLine.number, {
     tabSize: resolveTabSize(options),
   });
-  return block?.startLine === docLine.number - 1;
+  return block?.lines.startLine === docLine.number;
 }
 

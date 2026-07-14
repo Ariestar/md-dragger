@@ -1,16 +1,7 @@
-// md-dragger/domain — public core API for markdown block detection,
-// selection, drop planning and transaction building.
-//
-// This barrel is an explicit allow-list, NOT `export *`. Internal rule
-// engines (container-policy, insertion-rules, self-drop), mutation
-// assembly (list-mutation, text-mutation-policy, document-change),
-// transaction internals (delete-blocks, list-renumber) and low-level
-// parsing (line-parser, indent-calculator) are deliberately NOT exported —
-// they are the internals of moveTx/planMove. Optional performance hooks
-// live on the separate `md-dragger/domain/perf` entry point.
+// md-dragger/domain — pure calculation: detect, select, drop position, plan, compile.
 
 // --- block ---
-export { BlockType, type BlockInfo } from './block/block-types';
+export { BlockType, type Block, isContainerType } from './block/block-types';
 export {
   detectBlock,
   detectBlockType,
@@ -32,22 +23,21 @@ export {
   isListItemLine,
 } from './block/block-guards';
 
-// --- command ---
+// --- command / drop ---
 export { type BlockCommand } from './command/block-command';
-export { type DropTarget, type ListDropTarget, type DropGuide } from './command/drop-target';
+export { type DropPosition } from './command/drop-position';
 export { type MoveBlockCommand, createMoveCommand } from './command/move-command';
 export { type DeleteBlockCommand, createDeleteCommand } from './command/delete-command';
 
 // --- selection ---
 export {
   type BlockSelection,
-  type BlockSelectionRange,
-  type RangeSelectionOperation,
-  createBlockSelection,
-  createSingleBlockSelection,
+  selectOne,
+  selectBlocks,
+  selectionLineRanges,
+  selectionMergedLineRanges,
 } from './selection/block-selection';
 export {
-  type SelectedBlockRange,
   type BlockSelectionSegment,
   normalizeSelectedBlockRange,
   mergeSelectedBlocks,
@@ -57,16 +47,16 @@ export {
 export {
   type RangeSelectionBoundary,
   type RangeSelectionBoundaryResolver,
-  buildSelectedBlockRangeFromBlockInfo,
+  buildSelectedBlockRangeFromBlock,
   buildRangeSelectionBoundaryFromBlock,
   collectSelectedBlocksBetween,
 } from './selection/range-selection';
 export {
   type BlockRangeSelectionState,
+  type RangeSelectionOperation,
   createBlockRangeSelectionState,
   updateBlockRangeSelectionState,
 } from './selection/block-range-selection';
-export { type CompositeLineRange, normalizeCompositeRanges } from './selection/selection-ranges';
 
 // --- move planning ---
 export {
@@ -74,13 +64,12 @@ export {
   checkDrop,
   type MovePlan,
   type MoveResult,
-  type MoveDeps,
-  type DropInput,
+  type PlanMoveInput,
   type DropRejectReason,
   type MoveRejectReason,
 } from './move/move-plan';
 
-// --- transaction (result types + top-level builders) ---
+// --- transaction ---
 export { type TextChange, type DocEdit } from './transaction/block-transaction';
 export {
   moveTx,
@@ -92,8 +81,8 @@ export {
 } from './transaction/move-blocks';
 export { type CommandReject, type CommandRejectReason, rejectCommand } from './transaction/command-reject';
 export {
+  planDelete,
   planBlockCommandTransaction,
-  planDeleteCommandTransaction,
 } from './transaction/block-command-transaction';
 
 // --- markdown ---
@@ -124,9 +113,9 @@ export {
   type ListIntentMode,
 } from './markdown/list-target';
 export {
-  locateDropTarget,
+  locateDropPosition,
+  dropIndentWidth,
   type DropLocateInput,
-  type DropLocateResult,
 } from './markdown/drop-locate';
 export {
   normalizeLineRange,
@@ -135,7 +124,7 @@ export {
   isLineNumberInRanges,
   isLineRangeCoveredByRanges,
   subtractLineRange,
+  lineCount,
 } from './markdown/line-range';
-export { clampLineNumber } from './markdown/line-number';
-export { clampTargetLineNumber } from './markdown/line-target-number';
+export { clampLine, clampInsertLine } from './markdown/line-number';
 export { type FenceRange, findCodeBlockRange, findMathBlockRange } from './markdown/fence-scanner';

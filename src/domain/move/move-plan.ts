@@ -1,13 +1,13 @@
-import type { BlockInfo } from '../block/block-types';
-import { createMoveCommand, type MoveBlockCommand } from '../command/move-command';
-import type { DropTarget, ListDropTarget } from '../command/drop-target';
-import type { Doc, ListContext, ParsedLine } from '../markdown/document-types';
-import { getLineMap, type LineMap } from '../markdown/line-map';
-import type { InsertionSlotContext } from '../rules/insertion-rules';
+import type { DropPosition } from '../command/drop-position';
+import type { Doc } from '../markdown/document-types';
+import { getLineMap } from '../markdown/line-map';
+import { clampInsertLine } from '../markdown/line-number';
+import { createLineParsingContext } from '../markdown/line-parsing-service';
+import { resolveDropRuleAtInsertion } from '../rules/container-policy-service';
 import { selfDrop } from '../rules/self-drop';
 import type { BlockSelection } from '../selection/block-selection';
-import { createBlockSelection } from '../selection/block-selection';
-import type { InsertionRuleRejectReason } from '../rules/insertion-rules';
+import { selectOne } from '../selection/block-selection';
+import { getListContextNearLine } from '../mutation/list-mutation';
 import { captureMoveSource, type CapturedMoveSource } from '../transaction/move-blocks';
 
 export type DropRejectReason =
@@ -25,77 +25,48 @@ export type DropRejectReason =
     | 'container_policy'
     | 'empty_selection';
 
-// Cross-document is a native property of the inputs, not a mode to opt into:
-// distinct source and target documents (by identity) are a cross-document move.
 export type MoveRejectReason = DropRejectReason;
 
-export type MoveDeps = {
-    tabSize: number;
-    slotAt: (
-        doc: Doc,
-        sourceBlock: BlockInfo,
-        targetLineNumber: number,
-        options: { lineMap?: LineMap; tabSize: number }
-    ) => {
-        slotContext: InsertionSlotContext;
-        decision: { allowDrop: boolean; rejectReason?: InsertionRuleRejectReason | 'container_policy' | null };
-    };
-    parseLine: (line: string) => ParsedLine;
-    listCtx: (doc: Doc, lineNumber: number) => ListContext;
-    insertText: (
-        doc: Doc,
-        sourceBlock: BlockInfo,
-        targetLineNumber: number,
-        sourceContent: string,
-        listIntent?: ListDropTarget
-    ) => string;
-};
-
-export type DropInput = {
+export type PlanMoveInput = {
     sourceDoc: Doc;
     selection: BlockSelection;
-    target: DropTarget;
-    deps: MoveDeps;
+    position: DropPosition;
+    tabSize: number;
+    indentUnit: number;
     captured?: CapturedMoveSource;
 };
 
-export type DropOk = {
-    target: DropTarget;
-    targetLineNumber: number;
-    slot: InsertionSlotContext;
-    captured: CapturedMoveSource;
-    allowIndent: boolean;
-    lineMap: LineMap;
-};
-
-export type DropCheck =
-    | { type: 'ok'; value: DropOk }
-    | { type: 'reject'; reason: DropRejectReason };
-
+/** Data-only plan. Only what moveTx needs. */
 export type MovePlan = {
-    command: MoveBlockCommand;
-    target: DropTarget;
-    targetLineNumber: number;
-    slot: InsertionSlotContext;
+    position: DropPosition;
     captured: CapturedMoveSource;
     allowIndent: boolean;
-    deps: MoveDeps;
+    tabSize: number;
+    indentUnit: number;
 };
 
 export type MoveResult =
     | { type: 'ok'; value: MovePlan }
     | { type: 'reject'; reason: MoveRejectReason };
 
-export function checkDrop(input: DropInput): DropCheck {
-    const targetDoc = input.target.targetDoc;
+export type DropCheck =
+    | { type: 'ok'; value: MovePlan }
+    | { type: 'reject'; reason: DropRejectReason };
+
+export function checkDrop(input: PlanMoveInput): DropCheck {
+    const targetDoc = input.position.doc;
     const captured = input.captured ?? captureMoveSource(input.sourceDoc, input.selection);
     if (!captured) return { type: 'reject', reason: 'empty_selection' };
 
-    const targetLineNumber = clampTarget(targetDoc.lines, input.target.targetLineNumber);
-    const lineMap = getLineMap(targetDoc, { tabSize: input.deps.tabSize });
-    const slot = input.deps.slotAt(targetDoc, captured.block, targetLineNumber, {
+    const line = clampInsertLine(targetDoc.lines, input.position.line);
+    const position: DropPosition = input.position.kind === 'seam'
+        ? { kind: 'seam', doc: targetDoc, line }
+        : { kind: 'inside', doc: targetDoc, parent: input.position.parent, line };
+
+    const lineMap = getLineMap(targetDoc, { tabSize: input.tabSize });
+    const slot = resolveDropRuleAtInsertion(targetDoc, captured.block, line, {
         lineMap,
-        tabSize: input.deps.tabSize,
+        tabSize: input.tabSize,
     });
     if (!slot.decision.allowDrop) {
         return {
@@ -104,18 +75,20 @@ export function checkDrop(input: DropInput): DropCheck {
         };
     }
 
-    // Self-drop can only happen within one document — a different target doc
-    // can never be the source block itself.
+    let allowIndent = false;
     if (input.sourceDoc === targetDoc) {
+        const lineParsing = createLineParsingContext(input.tabSize);
         const self = selfDrop({
             doc: targetDoc,
-            source: createBlockSelection(captured.block, captured.payload.ranges),
-            targetLineNumber,
-            parseLineWithQuote: input.deps.parseLine,
-            getListContext: input.deps.listCtx,
+            source: selectOne(captured.block),
+            targetLineNumber: line,
+            parseLineWithQuote: lineParsing.parseLine,
+            getListContext: (doc, lineNumber) => getListContextNearLine(doc, lineNumber, lineParsing.parseLine),
             slotContext: slot.slotContext,
             lineMap,
-            listIntent: input.target.listIntent,
+            position,
+            tabSize: input.tabSize,
+            indentUnit: input.indentUnit,
         });
         if (self.inSelfRange && !self.allowInPlaceIndentChange) {
             return {
@@ -123,58 +96,21 @@ export function checkDrop(input: DropInput): DropCheck {
                 reason: self.rejectReason ?? 'self_range_blocked',
             };
         }
-        return {
-            type: 'ok',
-            value: {
-                target: {
-                    ...input.target,
-                    targetLineNumber,
-                },
-                targetLineNumber,
-                slot: slot.slotContext,
-                captured,
-                allowIndent: self.allowInPlaceIndentChange,
-                lineMap,
-            },
-        };
+        allowIndent = self.allowInPlaceIndentChange;
     }
 
     return {
         type: 'ok',
         value: {
-            target: {
-                ...input.target,
-                targetLineNumber,
-            },
-            targetLineNumber,
-            slot: slot.slotContext,
+            position,
             captured,
-            allowIndent: false,
-            lineMap,
+            allowIndent,
+            tabSize: input.tabSize,
+            indentUnit: input.indentUnit,
         },
     };
 }
 
-export function planMove(input: DropInput): MoveResult {
-    const drop = checkDrop(input);
-    if (drop.type === 'reject') return drop;
-
-    return {
-        type: 'ok',
-        value: {
-            command: createMoveCommand(input.selection, drop.value.target),
-            target: drop.value.target,
-            targetLineNumber: drop.value.targetLineNumber,
-            slot: drop.value.slot,
-            captured: drop.value.captured,
-            allowIndent: drop.value.allowIndent,
-            deps: input.deps,
-        },
-    };
-}
-
-function clampTarget(docLines: number, lineNumber: number): number {
-    if (lineNumber < 1) return 1;
-    if (lineNumber > docLines + 1) return docLines + 1;
-    return lineNumber;
+export function planMove(input: PlanMoveInput): MoveResult {
+    return checkDrop(input);
 }

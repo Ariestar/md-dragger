@@ -1,7 +1,7 @@
-import type { DocEdit } from '../domain/transaction/block-transaction';
+import type { DropPosition } from '../domain/command/drop-position';
 import type { BlockSelection } from '../domain/selection/block-selection';
 import type { Doc } from '../domain/markdown/document-types';
-import type { DropTarget } from '../domain/command/drop-target';
+import type { DocEdit } from '../domain/transaction/block-transaction';
 import type { DragCancelReason } from '../pipeline/pipeline-event';
 import type { Change } from '../pipeline/drag-pipeline';
 
@@ -73,7 +73,8 @@ export type DocumentHost = {
 
 export type LocateHost = {
     sourceLineFromInput(input: PressInput): number | null;
-    resolveDropTarget(point: Point, context: { selection: BlockSelection }): DropTarget | null;
+    /** Resolves structural drop position. */
+    resolveDropTarget(point: Point, context: { selection: BlockSelection }): DropPosition | null;
     lineFromPoint?(point: Point): number | null;
 };
 
@@ -84,24 +85,13 @@ export type CommitHost = {
     apply?(edits: DocEdit[]): void;
 };
 
-// Host must supply both. No silent defaults.
 export type ResolvedConfig = {
     tabSize: number;
-    /** Columns per one list nest step (e.g. 2 for common markdown lists). */
     listIndentUnit: number;
 };
 
 export type Config = ResolvedConfig | (() => ResolvedConfig);
 
-// Gesture knobs for DefaultUx only.
-//
-// Timing ladder (multiSelectEnabled):
-//   short release before multiSelectMs → press_cancelled (host may open a menu)
-//   hold to dragArmMs → ready_to_drag (move past threshold starts a drag)
-//   hold to multiSelectMs → selecting (persistent multi-select)
-//
-// dragArmMs = 0 means a move past threshold can start a drag immediately after
-// press (desktop). multiSelectMs is ignored when multiSelectEnabled is false.
 export type GestureConfig = {
     dragArmMs: number;
     multiSelectMs: number;
@@ -132,14 +122,8 @@ export type Ux = {
     destroy(): void;
 };
 
-// Settings for the built-in DefaultUx. Runtime does not interpret these itself —
-// it only forwards them when constructing DefaultUx.
-// Omit the whole object, or any field, to use defaults:
-//   gesture → DEFAULT_GESTURE_CONFIG
-//   modules → []
 export type DefaultUxConfig = {
     gesture?: Partial<GestureConfig> | (() => Partial<GestureConfig>);
-    // Optional capabilities (auto-scroll, fold-restore, …). Host builds the list.
     modules?: readonly import('./ux-module').DefaultUxModule[];
 };
 
@@ -150,11 +134,8 @@ export type RuntimeOptions = {
     document: DocumentHost;
     locate: LocateHost;
     commit: CommitHost;
-    // Required: tabSize + listIndentUnit. Missing values throw.
     config: Config;
-    onChange?(result: PipelineResult): void;
     scheduler?: SchedulerHost;
-    // Omit = DefaultUx with default gesture + no modules.
-    // Object = DefaultUx config. Function = full Ux replacement.
-    ux?: DefaultUxConfig | UxFactory;
+    ux?: UxFactory | DefaultUxConfig;
+    onChange?: (result: PipelineResult) => void;
 };

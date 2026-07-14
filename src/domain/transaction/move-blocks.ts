@@ -1,16 +1,18 @@
-import type { BlockInfo } from '../block/block-types';
+import type { Block } from '../block/block-types';
 import type { Doc } from '../markdown/document-types';
-import type { ListDropTarget } from '../command/drop-target';
+import type { DropPosition } from '../command/drop-position';
 import { resolveDeleteRange, resolveInsertionChange } from '../mutation/document-change';
-import { normalizeCompositeRanges, type CompositeLineRange } from '../selection/selection-ranges';
-import { createBlockSelection, type BlockSelection } from '../selection/block-selection';
-import type { MoveDeps, MovePlan } from '../move/move-plan';
+import { selectionMergedLineRanges, type BlockSelection } from '../selection/block-selection';
+import type { LineRange } from '../markdown/line-range-types';
+import { lineCount } from '../markdown/line-range';
+import { createLineParsingContext } from '../markdown/line-parsing-service';
+import { buildInsertTextForDrop } from '../mutation/text-mutation-policy';
+import type { MovePlan } from '../move/move-plan';
 import type { DocEdit, TextChange } from './block-transaction';
 import { rejectCommand, type CommandReject } from './command-reject';
 
 export type MoveSourceSegment = {
-    startLineNumber: number;
-    endLineNumber: number;
+    lines: LineRange;
     from: number;
     to: number;
     deleteFrom: number;
@@ -19,60 +21,47 @@ export type MoveSourceSegment = {
 
 export type MoveSourcePayload = {
     content: string;
-    ranges: CompositeLineRange[];
+    ranges: LineRange[];
     segments: MoveSourceSegment[];
 };
 
 export type CapturedMoveSource = {
-    block: BlockInfo;
+    /** Representative block for type/rules (first in selection). */
+    block: Block;
     payload: MoveSourcePayload;
 };
 
 export function captureMoveSource(doc: Doc, selection: BlockSelection): CapturedMoveSource | null {
     const payload = captureMoveSourcePayload(doc, selection);
     if (!payload) return null;
-
-    const firstRange = payload.ranges[0];
-    const lastRange = payload.ranges[payload.ranges.length - 1];
-    const firstLine = doc.line(firstRange.startLine + 1);
-    const lastLine = doc.line(lastRange.endLine + 1);
-
+    const first = payload.ranges[0];
+    const last = payload.ranges[payload.ranges.length - 1];
     return {
         block: {
-            ...selection.anchorBlock,
-            startLine: firstRange.startLine,
-            endLine: lastRange.endLine,
-            from: firstLine.from,
-            to: lastLine.to,
-            content: payload.content,
+            type: selection.blocks[0].type,
+            lines: { startLine: first.startLine, endLine: last.endLine },
         },
         payload,
     };
 }
 
 export function captureMoveSourcePayload(doc: Doc, selection: BlockSelection): MoveSourcePayload | null {
-    const ranges = normalizeCompositeRanges(selection.ranges, doc.lines);
+    const ranges = selectionMergedLineRanges(doc.lines, selection);
     if (ranges.length === 0) return null;
 
     const segments = ranges.map((range) => {
-        const startLineNumber = range.startLine + 1;
-        const endLineNumber = range.endLine + 1;
-        const startLine = doc.line(startLineNumber);
-        const endLine = doc.line(endLineNumber);
-        const deleteRange = resolveDeleteRange(doc, startLine.from, endLine.to);
+        const start = doc.line(range.startLine);
+        const end = doc.line(range.endLine);
+        const deleteRange = resolveDeleteRange(doc, start.from, end.to);
         return {
-            startLineNumber,
-            endLineNumber,
-            from: startLine.from,
-            to: endLine.to,
+            lines: range,
+            from: start.from,
+            to: end.to,
             deleteFrom: deleteRange.from,
             deleteTo: deleteRange.to,
         };
     });
-    const content = segments
-        .map((segment) => doc.sliceString(segment.from, segment.to))
-        .join('\n');
-
+    const content = segments.map((segment) => doc.sliceString(segment.from, segment.to)).join('\n');
     return { content, ranges, segments };
 }
 
@@ -81,19 +70,27 @@ export function moveTx(params: {
     plan: MovePlan;
 }): DocEdit[] | CommandReject {
     const { sourceDoc, plan } = params;
-    const targetDoc = plan.target.targetDoc;
+    const targetDoc = plan.position.doc;
+    const targetLine = plan.position.line;
+    const lineParsing = createLineParsingContext(plan.tabSize);
 
-    // Cross-document: insert on target, delete on source — two independent
-    // edits (the docs are disjoint, so no in-place merge or
-    // insertion-inside-deleted-range fixup is needed).
+    const insertText = buildInsertTextForDrop({
+        lineParsing,
+        doc: targetDoc,
+        sourceBlock: plan.captured.block,
+        targetLineNumber: targetLine,
+        sourceContent: plan.captured.payload.content,
+        position: plan.position,
+        indentUnit: plan.indentUnit,
+    });
+    if (!insertText.length) return rejectCommand('no_insert_text');
+
     if (sourceDoc !== targetDoc) {
         const target = planInsertOnlyTransaction({
             doc: targetDoc,
-            sourceBlock: plan.captured.block,
             payload: plan.captured.payload,
-            targetLineNumber: plan.targetLineNumber,
-            listIntent: plan.target.listIntent,
-            deps: plan.deps,
+            targetLineNumber: targetLine,
+            insertText,
         });
         if ('type' in target) return target;
         return [
@@ -102,23 +99,17 @@ export function moveTx(params: {
         ];
     }
 
-    // Same-document: a single merged edit with the in-place / line-shift
-    // optimizations that only hold within one doc.
     const tx = planInsertionAndDeletionTransaction({
         doc: targetDoc,
-        sourceBlock: plan.captured.block,
         payload: plan.captured.payload,
-        targetLineNumber: plan.targetLineNumber,
-        listIntent: plan.target.listIntent,
-        deps: plan.deps,
+        targetLineNumber: targetLine,
+        insertText,
         allowInPlaceIndentChange: plan.allowIndent,
     });
     if ('type' in tx) return tx;
     return [tx];
 }
 
-// Source-side delete changes for a cross-document move: one delete per
-// captured segment, sorted for safe sequential application.
 export function planSourceDeletion(payload: MoveSourcePayload): TextChange[] {
     return payload.segments
         .map((segment) => ({ from: segment.deleteFrom, to: segment.deleteTo, insert: '' }))
@@ -127,23 +118,12 @@ export function planSourceDeletion(payload: MoveSourcePayload): TextChange[] {
 
 function planInsertionAndDeletionTransaction(params: {
     doc: Doc;
-    sourceBlock: BlockInfo;
     payload: MoveSourcePayload;
     targetLineNumber: number;
-    listIntent?: ListDropTarget;
-    deps: MoveDeps;
+    insertText: string;
     allowInPlaceIndentChange: boolean;
 }): DocEdit | CommandReject {
-    const { doc, sourceBlock, payload, targetLineNumber, listIntent, deps, allowInPlaceIndentChange } = params;
-
-    const insertText = deps.insertText(
-        doc,
-        sourceBlock,
-        targetLineNumber,
-        payload.content,
-        listIntent
-    );
-    if (!insertText.length) return rejectCommand('no_insert_text');
+    const { doc, payload, targetLineNumber, insertText, allowInPlaceIndentChange } = params;
 
     const totalDeletedLength = payload.segments.reduce(
         (sum, segment) => sum + (segment.deleteTo - segment.deleteFrom),
@@ -164,71 +144,31 @@ function planInsertionAndDeletionTransaction(params: {
             ...payload.segments.map((segment) => ({ from: segment.deleteFrom, to: segment.deleteTo, insert: '' })),
         ].sort((a, b) => b.from - a.from);
 
-    const finalInsertedStartLineNumber = resolveFinalInsertedStartLineNumber(targetLineNumber, payload);
-    return {
-        doc,
-        changes,
-        selectionAfter: selectionAfterMove(sourceBlock, payload, finalInsertedStartLineNumber),
-    };
+    return { doc, changes };
 }
 
 function planInsertOnlyTransaction(params: {
     doc: Doc;
-    sourceBlock: BlockInfo;
     payload: MoveSourcePayload;
     targetLineNumber: number;
-    listIntent?: ListDropTarget;
-    deps: MoveDeps;
+    insertText: string;
 }): DocEdit | CommandReject {
-    const { doc, sourceBlock, payload, targetLineNumber, listIntent, deps } = params;
-    const insertText = deps.insertText(
-        doc,
-        sourceBlock,
-        targetLineNumber,
-        payload.content,
-        listIntent
-    );
-    if (!insertText.length) return rejectCommand('no_insert_text');
-
+    const { doc, targetLineNumber, insertText } = params;
     const insertion = resolveInsertionChange(doc, targetLineNumber, insertText, {
         remainingLengthAfterDelete: doc.length,
     });
-    const changes = [{ from: insertion.pos, to: insertion.pos, insert: insertion.text }];
     return {
         doc,
-        changes,
-        selectionAfter: selectionAfterMove(sourceBlock, payload, targetLineNumber),
+        changes: [{ from: insertion.pos, to: insertion.pos, insert: insertion.text }],
     };
 }
 
 export function resolveFinalInsertedStartLineNumber(targetLineNumber: number, payload: MoveSourcePayload): number {
     let removedLineCountBeforeTarget = 0;
     for (const segment of payload.segments) {
-        if (segment.endLineNumber < targetLineNumber) {
-            removedLineCountBeforeTarget += segment.endLineNumber - segment.startLineNumber + 1;
+        if (segment.lines.endLine < targetLineNumber) {
+            removedLineCountBeforeTarget += lineCount(segment.lines);
         }
     }
     return Math.max(1, targetLineNumber - removedLineCountBeforeTarget);
-}
-
-function selectionAfterMove(
-    sourceBlock: BlockInfo,
-    payload: MoveSourcePayload,
-    startLineNumber: number,
-): BlockSelection {
-    const lineCount = payload.ranges.reduce(
-        (sum, range) => sum + (range.endLine - range.startLine + 1),
-        0,
-    );
-    const startLine = startLineNumber - 1;
-    const endLine = startLine + Math.max(1, lineCount) - 1;
-    const block: BlockInfo = {
-        ...sourceBlock,
-        startLine,
-        endLine,
-        from: 0,
-        to: 0,
-        content: payload.content,
-    };
-    return createBlockSelection(block, [{ startLine, endLine }]);
 }

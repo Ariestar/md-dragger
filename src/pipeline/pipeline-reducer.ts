@@ -1,6 +1,7 @@
 import type { PipelineEvent } from './pipeline-event';
 import type { PipelineOutput } from './pipeline-output';
 import type { BlockSelection } from '../domain/selection/block-selection';
+import type { LineRange } from '../domain/markdown/line-range-types';
 import { createBlockRangeSelectionState, updateBlockRangeSelectionState, type BlockRangeSelectionState } from '../domain/selection/block-range-selection';
 import { drop, dragOver, startDragDrop } from './pipeline-drop';
 import { clearSelection, cancelPipeline, destroyPipeline, exitForUnavailableGuard } from './pipeline-exit';
@@ -153,14 +154,15 @@ function onSelectionChange<TPreview>(
 
 function buildSelectionFromRangeState(
     base: BlockSelection,
-    blocks: Array<{ startLineNumber: number; endLineNumber: number }>
+    ranges: LineRange[]
 ): BlockSelection {
+    // Multi-select range state stores line spans; keep primary type from base.
+    const primaryType = base.blocks[0]?.type;
+    if (!primaryType || ranges.length === 0) {
+        return base;
+    }
     return {
-        ...base,
-        ranges: blocks.map((block) => ({
-            startLine: block.startLineNumber - 1,
-            endLine: block.endLineNumber - 1,
-        })),
+        blocks: ranges.map((lines) => ({ type: primaryType, lines })),
     };
 }
 

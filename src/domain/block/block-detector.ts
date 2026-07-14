@@ -1,5 +1,5 @@
 import type { Doc } from '../markdown/document-types';
-import { BlockType, BlockInfo } from './block-types';
+import { BlockType, type Block } from './block-types';
 import { getLineMap, getLineMetaAt, peekCachedLineMap } from '../markdown/line-map';
 import { isHorizontalRuleLine, isTableLine } from './block-guards';
 import { splitBlockquotePrefix, getBlockquoteDepthFromLine } from '../markdown/line-parser';
@@ -214,7 +214,7 @@ function findNextNonEmptyLine(doc: Doc, fromLine: number, tabSize: number): { is
     return null;
 }
 
-const blockDetectionCache = new WeakMap<Doc, Map<number, Map<number, BlockInfo | null>>>();
+const blockDetectionCache = new WeakMap<Doc, Map<number, Map<number, Block | null>>>();
 const LIST_LINE_MAP_COLD_BUILD_MAX_LINES = 30_000;
 
 const YAML_FENCE_RE = /^-{3}\s*$/;
@@ -261,7 +261,7 @@ export function setDetectBlockPerfRecorder(
 /**
  * 检测块的完整范围（包括多行块如代码块）
  */
-function detectBlockUncached(doc: Doc, lineNumber: number, tabSize: number): BlockInfo | null {
+function detectBlockUncached(doc: Doc, lineNumber: number, tabSize: number): Block | null {
 
     if (lineNumber < 1 || lineNumber > doc.lines) {
         return null;
@@ -365,28 +365,9 @@ function detectBlockUncached(doc: Doc, lineNumber: number, tabSize: number): Blo
         }
     }
 
-    const startLineObj = doc.line(startLine);
-    const endLineObj = doc.line(endLine);
-    const startLineText = startLineObj.text;
-
-    // 收集块内容
-    let content = '';
-    for (let i = startLine; i <= endLine; i++) {
-        content += doc.line(i).text;
-        if (i < endLine) content += '\n';
-    }
-
-    const from = startLineObj.from ?? 0;
-    const to = endLineObj.to ?? from + content.length;
-
     return {
         type: blockType,
-        startLine: startLine - 1, // 转为0-indexed
-        endLine: endLine - 1,
-        from,
-        to,
-        indentLevel: getIndentLevel(startLineText, tabSize),
-        content,
+        lines: { startLine, endLine },
     };
 }
 
@@ -403,17 +384,17 @@ export function detectBlock(
     doc: Doc,
     lineNumber: number,
     options: { tabSize: number }
-): BlockInfo | null {
+): Block | null {
     const tabSize = normalizeTabSize(options.tabSize);
 
     let cacheByTabSize = blockDetectionCache.get(doc);
     if (!cacheByTabSize) {
-        cacheByTabSize = new Map<number, Map<number, BlockInfo | null>>();
+        cacheByTabSize = new Map<number, Map<number, Block | null>>();
         blockDetectionCache.set(doc, cacheByTabSize);
     }
     let perDocCache = cacheByTabSize.get(tabSize);
     if (!perDocCache) {
-        perDocCache = new Map<number, BlockInfo | null>();
+        perDocCache = new Map<number, Block | null>();
         cacheByTabSize.set(tabSize, perDocCache);
     }
 

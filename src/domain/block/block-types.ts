@@ -1,5 +1,5 @@
 /**
- * 块类型枚举
+ * Block kinds detected from Markdown source.
  */
 export enum BlockType {
     Paragraph = 'paragraph',
@@ -14,22 +14,21 @@ export enum BlockType {
     Unknown = 'unknown',
 }
 
+import type { LineRange } from '../markdown/line-range-types';
+
 /**
- * 块信息接口
+ * One structural block over the document.
+ * Geometry is 1-based inclusive lines only — no char/content/indent cache.
  */
-export interface BlockInfo {
-    /** 块类型 */
+export type Block = {
     type: BlockType;
-    /** 起始行号（0-indexed） */
-    startLine: number;
-    /** 结束行号（0-indexed，包含） */
-    endLine: number;
-    /** 起始位置（文档偏移） */
-    from: number;
-    /** 结束位置（文档偏移） */
-    to: number;
-    /** 缩进级别 */
-    indentLevel: number;
-    /** 块内容 */
-    content: string;
+    lines: LineRange;
+};
+
+export function isContainerType(type: BlockType): boolean {
+    return (
+        type === BlockType.ListItem
+        || type === BlockType.Blockquote
+        || type === BlockType.Callout
+    );
 }

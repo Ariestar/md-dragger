@@ -1,4 +1,5 @@
+/** Inclusive line span. 1-based (matches Doc.line). */
 export type LineRange = {
-    startLineNumber: number;
-    endLineNumber: number;
+    startLine: number;
+    endLine: number;
 };

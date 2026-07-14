@@ -1,9 +1,9 @@
 import { EditorView } from '@codemirror/view';
 import type { Point, PressInput } from '../../runtime';
 import {
-  locateDropTarget,
+  locateDropPosition,
   type BlockSelection,
-  type DropTarget,
+  type DropPosition,
 } from '../../domain';
 import { createLineParsingContext } from '../../domain/markdown/line-parsing-service';
 import type { ParsedLine } from '../../domain/markdown/document-types';
@@ -34,13 +34,13 @@ export function lineAtPoint(view: EditorView, point: Point): number | null {
   return view.state.doc.lineAt(pos).number;
 }
 
-// Adapter measures pointer → domain facts; domain returns DropTarget + guide.
+/** Adapter measures pointer → domain DropPosition. */
 export function resolveDropTarget(
   view: EditorView,
   point: Point,
   selection: BlockSelection,
   options: MdDraggerCodeMirrorOptions,
-): DropTarget | null {
+): DropPosition | null {
   const hitLine = lineAtPoint(view, point);
   if (hitLine === null) return null;
 
@@ -50,7 +50,7 @@ export function resolveDropTarget(
   const parseLine = createLineParsingContext(tabSize).parseLine;
   const inDoc = hitLine >= 1 && hitLine <= doc.lines;
 
-  const located = locateDropTarget({
+  return locateDropPosition({
     doc,
     selection,
     hitLine,
@@ -60,15 +60,6 @@ export function resolveDropTarget(
     tabSize,
     indentUnit,
   });
-  if (!located) return null;
-
-  return {
-    targetDoc: doc,
-    targetLineNumber: located.targetLineNumber,
-    placement: located.placement,
-    listIntent: located.listIntent,
-    guide: located.guide,
-  };
 }
 
 function belowMid(view: EditorView, line: number, y: number): boolean {
@@ -78,8 +69,9 @@ function belowMid(view: EditorView, line: number, y: number): boolean {
     return y > view.documentTop + (block.top + block.bottom) / 2;
   } catch {
     const coords = view.coordsAtPos(from, 1);
-    if (!coords) throw new Error('belowMid: cannot measure line mid-Y');
-    return y > (coords.top + coords.bottom) / 2;
+    if (!coords) return false;
+    const height = view.defaultLineHeight;
+    return y > coords.top + height / 2;
   }
 }
 
@@ -89,48 +81,28 @@ function pastMarker(
   x: number,
   parseLine: (text: string) => ParsedLine,
 ): boolean {
-  const bounds = listBounds(view, line, parseLine);
-  return !!bounds && x >= bounds.textX + 2;
+  const docLine = view.state.doc.line(line);
+  const parsed = parseLine(docLine.text);
+  if (!parsed.isListItem) return false;
+  const markerEnd = docLine.from + parsed.quotePrefix.length + parsed.indentRaw.length + parsed.marker.length;
+  const coords = view.coordsAtPos(markerEnd, 1);
+  if (!coords) return false;
+  return x > coords.left;
 }
 
 function markerOffset(
   view: EditorView,
-  line: number,
+  listLine: number,
   x: number,
   parseLine: (text: string) => ParsedLine,
 ): number | null {
-  const bounds = listBounds(view, line, parseLine);
-  if (!bounds) return null;
-  // Input only: columns from marker. Use the span of one space on this line if present,
-  // else the marker→text gap (host-measured, not estimated in domain).
-  const unit = spaceOnLine(view, line) ?? Math.max(1, bounds.textX - bounds.markerX);
-  return (x - bounds.markerX) / unit;
-}
-
-function spaceOnLine(view: EditorView, line: number): number | null {
-  const docLine = view.state.doc.line(line);
-  const i = docLine.text.indexOf(' ');
-  if (i < 0) return null;
-  const a = view.coordsAtPos(docLine.from + i, 1);
-  const b = view.coordsAtPos(docLine.from + i + 1, 1);
-  if (!a || !b || b.left <= a.left) return null;
-  return b.left - a.left;
-}
-
-function listBounds(
-  view: EditorView,
-  line: number,
-  parseLine: (text: string) => ParsedLine,
-): { markerX: number; textX: number } | null {
-  if (line < 1 || line > view.state.doc.lines) return null;
-  const docLine = view.state.doc.line(line);
+  const docLine = view.state.doc.line(listLine);
   const parsed = parseLine(docLine.text);
   if (!parsed.isListItem) return null;
-
-  const markerPos = docLine.from + parsed.quotePrefix.length + parsed.indentRaw.length;
-  const textPos = markerPos + parsed.marker.length;
-  const marker = view.coordsAtPos(Math.min(docLine.to, markerPos), 1);
-  const text = view.coordsAtPos(Math.min(docLine.to, textPos), 1);
-  if (!marker || !text) return null;
-  return { markerX: marker.left, textX: text.left };
+  const markerStart = docLine.from + parsed.quotePrefix.length + parsed.indentRaw.length;
+  const origin = view.coordsAtPos(markerStart, 1)?.left;
+  if (origin === undefined) return null;
+  // Approximate columns from pixels using default char width
+  const space = view.defaultCharacterWidth || 8;
+  return (x - origin) / space;
 }

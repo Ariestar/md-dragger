@@ -1,72 +1,61 @@
-import type { BlockInfo } from '../block/block-types';
-import type { Doc } from '../markdown/document-types';
-import { clampLineNumber } from '../markdown/line-number';
-import { mergeSelectedBlocks, type SelectedBlockRange } from './block-ranges';
-
-type DocWithLineAt = Doc & {
-    lineAt: (pos: number) => { number: number };
-};
+import type { Block } from '../block/block-types';
+import { clampLine } from '../markdown/line-number';
+import { mergeSelectedBlocks } from './block-ranges';
+import type { LineRange } from '../markdown/line-range-types';
 
 export type RangeSelectionBoundary = {
-    startLineNumber: number;
-    endLineNumber: number;
-    representativeLineNumber: number;
+    startLine: number;
+    endLine: number;
+    representativeLine: number;
 };
 
 export type RangeSelectionBoundaryResolver = (
     lineNumber: number
-) => { startLineNumber: number; endLineNumber: number };
+) => { startLine: number; endLine: number };
 
-export function buildSelectedBlockRangeFromBlockInfo(block: BlockInfo): SelectedBlockRange {
-    return {
-        startLineNumber: block.startLine + 1,
-        endLineNumber: block.endLine + 1,
-    };
+export function buildSelectedBlockRangeFromBlock(block: Block): LineRange {
+    return { ...block.lines };
 }
 
 export function buildRangeSelectionBoundaryFromBlock(
-    doc: DocWithLineAt,
-    block: BlockInfo
+    docLines: number,
+    block: Block
 ): RangeSelectionBoundary {
-    const startLineNumber = clampLineNumber(doc.lines, block.startLine + 1);
-    const endLineNumber = clampLineNumber(doc.lines, block.endLine + 1);
-    const representativeLineNumber = Math.max(
-        startLineNumber,
-        Math.min(endLineNumber, doc.lineAt(block.from).number)
-    );
+    const startLine = clampLine(docLines, block.lines.startLine);
+    const endLine = clampLine(docLines, block.lines.endLine);
     return {
-        startLineNumber,
-        endLineNumber,
-        representativeLineNumber,
+        startLine,
+        endLine,
+        representativeLine: startLine,
     };
 }
 
 export function collectSelectedBlocksBetween(
     docLines: number,
-    anchorStartLineNumber: number,
-    anchorEndLineNumber: number,
-    targetBlockStartLineNumber: number,
-    targetBlockEndLineNumber: number,
+    anchorStartLine: number,
+    anchorEndLine: number,
+    targetBlockStartLine: number,
+    targetBlockEndLine: number,
     resolveBoundary: RangeSelectionBoundaryResolver
-): SelectedBlockRange[] {
-    const startLineNumber = Math.max(
+): LineRange[] {
+    const startLine = Math.max(
         1,
-        Math.min(docLines, Math.min(anchorStartLineNumber, targetBlockStartLineNumber))
+        Math.min(docLines, Math.min(anchorStartLine, targetBlockStartLine))
     );
-    const endLineNumber = Math.max(
+    const endLine = Math.max(
         1,
-        Math.min(docLines, Math.max(anchorEndLineNumber, targetBlockEndLineNumber))
+        Math.min(docLines, Math.max(anchorEndLine, targetBlockEndLine))
     );
 
-    const blocks: SelectedBlockRange[] = [];
-    let cursor = startLineNumber;
-    while (cursor <= endLineNumber) {
+    const blocks: LineRange[] = [];
+    let cursor = startLine;
+    while (cursor <= endLine) {
         const boundary = resolveBoundary(cursor);
         blocks.push({
-            startLineNumber: boundary.startLineNumber,
-            endLineNumber: boundary.endLineNumber,
+            startLine: boundary.startLine,
+            endLine: boundary.endLine,
         });
-        cursor = Math.max(cursor + 1, boundary.endLineNumber + 1);
+        cursor = Math.max(cursor + 1, boundary.endLine + 1);
     }
 
     return mergeSelectedBlocks(docLines, blocks);

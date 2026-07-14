@@ -1,10 +1,7 @@
 import { Doc } from '../markdown/document-types';
 
-export type TextChange = {
-    from: number;
-    to: number;
-    insert?: string;
-};
+export type { TextChange } from '../transaction/block-transaction';
+import type { TextChange } from '../transaction/block-transaction';
 
 export function resolveInsertionChange(
     doc: Doc,

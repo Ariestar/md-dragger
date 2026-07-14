@@ -1,15 +1,11 @@
 import { detectBlock } from '../domain/block/block-detector';
-import type { BlockInfo } from '../domain/block/block-types';
-import type { DropTarget } from '../domain/command/drop-target';
+import type { Block } from '../domain/block/block-types';
+import type { DropPosition } from '../domain/command/drop-position';
 import { createMoveCommand } from '../domain/command/move-command';
-import { createSingleBlockSelection, type BlockSelection } from '../domain/selection/block-selection';
-import type { SelectedBlockRange } from '../domain/selection/block-ranges';
-import { buildSelectedBlockRangeFromBlockInfo, type RangeSelectionBoundary, type RangeSelectionBoundaryResolver } from '../domain/selection/range-selection';
-import { createLineParsingContext } from '../domain/markdown/line-parsing-service';
-import { getListContextNearLine } from '../domain/mutation/list-mutation';
-import { buildInsertTextForDrop } from '../domain/mutation/text-mutation-policy';
-import { resolveDropRuleAtInsertion } from '../domain/rules/container-policy-service';
-import { planMove, type MoveDeps, type MoveResult } from '../domain/move/move-plan';
+import { selectOne, type BlockSelection } from '../domain/selection/block-selection';
+import type { LineRange } from '../domain/markdown/line-range-types';
+import { buildSelectedBlockRangeFromBlock, type RangeSelectionBoundary, type RangeSelectionBoundaryResolver } from '../domain/selection/range-selection';
+import { planMove, type MoveResult } from '../domain/move/move-plan';
 import { moveTx } from '../domain/transaction/move-blocks';
 import { DragPipeline } from '../pipeline/drag-pipeline';
 import type { DragDropSnapshot, DropResolution } from '../pipeline/pipeline-drop';
@@ -32,13 +28,10 @@ type ActiveDragSession = {
     sessionId: string;
     pointer: Pointer;
     selection: BlockSelection;
-    target: DropTarget | null;
+    position: DropPosition | null;
     releaseCapture?: () => void;
 };
 
-// Semantic command surface a gesture stage drives. No raw pointers, timers, or
-// pixel thresholds — those live in the Ux. Runtime owns pipeline ordering,
-// drop planning, and commit routing.
 export type RuntimeController = {
     readonly state: PipelineState;
     isGestureActive(): boolean;
@@ -47,10 +40,8 @@ export type RuntimeController = {
     markHoldReady(sessionId: string, pointerType: string | null): void;
     beginDrag(sessionId: string, selection: BlockSelection, point: Point, pointer: Pointer, pointerType: string | null, releaseCapture?: () => void): void;
     moveDrag(sessionId: string, point: Point, pointer: Pointer, pointerType: string | null): void;
-    // Returns how the drop finished so DefaultUx modules (e.g. fold-restore)
-    // can run after apply without Runtime knowing about those modules.
     commitDrop(sessionId: string, point: Point, pointer: Pointer, pointerType: string | null): CommitResult | void;
-    startRangeSelection(block: BlockInfo, selectedBlocks?: SelectedBlockRange[]): void;
+    startRangeSelection(block: Block, selectedBlocks?: LineRange[]): void;
     extendSelection(lineNumber: number): void;
     finishSelection(): void;
     enterRangeSelectionMode(anchorLine: number): void;
@@ -68,7 +59,6 @@ export class DraggerRuntime implements RuntimeController {
     private ux: Ux | null = null;
 
     constructor(private readonly options: RuntimeOptions) {
-        // Wire pipeline output straight to the host — no second event system.
         this.pipeline = new DragPipeline({
             onChange: (result) => this.options.onChange?.(result),
         });
@@ -130,12 +120,12 @@ export class DraggerRuntime implements RuntimeController {
         releaseCapture?: () => void,
     ): void {
         this.endDragSession();
-        const target = this.resolveTarget(point, selection);
-        this.activeDragSession = { sessionId, pointer, selection, target, releaseCapture };
+        const position = this.resolvePosition(point, selection);
+        this.activeDragSession = { sessionId, pointer, selection, position, releaseCapture };
         this.pipeline.enter({
             type: 'drag_start',
             sessionId,
-            drop: this.buildDropSnapshot(selection, target),
+            drop: this.buildDropSnapshot(selection, position),
             pointerType,
         });
     }
@@ -143,11 +133,11 @@ export class DraggerRuntime implements RuntimeController {
     moveDrag(sessionId: string, point: Point, pointer: Pointer, pointerType: string | null): void {
         const drag = this.activeDragSession;
         if (!drag || drag.sessionId !== sessionId || !samePointer(drag.pointer, pointer)) return;
-        drag.target = this.resolveTarget(point, drag.selection);
+        drag.position = this.resolvePosition(point, drag.selection);
         this.pipeline.enter({
             type: 'drag_over',
             sessionId: drag.sessionId,
-            drop: this.buildDropSnapshot(drag.selection, drag.target),
+            drop: this.buildDropSnapshot(drag.selection, drag.position),
             pointerType,
         });
     }
@@ -156,11 +146,11 @@ export class DraggerRuntime implements RuntimeController {
         const drag = this.activeDragSession;
         if (!drag || drag.sessionId !== sessionId || !samePointer(drag.pointer, pointer)) return;
 
-        drag.target = this.resolveTarget(point, drag.selection);
-        const dropSnapshot = this.buildDropSnapshot(drag.selection, drag.target);
-        const planned = this.plan(drag.selection, drag.target);
+        drag.position = this.resolvePosition(point, drag.selection);
+        const dropSnapshot = this.buildDropSnapshot(drag.selection, drag.position);
+        const planned = this.plan(drag.selection, drag.position);
 
-        if (planned.type !== 'ok' || !drag.target) {
+        if (planned.type !== 'ok' || !drag.position) {
             this.pipeline.enter({
                 type: 'drop',
                 sessionId: drag.sessionId,
@@ -177,7 +167,7 @@ export class DraggerRuntime implements RuntimeController {
                 sessionId: drag.sessionId,
                 resolution: {
                     type: 'command',
-                    command: createMoveCommand(drag.selection, drag.target),
+                    command: createMoveCommand(drag.selection, drag.position),
                     drop: dropSnapshot,
                 },
                 pointerType,
@@ -209,13 +199,13 @@ export class DraggerRuntime implements RuntimeController {
         return { kind: 'applied', edits: edits as DocEdit[] };
     }
 
-    startRangeSelection(block: BlockInfo, selectedBlocks: SelectedBlockRange[] = []): void {
+    startRangeSelection(block: Block, selectedBlocks: LineRange[] = []): void {
         const doc = this.options.document.getDoc();
         const anchorBoundary = boundaryFromBlock(block);
         this.pipeline.enter({
             type: 'selection_start',
             seed: {
-                selection: createSingleBlockSelection(block),
+                selection: selectOne(block),
                 range: {
                     type: 'range',
                     doc,
@@ -249,7 +239,7 @@ export class DraggerRuntime implements RuntimeController {
 
     finishSelection(): void {
         if (this.pipeline.state.type !== 'selecting') return;
-        if (this.currentSelection()?.ranges.length === 0) {
+        if (this.currentSelection()?.blocks.length === 0) {
             this.pipeline.enter({ type: 'selection_clear' });
         }
     }
@@ -268,10 +258,7 @@ export class DraggerRuntime implements RuntimeController {
         this.cancel();
     }
 
-    // --- internals ---
-
     private buildUx(): Ux {
-        // Function = full Ux replacement. Object / omit = DefaultUx + its config.
         if (typeof this.options.ux === 'function') return this.options.ux(this);
         const uxConfig = this.options.ux ?? {};
         const scheduler = this.options.scheduler ?? {
@@ -302,64 +289,42 @@ export class DraggerRuntime implements RuntimeController {
         return this.options.commit.mode === 'command' ? 'command' : 'apply';
     }
 
-    // Every terminal drag path (success, reject, cancel, destroy, re-begin) must
-    // release pointer capture. Capture is stored on the session at beginDrag.
     private endDragSession(): void {
         this.activeDragSession?.releaseCapture?.();
         this.activeDragSession = null;
     }
 
-    private resolveTarget(point: Point, selection: BlockSelection): DropTarget | null {
-        const target = this.options.locate.resolveDropTarget(point, { selection });
-        if (!target) return null;
-        return {
-            ...target,
-            targetLineNumber: Math.max(1, Math.min(target.targetDoc.lines + 1, target.targetLineNumber)),
-        };
+    private resolvePosition(point: Point, selection: BlockSelection): DropPosition | null {
+        const position = this.options.locate.resolveDropTarget(point, { selection });
+        if (!position) return null;
+        const doc = position.doc;
+        const line = Math.max(1, Math.min(doc.lines + 1, position.line));
+        return position.kind === 'seam'
+            ? { kind: 'seam', doc, line }
+            : { kind: 'inside', doc, parent: position.parent, line };
     }
 
-    private plan(selection: BlockSelection, target: DropTarget | null): MoveResult {
-        if (target === null) return { type: 'reject', reason: 'no_target' };
-        const tabSize = this.config().tabSize;
-        const lineParsing = createLineParsingContext(tabSize);
+    private plan(selection: BlockSelection, position: DropPosition | null): MoveResult {
+        if (position === null) return { type: 'reject', reason: 'no_target' };
+        const { tabSize, listIndentUnit } = this.config();
         return planMove({
             sourceDoc: this.options.document.getDoc(),
             selection,
-            target,
-            deps: this.moveDeps(lineParsing),
+            position,
+            tabSize,
+            indentUnit: listIndentUnit,
         });
     }
 
-    private moveDeps(
-        lineParsing: ReturnType<typeof createLineParsingContext>,
-    ): MoveDeps {
+    private buildDropSnapshot(selection: BlockSelection, position: DropPosition | null): DragDropSnapshot {
         return {
-            tabSize: this.config().tabSize,
-            slotAt: (targetDoc, sourceBlock, lineNumber, options) =>
-                resolveDropRuleAtInsertion(targetDoc, sourceBlock, lineNumber, options),
-            parseLine: lineParsing.parseLine,
-            listCtx: (activeDoc, lineNumber) => getListContextNearLine(activeDoc, lineNumber, lineParsing.parseLine),
-            insertText: (activeDoc, sourceBlock, lineNumber, sourceContent, listIntent) =>
-                buildInsertTextForDrop({
-                    lineParsing,
-                    doc: activeDoc,
-                    sourceBlock,
-                    targetLineNumber: lineNumber,
-                    sourceContent,
-                    listIntent,
-                }),
+            position,
+            rejectReason: position === null ? 'no_target' : this.dropRejectReason(selection, position),
         };
     }
 
-    private buildDropSnapshot(selection: BlockSelection, target: DropTarget | null): DragDropSnapshot {
-        return {
-            target,
-            rejectReason: target === null ? 'no_target' : this.dropRejectReason(selection, target),
-        };
-    }
-
-    private dropRejectReason(selection: BlockSelection, target: DropTarget): DragCancelReason | null {
-        const planned = this.plan(selection, target);
+    private dropRejectReason(selection: BlockSelection, position: DropPosition): DragCancelReason | null {
+        const planned = this.plan(selection, position);
         if (planned.type === 'ok') return null;
         return isDragCancelReason(planned.reason) ? planned.reason : 'selection_invalid';
     }
@@ -383,9 +348,9 @@ export class DraggerRuntime implements RuntimeController {
         const block = detectBlock(doc, lineNumber, { tabSize: this.config().tabSize });
         if (block) return boundaryFromBlock(block);
         return {
-            startLineNumber: lineNumber,
-            endLineNumber: lineNumber,
-            representativeLineNumber: lineNumber,
+            startLine: lineNumber,
+            endLine: lineNumber,
+            representativeLine: lineNumber,
         };
     }
 
@@ -393,10 +358,9 @@ export class DraggerRuntime implements RuntimeController {
         return (lineNumber) => {
             const doc = this.options.document.getDoc();
             const block = detectBlock(doc, lineNumber, { tabSize: this.config().tabSize });
-            return block ? boundaryFromBlock(block) : {
-                startLineNumber: lineNumber,
-                endLineNumber: lineNumber,
-            };
+            return block
+                ? { startLine: block.lines.startLine, endLine: block.lines.endLine }
+                : { startLine: lineNumber, endLine: lineNumber };
         };
     }
 
@@ -421,11 +385,9 @@ function samePointer(a: Pointer, b: Pointer): boolean {
     return a.id === b.id;
 }
 
-function boundaryFromBlock(block: BlockInfo): ReturnType<typeof buildSelectedBlockRangeFromBlockInfo> & {
-    representativeLineNumber: number;
-} {
-    const range = buildSelectedBlockRangeFromBlockInfo(block);
-    return { ...range, representativeLineNumber: range.startLineNumber };
+function boundaryFromBlock(block: Block): RangeSelectionBoundary {
+    const range = buildSelectedBlockRangeFromBlock(block);
+    return { ...range, representativeLine: range.startLine };
 }
 
 function isDragCancelReason(reason: string): reason is DragCancelReason {

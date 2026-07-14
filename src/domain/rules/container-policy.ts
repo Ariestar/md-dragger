@@ -1,4 +1,4 @@
-import { BlockInfo, BlockType } from '../block/block-types';
+import { Block, BlockType } from '../block/block-types';
 import { detectBlock } from '../block/block-detector';
 import { getLineMap, getLineMetaAt, LineMap } from '../markdown/line-map';
 import { InsertionRuleDecision, InsertionSlotContext, resolveInsertionRule } from './insertion-rules';
@@ -10,7 +10,7 @@ export type DetectBlockFn = (
     doc: Doc,
     lineNumber: number,
     options: { tabSize: number }
-) => BlockInfo | null;
+) => Block | null;
 
 const defaultDetectBlock: DetectBlockFn = (doc, lineNumber, options) => detectBlock(doc, lineNumber, options);
 
@@ -85,7 +85,7 @@ export function findEnclosingListBlock(
     lineNumber: number,
     detectBlockFn: DetectBlockFn | undefined,
     options: ContainerPolicyResolveOptions
-): BlockInfo | null {
+): Block | null {
     if (lineNumber < 1 || lineNumber > doc.lines) return null;
     const lineMap = getActiveLineMap(doc, options);
     const activeDetectBlockFn = detectBlockFn ?? defaultDetectBlock;
@@ -93,7 +93,7 @@ export function findEnclosingListBlock(
     const radius = 8;
     const minLine = Math.max(1, lineNumber - radius);
     const maxLine = Math.min(doc.lines, lineNumber + radius);
-    let best: BlockInfo | null = null;
+    let best: Block | null = null;
 
     for (let ln = minLine; ln <= maxLine; ln++) {
         const meta = getLineMetaAt(lineMap, ln);
@@ -101,11 +101,11 @@ export function findEnclosingListBlock(
 
         const block = activeDetectBlockFn(doc, ln, { tabSize: options.lineMap?.tabSize ?? options.tabSize });
         if (!block || block.type !== BlockType.ListItem) continue;
-        const blockStart = block.startLine + 1;
-        const blockEnd = block.endLine + 1;
+        const blockStart = block.lines.startLine;
+        const blockEnd = block.lines.endLine;
         if (lineNumber < blockStart || lineNumber > blockEnd) continue;
 
-        if (!best || (block.endLine - block.startLine) > (best.endLine - best.startLine)) {
+        if (!best || ((block.lines.endLine - block.lines.startLine)) > ((best.lines.endLine - best.lines.startLine))) {
             best = block;
         }
     }
@@ -121,7 +121,7 @@ function isTableBlockStartAtLine(
 ): boolean {
     if (lineNumber < 1 || lineNumber > doc.lines) return false;
     const block = detectBlockFn(doc, lineNumber, options);
-    return !!block && block.type === BlockType.Table && block.startLine + 1 === lineNumber;
+    return !!block && block.type === BlockType.Table && block.lines.startLine === lineNumber;
 }
 
 function isHorizontalRuleAtLine(
@@ -133,7 +133,7 @@ function isHorizontalRuleAtLine(
     if (lineNumber < 1 || lineNumber > doc.lines) return false;
     const block = detectBlockFn(doc, lineNumber, options);
     if (block) {
-        return block.type === BlockType.HorizontalRule && block.startLine + 1 === lineNumber;
+        return block.type === BlockType.HorizontalRule && block.lines.startLine === lineNumber;
     }
     return isHorizontalRuleLine(doc.line(lineNumber).text);
 }
@@ -150,7 +150,7 @@ function isCalloutAfterBoundary(
     const prevBlock = detectBlockFn(doc, prevImmediateLine, options);
     return !!prevBlock
         && prevBlock.type === BlockType.Callout
-        && prevBlock.endLine + 1 === prevImmediateLine;
+        && prevBlock.lines.endLine === prevImmediateLine;
 }
 
 function resolveListContextAtInsertion(
@@ -158,7 +158,7 @@ function resolveListContextAtInsertion(
     targetLineNumber: number,
     detectBlockFn: DetectBlockFn | undefined,
     options: ContainerPolicyResolveOptions
-): { type: ContainerType; block: BlockInfo } | null {
+): { type: ContainerType; block: Block } | null {
     if (doc.lines <= 0) return null;
     const lineMap = getActiveLineMap(doc, options);
 
@@ -170,7 +170,7 @@ function resolveListContextAtInsertion(
         getNextNonEmptyLineNumber(doc, targetLineNumber, lineMap),
     ].filter((v): v is number => typeof v === 'number' && v >= 1 && v <= doc.lines);
     const seen = new Set<number>();
-    let best: BlockInfo | null = null;
+    let best: Block | null = null;
 
     for (const line of candidates) {
         if (seen.has(line)) continue;
@@ -184,13 +184,13 @@ function resolveListContextAtInsertion(
         });
         if (!block) continue;
 
-        const blockTopBoundary = block.startLine + 1;
-        const blockBottomBoundary = block.endLine + 2;
+        const blockTopBoundary = block.lines.startLine;
+        const blockBottomBoundary = block.lines.endLine + 1;
         const isInsideContainer = targetLineNumber > blockTopBoundary
             && targetLineNumber < blockBottomBoundary;
         if (!isInsideContainer) continue;
 
-        if (!best || (block.endLine - block.startLine) > (best.endLine - best.startLine)) {
+        if (!best || ((block.lines.endLine - block.lines.startLine)) > ((best.lines.endLine - best.lines.startLine))) {
             best = block;
         }
     }
@@ -266,7 +266,7 @@ export function resolveSlotContextAtInsertion(
 
 export function resolveDropRuleContextAtInsertion(
     doc: Doc,
-    sourceBlock: BlockInfo,
+    sourceBlock: Block,
     targetLineNumber: number,
     detectBlockFn: DetectBlockFn | undefined,
     options: ContainerPolicyResolveOptions

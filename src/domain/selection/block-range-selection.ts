@@ -1,31 +1,33 @@
 import type { Doc } from '../markdown/document-types';
-import type { RangeSelectionOperation } from './block-selection';
-import { isSelectedBlockCoveredByBlocks, mergeSelectedBlocks, subtractSelectedBlocks, type SelectedBlockRange } from './block-ranges';
+import type { LineRange } from '../markdown/line-range-types';
+import { isSelectedBlockCoveredByBlocks, mergeSelectedBlocks, subtractSelectedBlocks } from './block-ranges';
 import { collectSelectedBlocksBetween, type RangeSelectionBoundary, type RangeSelectionBoundaryResolver } from './range-selection';
 
+export type RangeSelectionOperation = 'add' | 'remove';
+
 export type BlockRangeSelectionState = {
-    anchorStartLineNumber: number;
-    anchorEndLineNumber: number;
+    anchorStartLine: number;
+    anchorEndLine: number;
     operation: RangeSelectionOperation;
-    baseBlocks: SelectedBlockRange[];
-    activeBlocks: SelectedBlockRange[];
-    selectionBlocks: SelectedBlockRange[];
+    baseBlocks: LineRange[];
+    activeBlocks: LineRange[];
+    selectionBlocks: LineRange[];
 };
 
 export function createBlockRangeSelectionState(options: {
     doc: Doc;
     anchorBoundary: RangeSelectionBoundary;
     initialBoundary?: RangeSelectionBoundary;
-    selectedBlocks: SelectedBlockRange[];
+    selectedBlocks: LineRange[];
     operation?: RangeSelectionOperation;
     resolveBoundary?: RangeSelectionBoundaryResolver;
 }): BlockRangeSelectionState | null {
-    const anchorStartLineNumber = options.anchorBoundary.startLineNumber;
-    const anchorEndLineNumber = options.anchorBoundary.endLineNumber;
+    const anchorStartLine = options.anchorBoundary.startLine;
+    const anchorEndLine = options.anchorBoundary.endLine;
     if (
-        anchorStartLineNumber < 1
-        || anchorEndLineNumber > options.doc.lines
-        || anchorStartLineNumber > anchorEndLineNumber
+        anchorStartLine < 1
+        || anchorEndLine > options.doc.lines
+        || anchorStartLine > anchorEndLine
     ) {
         return null;
     }
@@ -34,19 +36,19 @@ export function createBlockRangeSelectionState(options: {
     const activeBlocks = options.resolveBoundary
         ? collectSelectedBlocksBetween(
             options.doc.lines,
-            anchorStartLineNumber,
-            anchorEndLineNumber,
-            initialBoundary.startLineNumber,
-            initialBoundary.endLineNumber,
+            anchorStartLine,
+            anchorEndLine,
+            initialBoundary.startLine,
+            initialBoundary.endLine,
             options.resolveBoundary
         )
         : [{
-            startLineNumber: anchorStartLineNumber,
-            endLineNumber: anchorEndLineNumber,
+            startLine: anchorStartLine,
+            endLine: anchorEndLine,
         }];
     const activeBlock = activeBlocks[0] ?? {
-        startLineNumber: anchorStartLineNumber,
-        endLineNumber: anchorEndLineNumber,
+        startLine: anchorStartLine,
+        endLine: anchorEndLine,
     };
     const operation = options.operation ?? (isSelectedBlockCoveredByBlocks(
         options.doc.lines,
@@ -62,13 +64,13 @@ export function createBlockRangeSelectionState(options: {
         baseBlocks,
         activeBlocks,
     }, {
-        anchorStartLineNumber,
-        anchorEndLineNumber,
+        anchorStartLine,
+        anchorEndLine,
     });
 }
 
 export function updateBlockRangeSelectionState(
-    state: Pick<BlockRangeSelectionState, 'anchorStartLineNumber' | 'anchorEndLineNumber' | 'operation' | 'baseBlocks'>,
+    state: Pick<BlockRangeSelectionState, 'anchorStartLine' | 'anchorEndLine' | 'operation' | 'baseBlocks'>,
     options: {
         docLines: number;
         target: RangeSelectionBoundary;
@@ -77,10 +79,10 @@ export function updateBlockRangeSelectionState(
 ): BlockRangeSelectionState {
     const activeBlocks = collectSelectedBlocksBetween(
         options.docLines,
-        state.anchorStartLineNumber,
-        state.anchorEndLineNumber,
-        options.target.startLineNumber,
-        options.target.endLineNumber,
+        state.anchorStartLine,
+        state.anchorEndLine,
+        options.target.startLine,
+        options.target.endLine,
         options.resolveBoundary
     );
     return applyBlockRangeSelection({
@@ -89,8 +91,8 @@ export function updateBlockRangeSelectionState(
         baseBlocks: state.baseBlocks,
         activeBlocks,
     }, {
-        anchorStartLineNumber: state.anchorStartLineNumber,
-        anchorEndLineNumber: state.anchorEndLineNumber,
+        anchorStartLine: state.anchorStartLine,
+        anchorEndLine: state.anchorEndLine,
     });
 }
 
@@ -98,10 +100,10 @@ function applyBlockRangeSelection(
     options: {
         docLines: number;
         operation: RangeSelectionOperation;
-        baseBlocks: SelectedBlockRange[];
-        activeBlocks: SelectedBlockRange[];
+        baseBlocks: LineRange[];
+        activeBlocks: LineRange[];
     },
-    anchor: Pick<BlockRangeSelectionState, 'anchorStartLineNumber' | 'anchorEndLineNumber'>
+    anchor: Pick<BlockRangeSelectionState, 'anchorStartLine' | 'anchorEndLine'>
 ): BlockRangeSelectionState {
     const selectionBlocks = options.operation === 'remove'
         ? subtractSelectedBlocks(options.docLines, options.baseBlocks, options.activeBlocks)

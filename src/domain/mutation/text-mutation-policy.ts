@@ -1,16 +1,19 @@
-import { BlockInfo } from '../block/block-types';
+import type { Block } from '../block/block-types';
+import { BlockType } from '../block/block-types';
 import { adjustListToTargetContext, buildInsertText, getListContextNearLine } from './list-mutation';
-import type { ListDropTarget } from '../command/drop-target';
+import type { DropPosition } from '../command/drop-position';
+import { dropIndentWidth } from '../markdown/drop-locate';
 import { Doc } from '../markdown/document-types';
 import { LineParsingContext } from '../markdown/line-parsing-service';
 
 export function buildInsertTextForDrop(params: {
     lineParsing: LineParsingContext;
     doc: Doc;
-    sourceBlock: BlockInfo;
+    sourceBlock: Block;
     targetLineNumber: number;
     sourceContent: string;
-    listIntent?: ListDropTarget;
+    position: DropPosition;
+    indentUnit?: number;
 }): string {
     const {
         lineParsing,
@@ -18,10 +21,17 @@ export function buildInsertTextForDrop(params: {
         sourceBlock,
         targetLineNumber,
         sourceContent,
-        listIntent,
+        position,
+        indentUnit = 2,
     } = params;
     const getListContextForDoc = (activeDoc: Doc, lineNumber: number) =>
         getListContextNearLine(activeDoc, lineNumber, lineParsing.parseLine);
+
+    const tabSize = lineParsing.getTabSize();
+    const targetIndentWidth = dropIndentWidth(position, { tabSize, indentUnit });
+    const contextLineNumber = position.kind === 'inside'
+        ? position.parent.lines.startLine
+        : targetLineNumber;
 
     return buildInsertText({
         sourceBlockType: sourceBlock.type,
@@ -33,7 +43,10 @@ export function buildInsertTextForDrop(params: {
             parseLineWithQuote: lineParsing.parseLine,
             buildIndentStringFromSample: lineParsing.buildIndentStringFromSample,
             getListContext: getListContextForDoc,
-            listIntent,
+            targetIndentWidth: sourceBlock.type === BlockType.ListItem || position.kind === 'inside'
+                ? targetIndentWidth
+                : undefined,
+            contextLineNumber,
         }),
     });
 }

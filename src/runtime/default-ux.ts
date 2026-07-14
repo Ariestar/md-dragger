@@ -1,7 +1,7 @@
 import { detectBlock } from '../domain/block/block-detector';
-import type { BlockInfo } from '../domain/block/block-types';
-import { createSingleBlockSelection, type BlockSelection } from '../domain/selection/block-selection';
-import type { SelectedBlockRange } from '../domain/selection/block-ranges';
+import type { Block } from '../domain/block/block-types';
+import { selectOne, type BlockSelection } from '../domain/selection/block-selection';
+import type { LineRange } from '../domain/markdown/line-range-types';
 import type { Doc } from '../domain/markdown/document-types';
 import type { DragCancelReason } from '../pipeline/pipeline-event';
 import type { RuntimeController } from './dragger-runtime';
@@ -109,7 +109,7 @@ export class DefaultUx implements Ux {
 
         const cfg = this.cfg();
         const sessionId = this.runtime().createSessionId();
-        const selection = createSingleBlockSelection(block);
+        const selection = selectOne(block);
         const existingSelectedBlocks = this.currentSelectedBlocks();
         const inSelecting = cfg.multiSelectEnabled && this.runtime().state.type === 'selecting';
         const selectedDragCandidate = inSelecting && isBlockSelected(block, existingSelectedBlocks);
@@ -225,7 +225,7 @@ export class DefaultUx implements Ux {
         if (session.selectedDragReady) {
             if (distance < cfg.dragStartMoveThresholdPx) return;
             const state = this.runtime().state;
-            if (state.type !== 'selecting' || state.selection.selection.ranges.length === 0) return;
+            if (state.type !== 'selecting' || state.selection.selection.blocks.length === 0) return;
             input.claim?.();
             this.clearTimers();
             this.startDrag(
@@ -390,13 +390,10 @@ export class DefaultUx implements Ux {
         this.runtime().startRangeSelection(session.anchorBlock, session.selectedBlocksAtPress);
     }
 
-    private currentSelectedBlocks(): SelectedBlockRange[] {
+    private currentSelectedBlocks(): LineRange[] {
         const state = this.runtime().state;
         if (state.type !== 'selecting') return [];
-        return state.selection.selection.ranges.map((range) => ({
-            startLineNumber: range.startLine + 1,
-            endLineNumber: range.endLine + 1,
-        }));
+        return state.selection.selection.blocks.map((block) => ({ ...block.lines }));
     }
 
     private cancelPress(reason: DragCancelReason, pointerType: string | null): void {
@@ -433,13 +430,13 @@ type PressSession = {
     sessionId: string;
     pointer: Pointer;
     start: Point;
-    anchorBlock: BlockInfo;
+    anchorBlock: Block;
     selection: BlockSelection;
     ready: boolean;
     rangeActive: boolean;
     selectedDragCandidate: boolean;
     selectedDragReady: boolean;
-    selectedBlocksAtPress: SelectedBlockRange[];
+    selectedBlocksAtPress: LineRange[];
     armTimer: TimerToken | null;
     multiSelectTimer: TimerToken | null;
     releaseCapture?: () => void;
@@ -454,9 +451,9 @@ function distanceBetween(a: Point, b: Point): number {
     return Math.hypot(b.x - a.x, b.y - a.y);
 }
 
-function isBlockSelected(block: BlockInfo, selectedBlocks: SelectedBlockRange[]): boolean {
+function isBlockSelected(block: Block, selectedBlocks: LineRange[]): boolean {
     return selectedBlocks.some((selected) => (
-        selected.startLineNumber === block.startLine + 1
-        && selected.endLineNumber === block.endLine + 1
+        selected.startLine === block.lines.startLine
+        && selected.endLine === block.lines.endLine
     ));
 }

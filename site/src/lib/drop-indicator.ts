@@ -1,10 +1,13 @@
 import type { Extension } from '@codemirror/state';
 import { EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view';
 import { dropSeam } from 'md-dragger/adapter/codemirror';
-import type { DropTarget } from 'md-dragger/domain';
+import type { DropPosition } from 'md-dragger/domain';
 import type { PipelineResult } from 'md-dragger/runtime';
 
-// Demo drop line: paint only. Domain guide → adapter dropSeam → pixels.
+// Demo drop line: paint only.
+// listIndentUnit must match mdDragger config (ink-mde nest step = one unit).
+
+const LIST_INDENT_UNIT = 2;
 
 let active:
   | { consume(outputs: PipelineResult['outputs']): void }
@@ -17,7 +20,7 @@ export function dropIndicatorOnChange(result: PipelineResult): void {
 export function dropIndicator(): Extension {
   return ViewPlugin.fromClass(class {
     private readonly el: HTMLDivElement;
-    private target: DropTarget | null = null;
+    private position: DropPosition | null = null;
     private raf: number | null = null;
 
     constructor(private readonly view: EditorView) {
@@ -47,14 +50,14 @@ export function dropIndicator(): Extension {
     consume(outputs: PipelineResult['outputs']): void {
       for (const output of outputs) {
         if (output.type === 'drag_over') {
-          this.target = output.drop.target;
+          this.position = output.drop.position;
           this.paint();
         } else if (
           output.type === 'dropped'
           || output.type === 'cancelled'
           || output.type === 'terminal'
         ) {
-          this.target = null;
+          this.position = null;
           this.paint();
         }
       }
@@ -69,13 +72,13 @@ export function dropIndicator(): Extension {
     }
 
     private paint(): void {
-      const target = this.target;
-      if (!target) {
+      const position = this.position;
+      if (!position) {
         this.el.hidden = true;
         return;
       }
 
-      const seam = dropSeam(this.view, target);
+      const seam = dropSeam(this.view, position, { listIndentUnit: LIST_INDENT_UNIT });
       if (!seam) {
         this.el.hidden = true;
         return;
