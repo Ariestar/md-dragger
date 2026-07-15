@@ -3,58 +3,93 @@ import type { ParsedLine } from '../parse/types';
 import { isListLine, listMarkerText, listMarkerType } from '../parse/parse-line';
 import type { TextChange } from './block-transaction';
 
+/**
+ * Renumber one contiguous ordered-list run that contains `line`
+ * (same indent + quote depth). Returns marker-only TextChanges on `doc`.
+ */
 export function renumberList(
     doc: Doc,
     parse: (line: string) => ParsedLine,
-    lineNumber: number
+    line: number,
 ): TextChange[] {
-    if (lineNumber < 1 || lineNumber > doc.lines) return [];
+    if (line < 1 || line > doc.lines) return [];
 
-    const findOrderedAt = (n: number) => {
-        const parsed = parse(doc.line(n).text);
-        if (isListLine(parsed) && listMarkerType(parsed) === 'ordered') {
-            return { indentWidth: parsed.indent.width, quoteDepth: parsed.quote.depth };
-        }
-        return null;
+    const at = (n: number) => {
+        const p = parse(doc.line(n).text);
+        if (!isListLine(p) || listMarkerType(p) !== 'ordered') return null;
+        return { indent: p.indent.width, quote: p.quote.depth, p };
     };
 
-    let anchor = findOrderedAt(lineNumber);
-    if (!anchor && lineNumber > 1) anchor = findOrderedAt(lineNumber - 1);
-    if (!anchor && lineNumber < doc.lines) anchor = findOrderedAt(lineNumber + 1);
-    if (!anchor) return [];
+    let seed = at(line);
+    if (!seed && line > 1) seed = at(line - 1);
+    if (!seed && line < doc.lines) seed = at(line + 1);
+    if (!seed) return [];
 
-    let start = lineNumber;
+    let start = line;
     while (start > 1) {
-        const info = findOrderedAt(start - 1);
-        if (!info || info.indentWidth !== anchor.indentWidth || info.quoteDepth !== anchor.quoteDepth) break;
+        const prev = at(start - 1);
+        if (!prev || prev.indent !== seed.indent || prev.quote !== seed.quote) break;
         start -= 1;
     }
 
-    let end = lineNumber;
+    let end = line;
     while (end < doc.lines) {
-        const info = findOrderedAt(end + 1);
-        if (!info || info.indentWidth !== anchor.indentWidth || info.quoteDepth !== anchor.quoteDepth) break;
+        const next = at(end + 1);
+        if (!next || next.indent !== seed.indent || next.quote !== seed.quote) break;
         end += 1;
     }
 
     const changes: TextChange[] = [];
-    let number = 1;
+    let n = 1;
     for (let i = start; i <= end; i++) {
-        const line = doc.line(i);
-        const parsed = parse(line.text);
-        if (
-            !isListLine(parsed)
-            || listMarkerType(parsed) !== 'ordered'
-            || parsed.indent.width !== anchor.indentWidth
-        ) {
-            continue;
+        const row = at(i);
+        if (!row) continue;
+        const lineObj = doc.line(i);
+        const marker = listMarkerText(row.p);
+        const from = lineObj.from + row.p.quote.prefix.length + row.p.indent.raw.length;
+        const to = from + marker.length;
+        const insert = `${n}. `;
+        if (marker !== insert) {
+            changes.push({ from, to, insert });
         }
+        n += 1;
+    }
+    return changes;
+}
 
-        const newMarker = `${number}. `;
-        const markerStart = line.from + parsed.quote.prefix.length + parsed.indent.raw.length;
-        const markerEnd = markerStart + listMarkerText(parsed).length;
-        changes.push({ from: markerStart, to: markerEnd, insert: newMarker });
-        number += 1;
+/**
+ * Renumber every ordered-list run in `doc`.
+ * No anchors / no special cases — full-document normalize step.
+ */
+export function renumberAllOrderedLists(
+    doc: Doc,
+    parse: (line: string) => ParsedLine,
+): TextChange[] {
+    const changes: TextChange[] = [];
+    const doneRunStart = new Set<number>();
+
+    for (let i = 1; i <= doc.lines; i++) {
+        const p = parse(doc.line(i).text);
+        if (!isListLine(p) || listMarkerType(p) !== 'ordered') continue;
+
+        let start = i;
+        const indent = p.indent.width;
+        const quote = p.quote.depth;
+        while (start > 1) {
+            const prev = parse(doc.line(start - 1).text);
+            if (
+                !isListLine(prev)
+                || listMarkerType(prev) !== 'ordered'
+                || prev.indent.width !== indent
+                || prev.quote.depth !== quote
+            ) {
+                break;
+            }
+            start -= 1;
+        }
+        if (doneRunStart.has(start)) continue;
+        doneRunStart.add(start);
+        changes.push(...renumberList(doc, parse, start));
     }
 
     return changes;

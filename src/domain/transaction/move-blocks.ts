@@ -4,13 +4,18 @@ import type { DropPosition } from '../command/drop-position';
 import { resolveDeleteRange, resolveInsertionChange } from '../mutation/document-change';
 import { selectionLineRanges, type BlockSelection } from '../selection/block-selection';
 import type { LineRange } from '../markdown/line-range-types';
-import { lineCount } from '../markdown/line-range';
 import { parseLine } from '../parse/parse-line';
+import type { ParsedLine } from '../parse/types';
 import { insertTextForMove } from '../mutation/text-mutation-policy';
 import type { MovePlan } from '../move/move-plan';
 import type { DocEdit, TextChange } from './block-transaction';
 import { reject, type Reject } from '../result';
-import { renumberList } from './list-renumber';
+import { renumberAllOrderedLists } from './list-renumber';
+import {
+    applyChanges,
+    changesToOriginal,
+    stringDoc,
+} from './string-doc';
 
 export type MoveSourceSegment = {
     lines: LineRange;
@@ -27,26 +32,11 @@ export type MoveSourcePayload = {
 };
 
 export type CapturedMoveSource = {
-    /** Representative block for type/rules (first in selection). */
     block: Block;
     payload: MoveSourcePayload;
 };
 
 export function captureMoveSource(doc: Doc, selection: BlockSelection): CapturedMoveSource | null {
-    const payload = captureMoveSourcePayload(doc, selection);
-    if (!payload) return null;
-    const first = payload.ranges[0];
-    const last = payload.ranges[payload.ranges.length - 1];
-    return {
-        block: {
-            type: selection.blocks[0].type,
-            lines: { startLine: first.startLine, endLine: last.endLine },
-        },
-        payload,
-    };
-}
-
-function captureMoveSourcePayload(doc: Doc, selection: BlockSelection): MoveSourcePayload | null {
     const ranges = selectionLineRanges(doc.lines, selection);
     if (ranges.length === 0) return null;
 
@@ -62,155 +52,159 @@ function captureMoveSourcePayload(doc: Doc, selection: BlockSelection): MoveSour
             deleteTo: deleteRange.to,
         };
     });
-    const content = segments.map((segment) => doc.sliceString(segment.from, segment.to)).join('\n');
-    return { content, ranges, segments };
+    const content = segments.map((s) => doc.sliceString(s.from, s.to)).join('\n');
+    const first = ranges[0];
+    const last = ranges[ranges.length - 1];
+
+    return {
+        block: {
+            type: selection.blocks[0].type,
+            lines: { startLine: first.startLine, endLine: last.endLine },
+        },
+        payload: { content, ranges, segments },
+    };
 }
 
+/**
+ * Compile a move into DocEdit[].
+ *
+ * Stages (no host round-trips, no pre-move renumber):
+ *   1. Project  — insert string from source + DropPosition
+ *   2. Geometry — insert + delete as TextChanges on the original doc
+ *   3. Normalize — apply geometry on a copy, run full ordered-list renumber there
+ *   4. Emit     — geometry + renumber mapped back to original coordinates
+ */
 export function moveTx(params: {
     sourceDoc: Doc;
     plan: MovePlan;
 }): DocEdit[] | Reject {
     const { sourceDoc, plan } = params;
     const targetDoc = plan.position.doc;
-    const targetLine = plan.position.line;
-    const tabSize = plan.tabSize;
-    const parse = (text: string) => parseLine(text, tabSize);
+    const parse = (text: string) => parseLine(text, plan.tabSize);
 
     const insertText = insertTextForMove({
         doc: targetDoc,
         sourceBlock: plan.captured.block,
-        targetLineNumber: targetLine,
+        targetLineNumber: plan.position.line,
         sourceContent: plan.captured.payload.content,
         position: plan.position,
-        tabSize,
+        tabSize: plan.tabSize,
         indentUnit: plan.indentUnit,
     });
     if (!insertText.length) return reject('no_insert_text');
 
     if (sourceDoc !== targetDoc) {
-        const target = planInsert({
-            doc: targetDoc,
-            payload: plan.captured.payload,
-            targetLineNumber: targetLine,
-            insertText,
-        });
-        if ('type' in target) return target;
-        // Renumber ordered lists near insert and near deleted source (best-effort on pre-edit docs)
-        const targetRenumber = renumberList(targetDoc, parse, targetLine);
-        const sourceRenumber = renumberList(
-            sourceDoc,
-            parse,
-            plan.captured.payload.ranges[0]?.startLine ?? 1
-        );
+        const insert = geometryInsert(targetDoc, plan.position.line, insertText);
+        if ('type' in insert) return insert;
+        const del = geometryDelete(plan.captured.payload);
         return [
-            {
-                doc: targetDoc,
-                changes: mergeChanges(target.changes, targetRenumber),
-            },
-            {
-                doc: sourceDoc,
-                changes: mergeChanges(planSourceDeletion(plan.captured.payload), sourceRenumber),
-            },
+            compileDocEdit(targetDoc, insert, parse),
+            compileDocEdit(sourceDoc, del, parse),
         ];
     }
 
-    const tx = planSameDocMove({
+    const geometry = geometrySameDoc({
         doc: targetDoc,
         payload: plan.captured.payload,
-        targetLineNumber: targetLine,
+        targetLine: plan.position.line,
         insertText,
-        allowInPlaceIndentChange: plan.allowIndent,
+        allowInPlace: plan.allowIndent,
     });
-    if ('type' in tx) return tx;
+    if ('type' in geometry) return geometry;
+    return [compileDocEdit(targetDoc, geometry, parse)];
+}
 
-    // Same-doc: renumber near original source and near target (pre-edit coordinates;
-    // renumber only touches marker digits so order of application is: main edits then renumber by from desc).
-    const nearSource = plan.captured.payload.ranges[0]?.startLine ?? targetLine;
-    const renumber = [
-        ...renumberList(targetDoc, parse, nearSource),
-        ...renumberList(targetDoc, parse, targetLine),
+/**
+ * Geometry + normalize on one document.
+ * Normalize always runs on the post-geometry document (full ordered renumber).
+ */
+function compileDocEdit(
+    doc: Doc,
+    geometry: TextChange[],
+    parse: (line: string) => ParsedLine,
+): DocEdit {
+    if (geometry.length === 0) {
+        return { doc, changes: [] };
+    }
+
+    const original = doc.sliceString(0, doc.length);
+    const afterGeometry = applyChanges(original, geometry);
+    const mid = stringDoc(afterGeometry);
+    const normalizeOnMid = renumberAllOrderedLists(mid, parse);
+
+    if (normalizeOnMid.length === 0) {
+        return { doc, changes: sortChanges(geometry) };
+    }
+
+    const normalizeOnOriginal = changesToOriginal(normalizeOnMid, geometry);
+    return {
+        doc,
+        changes: sortChanges([...geometry, ...normalizeOnOriginal]),
+    };
+}
+
+function geometryInsert(doc: Doc, targetLine: number, insertText: string): TextChange[] | Reject {
+    const insertion = resolveInsertionChange(doc, targetLine, insertText, {
+        lengthAfterDelete: doc.length,
+    });
+    return [{ from: insertion.pos, to: insertion.pos, insert: insertion.text }];
+}
+
+function geometryDelete(payload: MoveSourcePayload): TextChange[] {
+    return payload.segments.map((s) => ({
+        from: s.deleteFrom,
+        to: s.deleteTo,
+        insert: '',
+    }));
+}
+
+function geometrySameDoc(params: {
+    doc: Doc;
+    payload: MoveSourcePayload;
+    targetLine: number;
+    insertText: string;
+    allowInPlace: boolean;
+}): TextChange[] | Reject {
+    const { doc, payload, targetLine, insertText, allowInPlace } = params;
+
+    const deletedLen = payload.segments.reduce(
+        (sum, s) => sum + (s.deleteTo - s.deleteFrom),
+        0,
+    );
+    const insertion = resolveInsertionChange(doc, targetLine, insertText, {
+        lengthAfterDelete: doc.length - deletedLen,
+    });
+
+    if (payload.segments.some(
+        (s) => insertion.pos > s.deleteFrom && insertion.pos < s.deleteTo,
+    )) {
+        return reject('insertion_inside_deleted_range');
+    }
+
+    const first = payload.segments[0];
+    if (allowInPlace && insertion.pos === first.deleteFrom) {
+        return [{
+            from: first.deleteFrom,
+            to: first.deleteTo,
+            insert: insertion.text,
+        }];
+    }
+
+    return [
+        { from: insertion.pos, to: insertion.pos, insert: insertion.text },
+        ...geometryDelete(payload),
     ];
-    return [{
-        doc: targetDoc,
-        changes: mergeChanges(tx.changes, renumber),
-    }];
 }
 
-export function planSourceDeletion(payload: MoveSourcePayload): TextChange[] {
-    return payload.segments
-        .map((segment) => ({ from: segment.deleteFrom, to: segment.deleteTo, insert: '' }))
-        .sort((a, b) => b.from - a.from);
-}
-
-function mergeChanges(primary: TextChange[], extra: TextChange[]): TextChange[] {
-    if (extra.length === 0) return primary;
-    // Dedupe identical spans; apply later changes with higher from first
-    const all = [...primary, ...extra];
+function sortChanges(changes: TextChange[]): TextChange[] {
     const key = (c: TextChange) => `${c.from}:${c.to}:${c.insert}`;
     const seen = new Set<string>();
     const out: TextChange[] = [];
-    for (const c of all.sort((a, b) => b.from - a.from)) {
+    for (const c of [...changes].sort((a, b) => b.from - a.from || b.to - a.to)) {
         const k = key(c);
         if (seen.has(k)) continue;
         seen.add(k);
         out.push(c);
     }
     return out;
-}
-
-function planSameDocMove(params: {
-    doc: Doc;
-    payload: MoveSourcePayload;
-    targetLineNumber: number;
-    insertText: string;
-    allowInPlaceIndentChange: boolean;
-}): DocEdit | Reject {
-    const { doc, payload, targetLineNumber, insertText, allowInPlaceIndentChange } = params;
-
-    const totalDeletedLength = payload.segments.reduce(
-        (sum, segment) => sum + (segment.deleteTo - segment.deleteFrom),
-        0
-    );
-    const insertion = resolveInsertionChange(doc, targetLineNumber, insertText, {
-        lengthAfterDelete: doc.length - totalDeletedLength,
-    });
-    if (payload.segments.some((segment) => insertion.pos > segment.deleteFrom && insertion.pos < segment.deleteTo)) {
-        return reject('insertion_inside_deleted_range');
-    }
-
-    const firstSegment = payload.segments[0];
-    const changes = allowInPlaceIndentChange && insertion.pos === firstSegment.deleteFrom
-        ? [{ from: firstSegment.deleteFrom, to: firstSegment.deleteTo, insert: insertion.text }]
-        : [
-            { from: insertion.pos, to: insertion.pos, insert: insertion.text },
-            ...payload.segments.map((segment) => ({ from: segment.deleteFrom, to: segment.deleteTo, insert: '' })),
-        ].sort((a, b) => b.from - a.from);
-
-    return { doc, changes };
-}
-
-function planInsert(params: {
-    doc: Doc;
-    payload: MoveSourcePayload;
-    targetLineNumber: number;
-    insertText: string;
-}): DocEdit | Reject {
-    const { doc, targetLineNumber, insertText } = params;
-    const insertion = resolveInsertionChange(doc, targetLineNumber, insertText, {
-        lengthAfterDelete: doc.length,
-    });
-    return {
-        doc,
-        changes: [{ from: insertion.pos, to: insertion.pos, insert: insertion.text }],
-    };
-}
-
-export function insertedStartLine(targetLineNumber: number, payload: MoveSourcePayload): number {
-    let removedLineCountBeforeTarget = 0;
-    for (const segment of payload.segments) {
-        if (segment.lines.endLine < targetLineNumber) {
-            removedLineCountBeforeTarget += lineCount(segment.lines);
-        }
-    }
-    return Math.max(1, targetLineNumber - removedLineCountBeforeTarget);
 }
