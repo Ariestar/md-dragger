@@ -1,17 +1,19 @@
-import type { ParsedLine, Doc } from '../markdown/document-types';
+import type { Doc } from '../markdown/document-types';
+import type { ParsedLine } from '../parse/types';
+import { isListLine, listMarkerText, listMarkerType } from '../parse/parse-line';
 import type { TextChange } from './block-transaction';
 
 export function planOrderedListRenumberChanges(
     doc: Doc,
-    parseLineWithQuote: (line: string) => ParsedLine,
+    parse: (line: string) => ParsedLine,
     lineNumber: number
 ): TextChange[] {
     if (lineNumber < 1 || lineNumber > doc.lines) return [];
 
     const findOrderedAt = (n: number) => {
-        const parsed = parseLineWithQuote(doc.line(n).text);
-        if (parsed.isListItem && parsed.markerType === 'ordered') {
-            return { indentWidth: parsed.indentWidth, quoteDepth: parsed.quoteDepth };
+        const parsed = parse(doc.line(n).text);
+        if (isListLine(parsed) && listMarkerType(parsed) === 'ordered') {
+            return { indentWidth: parsed.indent.width, quoteDepth: parsed.quote.depth };
         }
         return null;
     };
@@ -39,12 +41,18 @@ export function planOrderedListRenumberChanges(
     let number = 1;
     for (let i = start; i <= end; i++) {
         const line = doc.line(i);
-        const parsed = parseLineWithQuote(line.text);
-        if (!parsed.isListItem || parsed.markerType !== 'ordered' || parsed.indentWidth !== anchor.indentWidth) continue;
+        const parsed = parse(line.text);
+        if (
+            !isListLine(parsed)
+            || listMarkerType(parsed) !== 'ordered'
+            || parsed.indent.width !== anchor.indentWidth
+        ) {
+            continue;
+        }
 
         const newMarker = `${number}. `;
-        const markerStart = line.from + parsed.quotePrefix.length + parsed.indentRaw.length;
-        const markerEnd = markerStart + parsed.marker.length;
+        const markerStart = line.from + parsed.quote.prefix.length + parsed.indent.raw.length;
+        const markerEnd = markerStart + listMarkerText(parsed).length;
         changes.push({ from: markerStart, to: markerEnd, insert: newMarker });
         number += 1;
     }

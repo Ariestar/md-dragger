@@ -1,5 +1,7 @@
 import { BlockType } from '../block/block-types';
-import { Doc, ListContext, ListContextValue, ParsedLine } from '../markdown/document-types';
+import type { Doc, ListContext, ListContextValue } from '../markdown/document-types';
+import type { ParsedLine } from '../parse/types';
+import { isListLine, listMarkerType } from '../parse/parse-line';
 
 export interface ListContextNearLineOptions {
     scanUp?: number;
@@ -11,22 +13,22 @@ export interface ListContextNearLineOptions {
 function parseListContextFromLine(
     doc: Doc,
     lineNumber: number,
-    parseLineWithQuote: (line: string) => ParsedLine
+    parse: (line: string) => ParsedLine
 ): { context: ListContextValue | null; isBlank: boolean; isList: boolean } {
     if (lineNumber < 1 || lineNumber > doc.lines) {
         return { context: null, isBlank: true, isList: false };
     }
     const text = doc.line(lineNumber).text;
     const isBlank = text.trim().length === 0;
-    const parsed = parseLineWithQuote(text);
-    if (!parsed.isListItem) {
+    const parsed = parse(text);
+    if (!isListLine(parsed)) {
         return { context: null, isBlank, isList: false };
     }
     return {
         context: {
-            indentWidth: parsed.indentWidth,
-            indentRaw: parsed.indentRaw,
-            markerType: parsed.markerType,
+            indentWidth: parsed.indent.width,
+            indentRaw: parsed.indent.raw,
+            markerType: listMarkerType(parsed) ?? 'unordered',
         },
         isBlank,
         isList: true,
@@ -36,7 +38,7 @@ function parseListContextFromLine(
 export function getListContextNearLine(
     doc: Doc,
     lineNumber: number,
-    parseLineWithQuote: (line: string) => ParsedLine,
+    parse: (line: string) => ParsedLine,
     options?: ListContextNearLineOptions
 ): ListContext {
     const scanUp = Math.max(0, options?.scanUp ?? 8);
@@ -44,7 +46,7 @@ export function getListContextNearLine(
     const skipBlankLines = options?.skipBlankLines ?? true;
     const stopAtNonListContent = options?.stopAtNonListContent ?? true;
 
-    const current = parseListContextFromLine(doc, lineNumber, parseLineWithQuote);
+    const current = parseListContextFromLine(doc, lineNumber, parse);
     if (current.context) return current.context;
     if (!skipBlankLines && current.isBlank) return null;
 
@@ -54,7 +56,7 @@ export function getListContextNearLine(
         if (!stopUp && distance <= scanUp) {
             const upLineNumber = lineNumber - distance;
             if (upLineNumber >= 1) {
-                const up = parseListContextFromLine(doc, upLineNumber, parseLineWithQuote);
+                const up = parseListContextFromLine(doc, upLineNumber, parse);
                 if (up.context) return up.context;
                 if (!up.isBlank && !up.isList && stopAtNonListContent) {
                     stopUp = true;
@@ -65,7 +67,7 @@ export function getListContextNearLine(
         if (!stopDown && distance <= scanDown) {
             const downLineNumber = lineNumber + distance;
             if (downLineNumber <= doc.lines) {
-                const down = parseListContextFromLine(doc, downLineNumber, parseLineWithQuote);
+                const down = parseListContextFromLine(doc, downLineNumber, parse);
                 if (down.context) return down.context;
                 if (!down.isBlank && !down.isList && stopAtNonListContent) {
                     stopDown = true;
@@ -81,12 +83,12 @@ export function getListContextNearLine(
 
 export function getSourceListBase(
     lines: string[],
-    parseLineWithQuote: (line: string) => ParsedLine
+    parse: (line: string) => ParsedLine
 ): { indentWidth: number; indentRaw: string } | null {
     for (const line of lines) {
-        const parsed = parseLineWithQuote(line);
-        if (parsed.isListItem) {
-            return { indentWidth: parsed.indentWidth, indentRaw: parsed.indentRaw };
+        const parsed = parse(line);
+        if (isListLine(parsed)) {
+            return { indentWidth: parsed.indent.width, indentRaw: parsed.indent.raw };
         }
     }
     return null;
@@ -108,7 +110,6 @@ export function computeListIndentPlan(params: {
     targetLineNumber: number;
     parseLineWithQuote: (line: string) => ParsedLine;
     getListContext?: (doc: Doc, lineNumber: number) => ListContext;
-    /** Absolute target indent width (columns). When set, drives delta. */
     targetIndentWidth?: number;
     contextLineNumber?: number;
 }): ListIndentPlan {
@@ -158,7 +159,7 @@ export function adjustListToTargetContext(params: {
         sourceContent,
         targetLineNumber,
         parseLineWithQuote,
-        buildIndentStringFromSample: buildIndentStringFromSampleFn,
+        buildIndentStringFromSample: buildIndent,
         getListContext: getListContextFn,
         targetIndentWidth,
         contextLineNumber,
@@ -180,23 +181,31 @@ export function adjustListToTargetContext(params: {
     const quoteAdjustedLines = lines.map((line) => {
         if (line.trim().length === 0) return line;
         const parsed = parseLineWithQuote(line);
-        const rest = parsed.rest;
-        if (!parsed.isListItem) {
-            if (parsed.indentWidth >= sourceBase.indentWidth) {
-                const newIndent = buildIndentStringFromSampleFn(
+        const afterIndent = (() => {
+            // rest after quote = indent.raw + marker + body (or body only)
+            if (parsed.marker && 'text' in parsed.marker) {
+                return parsed.indent.raw + parsed.marker.text + parsed.body;
+            }
+            return parsed.indent.raw + parsed.body;
+        })();
+
+        if (!isListLine(parsed)) {
+            if (parsed.indent.width >= sourceBase.indentWidth) {
+                const newIndent = buildIndent(
                     indentPlan.indentSample,
-                    parsed.indentWidth + indentPlan.indentDelta
+                    parsed.indent.width + indentPlan.indentDelta
                 );
-                return `${parsed.quotePrefix}${newIndent}${rest.slice(parsed.indentRaw.length)}`;
+                return `${parsed.quote.prefix}${newIndent}${afterIndent.slice(parsed.indent.raw.length)}`;
             }
             return line;
         }
 
-        const newIndent = buildIndentStringFromSampleFn(
+        const newIndent = buildIndent(
             indentPlan.indentSample,
-            parsed.indentWidth + indentPlan.indentDelta
+            parsed.indent.width + indentPlan.indentDelta
         );
-        return `${parsed.quotePrefix}${newIndent}${parsed.marker}${parsed.content}`;
+        const markerText = parsed.marker && parsed.marker.kind === 'list' ? parsed.marker.text : '';
+        return `${parsed.quote.prefix}${newIndent}${markerText}${parsed.body}`;
     });
 
     return quoteAdjustedLines.join('\n');
@@ -210,17 +219,13 @@ export function buildInsertText(params: {
     const {
         sourceBlockType,
         sourceContent,
-        adjustListToTargetContext: adjustListToTargetContextFn,
+        adjustListToTargetContext: adjustList,
     } = params;
 
     let text = sourceContent;
-
-    // Quote line moves should behave like plain text moves:
-    // keep source content unchanged instead of re-shaping markers/indent by target list context.
     if (sourceBlockType !== BlockType.Blockquote) {
-        text = adjustListToTargetContextFn(text);
+        text = adjustList(text);
     }
-
     text += '\n';
     return text;
 }

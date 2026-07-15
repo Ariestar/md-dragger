@@ -60,10 +60,22 @@ export {
 } from './transaction/move-blocks';
 export { planDelete } from './transaction/delete-blocks';
 
+// --- parse ---
+export {
+  type Indent,
+  type LineMarker,
+  type ParsedLine,
+  type ParsedBlock,
+  parseLine,
+  parseBlock,
+  formatIndent,
+  isListLine,
+  listMarkerText,
+  listMarkerType,
+} from './parse';
+
 // --- markdown ---
 export {
-  type ParsedLine,
-  type ParsedListLine,
   type ListContext,
   type ListContextValue,
   type MarkerType,

@@ -1,4 +1,4 @@
-import { parseLineWithQuote } from './line-parser';
+import { parseLine, isListLine } from '../parse/parse-line';
 import { Doc } from './document-types';
 import { isHorizontalRuleLine, isCalloutLine } from '../block/block-guards';
 import { normalizeTabSize } from './indent-calculator';
@@ -73,17 +73,17 @@ export function setLineMapPerfRecorder(
 }
 
 function createLineMetaFromText(text: string, tabSize: number): LineMeta {
-    const parsed = parseLineWithQuote(text, tabSize);
+    const parsed = parseLine(text, tabSize);
     const isEmpty = text.trim().length === 0;
     return {
         isEmpty,
-        isList: parsed.isListItem,
-        isQuote: parsed.quoteDepth > 0,
+        isList: isListLine(parsed),
+        isQuote: parsed.quote.depth > 0,
         isCallout: isCalloutLine(text),
         isTable: text.trimStart().startsWith('|'),
         isHr: isHorizontalRuleLine(text),
-        indentWidth: parsed.indentWidth,
-        quoteDepth: parsed.quoteDepth,
+        indentWidth: parsed.indent.width,
+        quoteDepth: parsed.quote.depth,
     };
 }
 

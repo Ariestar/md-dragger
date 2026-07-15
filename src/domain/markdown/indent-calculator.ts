@@ -1,5 +1,7 @@
-import { Doc, ParsedLine } from './document-types';
-import { parseLineWithQuote as parseLineWithQuoteByTabSize } from './line-parser';
+import type { Doc } from './document-types';
+import type { ParsedLine } from '../parse/types';
+import { formatIndent, parseLine } from '../parse/parse-line';
+import { isListLine } from '../parse/parse-line';
 
 const indentUnitWidthCache = new WeakMap<object, number>();
 
@@ -10,23 +12,16 @@ export function normalizeTabSize(tabSize: number): number {
     return tabSize;
 }
 
+/** @deprecated use parseLine from domain/parse */
 export function parseLineWithQuote(line: string, tabSize: number): ParsedLine {
-    return parseLineWithQuoteByTabSize(line, normalizeTabSize(tabSize));
+    return parseLine(line, normalizeTabSize(tabSize));
 }
 
+/** @deprecated use formatIndent from domain/parse */
 export function buildIndentStringFromSample(sample: string, width: number, tabSize: number): string {
-    const unit = normalizeTabSize(tabSize);
-    const safeWidth = Math.max(0, width);
-    if (safeWidth === 0) return '';
-    if (sample.includes('\t')) {
-        const tabs = Math.floor(safeWidth / unit);
-        const spaces = safeWidth - tabs * unit;
-        return '\t'.repeat(tabs) + ' '.repeat(spaces);
-    }
-    return ' '.repeat(safeWidth);
+    return formatIndent(width, normalizeTabSize(tabSize), sample);
 }
 
-// One nesting step from a concrete indent sample. Empty sample is an error.
 export function getIndentUnitWidth(sample: string, tabSize: number): number {
     if (sample.length === 0) {
         throw new Error('getIndentUnitWidth: empty indent sample');
@@ -35,22 +30,21 @@ export function getIndentUnitWidth(sample: string, tabSize: number): number {
     return sample.length;
 }
 
-// Smallest positive nested list delta in the document. Flat docs throw.
 export function getIndentUnitWidthFromDoc(
     doc: Doc,
-    parseLine: (line: string) => ParsedLine,
+    parse: (line: string) => ParsedLine,
 ): number {
     let best = Number.POSITIVE_INFINITY;
     let prevIndent: number | null = null;
 
     for (let i = 1; i <= doc.lines; i++) {
-        const parsed = parseLine(doc.line(i).text);
-        if (!parsed.isListItem) continue;
-        if (prevIndent !== null && parsed.indentWidth > prevIndent) {
-            const delta = parsed.indentWidth - prevIndent;
+        const parsed = parse(doc.line(i).text);
+        if (!isListLine(parsed)) continue;
+        if (prevIndent !== null && parsed.indent.width > prevIndent) {
+            const delta = parsed.indent.width - prevIndent;
             if (delta > 0 && delta < best) best = delta;
         }
-        prevIndent = parsed.indentWidth;
+        prevIndent = parsed.indent.width;
     }
 
     if (!isFinite(best)) {
@@ -61,13 +55,13 @@ export function getIndentUnitWidthFromDoc(
 
 export function getIndentUnitWidthForDoc(
     doc: Doc,
-    parseLine: (line: string) => ParsedLine,
+    parse: (line: string) => ParsedLine,
 ): number {
     if (doc && typeof doc === 'object') {
         const cached = indentUnitWidthCache.get(doc);
         if (typeof cached === 'number') return cached;
     }
-    const resolved = getIndentUnitWidthFromDoc(doc, parseLine);
+    const resolved = getIndentUnitWidthFromDoc(doc, parse);
     if (doc && typeof doc === 'object') {
         indentUnitWidthCache.set(doc, resolved);
     }

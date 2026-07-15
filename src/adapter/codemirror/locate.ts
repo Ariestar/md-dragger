@@ -5,8 +5,7 @@ import {
   type BlockSelection,
   type DropPosition,
 } from '../../domain';
-import { createLineParsingContext } from '../../domain/markdown/line-parsing-service';
-import type { ParsedLine } from '../../domain/markdown/document-types';
+import { parseLine, isListLine, listMarkerText } from '../../domain/parse';
 import {
   HANDLE_CLASS,
   resolveListIndentUnit,
@@ -47,7 +46,6 @@ export function resolveDropPosition(
   const doc = view.state.doc;
   const tabSize = resolveTabSize(options);
   const indentUnit = resolveListIndentUnit(options);
-  const parseLine = createLineParsingContext(tabSize).parseLine;
   const inDoc = hitLine >= 1 && hitLine <= doc.lines;
 
   return locateDropPosition({
@@ -55,8 +53,8 @@ export function resolveDropPosition(
     selection,
     hitLine,
     belowMid: inDoc ? belowMid(view, hitLine, point.y) : hitLine > doc.lines,
-    pastMarker: inDoc ? pastMarker(view, hitLine, point.x, parseLine) : false,
-    markerOffset: (listLine) => markerOffset(view, listLine, point.x, parseLine),
+    pastMarker: inDoc ? pastMarker(view, hitLine, point.x, tabSize) : false,
+    markerOffset: (listLine) => markerOffset(view, listLine, point.x, tabSize),
     tabSize,
     indentUnit,
   });
@@ -79,12 +77,16 @@ function pastMarker(
   view: EditorView,
   line: number,
   x: number,
-  parseLine: (text: string) => ParsedLine,
+  tabSize: number,
 ): boolean {
   const docLine = view.state.doc.line(line);
-  const parsed = parseLine(docLine.text);
-  if (!parsed.isListItem) return false;
-  const markerEnd = docLine.from + parsed.quotePrefix.length + parsed.indentRaw.length + parsed.marker.length;
+  const parsed = parseLine(docLine.text, tabSize);
+  if (!isListLine(parsed)) return false;
+  const markerEnd =
+    docLine.from
+    + parsed.quote.prefix.length
+    + parsed.indent.raw.length
+    + listMarkerText(parsed).length;
   const coords = view.coordsAtPos(markerEnd, 1);
   if (!coords) return false;
   return x > coords.left;
@@ -94,15 +96,14 @@ function markerOffset(
   view: EditorView,
   listLine: number,
   x: number,
-  parseLine: (text: string) => ParsedLine,
+  tabSize: number,
 ): number | null {
   const docLine = view.state.doc.line(listLine);
-  const parsed = parseLine(docLine.text);
-  if (!parsed.isListItem) return null;
-  const markerStart = docLine.from + parsed.quotePrefix.length + parsed.indentRaw.length;
+  const parsed = parseLine(docLine.text, tabSize);
+  if (!isListLine(parsed)) return null;
+  const markerStart = docLine.from + parsed.quote.prefix.length + parsed.indent.raw.length;
   const origin = view.coordsAtPos(markerStart, 1)?.left;
   if (origin === undefined) return null;
-  // Approximate columns from pixels using default char width
   const space = view.defaultCharacterWidth || 8;
   return (x - origin) / space;
 }

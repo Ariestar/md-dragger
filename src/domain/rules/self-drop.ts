@@ -2,14 +2,16 @@ import { BlockType } from '../block/block-types';
 import type { BlockSelection } from '../selection/block-selection';
 import { selectionLineRanges } from '../selection/block-selection';
 import type { DropPosition } from '../command/drop-position';
-import { InsertionSlotContext, resolveInsertionRule } from './insertion-rules';
-import { getLineMetaAt, LineMap } from '../markdown/line-map';
+import { resolveInsertionRule, type InsertionSlotContext } from './insertion-rules';
+import type { RejectReason } from '../result';
+import { getLineMetaAt, type LineMap } from '../markdown/line-map';
 import { computeListIndentPlan } from '../mutation/list-mutation';
 import { dropContextLine, dropIndentWidth } from '../markdown/drop-locate';
-import { Doc, ListContext, ParsedLine } from '../markdown/document-types';
+import type { Doc, ListContext } from '../markdown/document-types';
+import type { ParsedLine } from '../parse/types';
+import { isListLine } from '../parse/parse-line';
 import type { LineRange } from '../markdown/line-range-types';
 import { isLineNumberInRanges } from '../markdown/line-range';
-import type { RejectReason } from '../result';
 
 export type SelfDropResult = {
     inSelfRange: boolean;
@@ -22,10 +24,10 @@ export type SelfDropResult = {
 function sourceRangesAreListStructured(params: {
     doc: Doc;
     source: BlockSelection;
-    parseLineWithQuote: (line: string) => ParsedLine;
+    parseLine: (line: string) => ParsedLine;
     ranges: LineRange[];
 }): boolean {
-    const { doc, source, parseLineWithQuote, ranges } = params;
+    const { doc, source, parseLine, ranges } = params;
     if (source.blocks[0]?.type !== BlockType.ListItem) return false;
 
     for (const range of ranges) {
@@ -34,7 +36,7 @@ function sourceRangesAreListStructured(params: {
             const text = doc.line(lineNumber).text;
             if (text.trim().length === 0) continue;
             foundContent = true;
-            if (!parseLineWithQuote(text).isListItem) return false;
+            if (!isListLine(parseLine(text))) return false;
         }
         if (!foundContent) return false;
     }
@@ -117,7 +119,7 @@ export function selfDrop(params: {
     if (!sourceRangesAreListStructured({
         doc,
         source,
-        parseLineWithQuote,
+        parseLine: parseLineWithQuote,
         ranges: sourceRanges,
     })) {
         return {
@@ -138,7 +140,7 @@ export function selfDrop(params: {
     }
     const sourceLineText = doc.line(sourceLineNumber).text;
     const sourceParsed = parseLineWithQuote(sourceLineText);
-    if (!sourceParsed.isListItem) {
+    if (!isListLine(sourceParsed)) {
         return {
             inSelfRange: true,
             allowInPlaceIndentChange: false,
@@ -153,8 +155,8 @@ export function selfDrop(params: {
     const indentPlan = computeListIndentPlan({
         doc,
         sourceBase: {
-            indentWidth: sourceParsed.indentWidth,
-            indentRaw: sourceParsed.indentRaw,
+            indentWidth: sourceParsed.indent.width,
+            indentRaw: sourceParsed.indent.raw,
         },
         targetLineNumber,
         parseLineWithQuote,
@@ -169,7 +171,7 @@ export function selfDrop(params: {
     const isContextInsideSource = indentPlan.listContextLineNumber >= sourceLineNumber
         && indentPlan.listContextLineNumber <= effectiveSourceRange.endLine;
 
-    if (isAfterSelf && isContextInsideSource && indentPlan.targetIndentWidth > sourceParsed.indentWidth) {
+    if (isAfterSelf && isContextInsideSource && indentPlan.targetIndentWidth > sourceParsed.indent.width) {
         return {
             inSelfRange: true,
             allowInPlaceIndentChange: false,
@@ -180,9 +182,9 @@ export function selfDrop(params: {
     }
 
     const allowInPlaceIndentChange = (
-        (isAfterSelf && indentPlan.targetIndentWidth !== sourceParsed.indentWidth)
-        || (isSameLine && indentPlan.targetIndentWidth !== sourceParsed.indentWidth && !isSelfContext)
-        || (!isAfterSelf && indentPlan.targetIndentWidth < sourceParsed.indentWidth)
+        (isAfterSelf && indentPlan.targetIndentWidth !== sourceParsed.indent.width)
+        || (isSameLine && indentPlan.targetIndentWidth !== sourceParsed.indent.width && !isSelfContext)
+        || (!isAfterSelf && indentPlan.targetIndentWidth < sourceParsed.indent.width)
     );
 
     if (!allowInPlaceIndentChange) {
