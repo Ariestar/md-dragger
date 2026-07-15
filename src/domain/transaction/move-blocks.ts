@@ -1,6 +1,5 @@
 import type { Block } from '../block/block-types';
 import type { Doc } from '../markdown/document-types';
-import type { DropPosition } from '../command/drop-position';
 import { resolveDeleteRange, resolveInsertionChange } from '../mutation/document-change';
 import { selectionLineRanges, type BlockSelection } from '../selection/block-selection';
 import type { LineRange } from '../markdown/line-range-types';
@@ -11,11 +10,7 @@ import type { MovePlan } from '../move/move-plan';
 import type { DocEdit, TextChange } from './block-transaction';
 import { reject, type Reject } from '../result';
 import { renumberAllOrderedLists } from './list-renumber';
-import {
-    applyChanges,
-    changesToOriginal,
-    stringDoc,
-} from './string-doc';
+import { applyChanges, stringDoc } from './string-doc';
 
 export type MoveSourceSegment = {
     lines: LineRange;
@@ -68,11 +63,12 @@ export function captureMoveSource(doc: Doc, selection: BlockSelection): Captured
 /**
  * Compile a move into DocEdit[].
  *
- * Stages (no host round-trips, no pre-move renumber):
- *   1. Project  — insert string from source + DropPosition
- *   2. Geometry — insert + delete as TextChanges on the original doc
- *   3. Normalize — apply geometry on a copy, run full ordered-list renumber there
- *   4. Emit     — geometry + renumber mapped back to original coordinates
+ *   1. Project   — insert string from source + DropPosition
+ *   2. Geometry  — insert + delete (coordinates on original doc)
+ *   3. Normalize — apply geometry in memory, renumber ordered lists on result
+ *   4. Emit      — if normalize empty: emit geometry changes;
+ *                  else emit one replace of full text (sequential composition is
+ *                  not the same as simultaneous geometry∪renumber on original)
  */
 export function moveTx(params: {
     sourceDoc: Doc;
@@ -95,7 +91,6 @@ export function moveTx(params: {
 
     if (sourceDoc !== targetDoc) {
         const insert = geometryInsert(targetDoc, plan.position.line, insertText);
-        if ('type' in insert) return insert;
         const del = geometryDelete(plan.captured.payload);
         return [
             compileDocEdit(targetDoc, insert, parse),
@@ -114,10 +109,6 @@ export function moveTx(params: {
     return [compileDocEdit(targetDoc, geometry, parse)];
 }
 
-/**
- * Geometry + normalize on one document.
- * Normalize always runs on the post-geometry document (full ordered renumber).
- */
 function compileDocEdit(
     doc: Doc,
     geometry: TextChange[],
@@ -129,21 +120,24 @@ function compileDocEdit(
 
     const original = doc.sliceString(0, doc.length);
     const afterGeometry = applyChanges(original, geometry);
-    const mid = stringDoc(afterGeometry);
-    const normalizeOnMid = renumberAllOrderedLists(mid, parse);
+    const renumber = renumberAllOrderedLists(stringDoc(afterGeometry), parse);
 
-    if (normalizeOnMid.length === 0) {
+    // No ordered lists to fix — emit fine-grained geometry only.
+    if (renumber.length === 0) {
         return { doc, changes: sortChanges(geometry) };
     }
 
-    const normalizeOnOriginal = changesToOriginal(normalizeOnMid, geometry);
+    // Sequential composition: geometry then normalize on the result.
+    // Must NOT merge renumber offsets with geometry as simultaneous original-coords
+    // edits — that inserts new markers without removing old ones (double "1. 2.").
+    const finalText = applyChanges(afterGeometry, renumber);
     return {
         doc,
-        changes: sortChanges([...geometry, ...normalizeOnOriginal]),
+        changes: [{ from: 0, to: original.length, insert: finalText }],
     };
 }
 
-function geometryInsert(doc: Doc, targetLine: number, insertText: string): TextChange[] | Reject {
+function geometryInsert(doc: Doc, targetLine: number, insertText: string): TextChange[] {
     const insertion = resolveInsertionChange(doc, targetLine, insertText, {
         lengthAfterDelete: doc.length,
     });
