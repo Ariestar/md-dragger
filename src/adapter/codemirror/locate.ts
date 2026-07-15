@@ -33,6 +33,19 @@ export function lineAtPoint(view: EditorView, point: Point): number | null {
   return view.state.doc.lineAt(pos).number;
 }
 
+/**
+ * Columns (indent-width units) from the start of `text` up to `end` code units.
+ * Same rules as parseLine indent.width (tabs expand to tabSize).
+ */
+function columnsOf(text: string, end: number, tabSize: number): number {
+  const slice = text.slice(0, Math.max(0, Math.min(text.length, end)));
+  let width = 0;
+  for (const ch of slice) {
+    width += ch === '\t' ? tabSize : 1;
+  }
+  return width;
+}
+
 /** Adapter measures pointer → domain DropPosition. */
 export function resolveDropPosition(
   view: EditorView,
@@ -47,15 +60,14 @@ export function resolveDropPosition(
   const tabSize = resolveTabSize(options);
   const indentUnit = resolveListIndentUnit(options);
   const inDoc = hitLine >= 1 && hitLine <= doc.lines;
-  const nestPx = nestStepPx(view, indentUnit);
 
   return locateDropPosition({
     doc,
     selection,
     hitLine,
     belowMid: inDoc ? belowMid(view, hitLine, point.y) : hitLine > doc.lines,
-    pastMarker: inDoc ? pastMarker(view, hitLine, point.x, tabSize) : false,
-    markerOffset: (listLine) => markerOffset(view, listLine, point.x, tabSize, indentUnit, nestPx),
+    pastMarker: inDoc ? pastMarker(view, hitLine, point, tabSize) : false,
+    pointerColumn: (listLine) => pointerColumn(view, listLine, point, tabSize),
     tabSize,
     indentUnit,
   });
@@ -77,14 +89,13 @@ function belowMid(view: EditorView, line: number, y: number): boolean {
 function pastMarker(
   view: EditorView,
   line: number,
-  x: number,
+  point: Point,
   tabSize: number,
 ): boolean {
   const docLine = view.state.doc.line(line);
   const parsed = parseLine(docLine.text, tabSize);
   if (!isListLine(parsed)) return false;
-  // Use real screen coords of marker end — not char-count guesses.
-  // Ordered markers ("10. ") are wider than "- "; document offsets alone mis-fire nestZone.
+
   const markerEnd =
     docLine.from
     + parsed.quote.prefix.length
@@ -92,45 +103,26 @@ function pastMarker(
     + listMarkerText(parsed).length;
   const coords = view.coordsAtPos(markerEnd, 1);
   if (!coords) return false;
-  return x > coords.left;
+  return point.x > coords.left;
 }
 
 /**
- * Columns relative to the list marker start, in the same units as indentWidth.
- * ink-mde draws nest levels as widgets (~nestStepPx per listIndentUnit columns),
- * not as plain spaces — defaultCharacterWidth systematically skews ordered lists
- * (longer markers) toward negative offsets → outdent → parent null (root).
+ * Absolute indent-width column of the pointer on a list line.
+ * Uses document position (posAtCoords) + text column count — no pixel/char-width heuristics.
  */
-function markerOffset(
+function pointerColumn(
   view: EditorView,
   listLine: number,
-  x: number,
+  point: Point,
   tabSize: number,
-  indentUnit: number,
-  nestPx: number,
 ): number | null {
   const docLine = view.state.doc.line(listLine);
   const parsed = parseLine(docLine.text, tabSize);
   if (!isListLine(parsed)) return null;
 
-  const markerStart =
-    docLine.from + parsed.quote.prefix.length + parsed.indent.raw.length;
-  const origin = view.coordsAtPos(markerStart, 1)?.left;
-  if (origin === undefined) return null;
-  if (!(nestPx > 0) || !(indentUnit > 0)) return null;
+  const pos = view.posAtCoords({ x: point.x, y: point.y }, false);
+  if (typeof pos !== 'number') return null;
 
-  // One nest widget ≈ indentUnit columns (see dropSeam geometry).
-  return ((x - origin) / nestPx) * indentUnit;
-}
-
-/** Pixels for one list nest step (matches dropSeam / ink-mde-indent). */
-function nestStepPx(view: EditorView, listIndentUnit: number): number {
-  const indentEl = view.contentDOM.querySelector('.ink-mde-indent') as HTMLElement | null;
-  if (indentEl) {
-    const w = indentEl.getBoundingClientRect().width;
-    if (w > 0) return w;
-  }
-  // Fallback only for geometry without widgets: approximate from font size, not char width of "1."
-  const rem = parseFloat(getComputedStyle(view.contentDOM).fontSize || '16') || 16;
-  return 2 * rem * (listIndentUnit > 0 ? 1 : 1);
+  const clamped = Math.max(docLine.from, Math.min(docLine.to, pos));
+  return columnsOf(docLine.text, clamped - docLine.from, tabSize);
 }

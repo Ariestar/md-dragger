@@ -9,7 +9,7 @@ import { isLineNumberInRanges } from './line-range';
 import { selectionLineRanges } from '../selection/block-selection';
 
 // Pointer metrics → DropPosition { doc, line, parent }.
-// Parent resolution uses line-map O(1) listParentLine + detectBlock (cached).
+// List intent uses absolute indent columns (adapter: pointerColumn), not pixels.
 
 export type DropLocateInput = {
     doc: Doc;
@@ -17,14 +17,18 @@ export type DropLocateInput = {
     hitLine: number;
     belowMid: boolean;
     pastMarker: boolean;
-    markerOffset: (listLine: number) => number | null;
+    /**
+     * Absolute indent-width column of the pointer on a list line
+     * (same units as parseLine indent.width / LineMeta.indentWidth).
+     */
+    pointerColumn: (listLine: number) => number | null;
     tabSize: number;
     indentUnit: number;
 };
 
 /**
  * Resolve drop site: insert-before line + optional nest parent.
- * List child/sibling/outdent are gestures → parent null or a list item block.
+ * List child/sibling/outdent are locate gestures → parent null or a list item block.
  */
 export function locateDropPosition(input: DropLocateInput): DropPosition | null {
     const {
@@ -33,7 +37,7 @@ export function locateDropPosition(input: DropLocateInput): DropPosition | null 
         hitLine,
         belowMid,
         pastMarker,
-        markerOffset,
+        pointerColumn,
         tabSize,
         indentUnit,
     } = input;
@@ -72,7 +76,7 @@ export function locateDropPosition(input: DropLocateInput): DropPosition | null 
         hitLine,
         targetLine: line,
         nestZone,
-        markerOffset,
+        pointerColumn,
         indentUnit,
         tabSize,
     });
@@ -88,7 +92,7 @@ function listParentFromIntent(params: {
     hitLine: number;
     targetLine: number;
     nestZone: boolean;
-    markerOffset: (listLine: number) => number | null;
+    pointerColumn: (listLine: number) => number | null;
     indentUnit: number;
     tabSize: number;
 }): DropPosition | null {
@@ -99,7 +103,7 @@ function listParentFromIntent(params: {
         hitLine,
         targetLine,
         nestZone,
-        markerOffset,
+        pointerColumn,
         indentUnit,
         tabSize,
     } = params;
@@ -109,8 +113,8 @@ function listParentFromIntent(params: {
         : listLineAtOrAbove(lineMap, targetLine - 1);
     if (refLine === null || refLine < 1) return null;
 
-    const offset = markerOffset(refLine);
-    if (offset === null) return null;
+    const column = pointerColumn(refLine);
+    if (column === null) return null;
 
     const sourceLines = selectionLineRanges(doc.lines, selection);
     const self = isLineNumberInRanges(refLine, sourceLines);
@@ -118,14 +122,13 @@ function listParentFromIntent(params: {
         doc,
         lineMap,
         refLine,
-        offset,
+        column,
         indentUnit,
         allowChild: !self,
     });
     if (!intent) return null;
 
     if (intent.mode === 'child') {
-        // O(1) parent line via map, then detectBlock (cached by line).
         const parent = parentBlockAtListLine(doc, intent.contextLineNumber, tabSize);
         if (!parent) return null;
         return { doc, line: targetLine, parent };
@@ -140,10 +143,6 @@ function listParentFromIntent(params: {
     return { doc, line: targetLine, parent };
 }
 
-/**
- * List parent block at a list item head line.
- * Uses line-map parent links (O(1)) + detectBlock cache — no tree walk for index.
- */
 function parentBlockAtListLine(doc: Doc, listHeadLine: number, tabSize: number): Block | null {
     const block = detectBlock(doc, listHeadLine, { tabSize });
     if (!block || block.type !== BlockType.ListItem) return null;
