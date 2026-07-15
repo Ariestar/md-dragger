@@ -1,35 +1,42 @@
 import type { Doc } from '../markdown/document-types';
 import { BlockType, type Block } from './block-types';
 import { getLineMap, getLineMetaAt, peekCachedLineMap } from '../markdown/line-map';
-import { isHorizontalRuleLine, isTableLine } from './block-guards';
-import { splitBlockquotePrefix, getBlockquoteDepthFromLine } from '../markdown/line-parser';
+import { isTableLine } from './block-guards';
 import { findCodeBlockRange, findMathBlockRange } from '../markdown/fence-scanner';
 import { normalizeTabSize } from '../markdown/indent-calculator';
+import { parseLine, isListLine } from '../parse/parse-line';
 
-const LIST_UNORDERED_RE = /^[-*+]\s/;
-const LIST_ORDERED_RE = /^\d+\.\s/;
-const LIST_TASK_RE = /^[-*+]\s\[[ x]\]/;
-const CODE_FENCE_RE = /^```/;
-const MATH_FENCE_RE = /^\$\$/;
-const BLOCKQUOTE_RE = /^>/;
-const TABLE_RE = /^\|/;
-
-export function getHeadingLevel(lineText: string): number | null {
-    const trimmed = lineText.trimStart();
-    const match = trimmed.match(/^(#{1,6})\s+/);
-    if (!match) return null;
-    return match[1].length;
+/**
+ * Detect block type from one line of text (uses parseLine — single classification path).
+ */
+export function detectBlockType(lineText: string, tabSize = 4): BlockType {
+    const p = parseLine(lineText, tabSize);
+    if (p.marker?.kind === 'heading') return BlockType.Heading;
+    if (p.marker?.kind === 'hr') return BlockType.HorizontalRule;
+    if (p.marker?.kind === 'list') return BlockType.ListItem;
+    if (p.marker?.kind === 'fence') {
+        return p.marker.fence === 'code' ? BlockType.CodeBlock : BlockType.MathBlock;
+    }
+    if (p.marker?.kind === 'table-row') return BlockType.Table;
+    if (p.marker?.kind === 'callout') return BlockType.Callout;
+    if (p.quote.depth > 0) return BlockType.Blockquote;
+    if (p.body.trim().length === 0 && !p.marker) return BlockType.Unknown;
+    return BlockType.Paragraph;
 }
 
+export function getHeadingLevel(lineText: string, tabSize = 4): number | null {
+    const p = parseLine(lineText, tabSize);
+    return p.marker?.kind === 'heading' ? p.marker.level : null;
+}
 
-export function getHeadingSectionRange(doc: Doc, lineNumber: number): { startLine: number; endLine: number } | null {
+export function getHeadingSectionRange(doc: Doc, lineNumber: number, tabSize = 4): { startLine: number; endLine: number } | null {
     if (lineNumber < 1 || lineNumber > doc.lines) return null;
-    const currentHeadingLevel = getHeadingLevel(doc.line(lineNumber).text);
+    const currentHeadingLevel = getHeadingLevel(doc.line(lineNumber).text, tabSize);
     if (!currentHeadingLevel) return null;
 
     let endLine = lineNumber;
     for (let i = lineNumber + 1; i <= doc.lines; i++) {
-        const nextHeadingLevel = getHeadingLevel(doc.line(i).text);
+        const nextHeadingLevel = getHeadingLevel(doc.line(i).text, tabSize);
         if (nextHeadingLevel !== null && nextHeadingLevel <= currentHeadingLevel) {
             break;
         }
@@ -39,129 +46,31 @@ export function getHeadingSectionRange(doc: Doc, lineNumber: number): { startLin
     return { startLine: lineNumber, endLine };
 }
 
-/**
- * 检测指定行的块类型
- */
-export function detectBlockType(lineText: string): BlockType {
-    const trimmed = lineText.trimStart();
-
-    // 标题
-    if (getHeadingLevel(lineText) !== null) {
-        return BlockType.Heading;
-    }
-
-    // 水平分隔线（支持 ---、***、___ 以及 - - - 等空格变体）
-    if (isHorizontalRuleLine(trimmed)) {
-        return BlockType.HorizontalRule;
-    }
-
-    // 列表项（无序列表、有序列表、任务列表）
-    if (LIST_UNORDERED_RE.test(trimmed) || LIST_ORDERED_RE.test(trimmed) || LIST_TASK_RE.test(trimmed)) {
-        return BlockType.ListItem;
-    }
-
-    // 代码块开始
-    if (CODE_FENCE_RE.test(trimmed)) {
-        return BlockType.CodeBlock;
-    }
-
-    // 数学块（$$）
-    if (MATH_FENCE_RE.test(trimmed)) {
-        return BlockType.MathBlock;
-    }
-
-    // 引用块
-    if (BLOCKQUOTE_RE.test(trimmed)) {
-        return BlockType.Blockquote;
-    }
-
-    // 表格（以|开头）
-    if (TABLE_RE.test(trimmed)) {
-        return BlockType.Table;
-    }
-
-    // 空行或普通段落
-    if (trimmed.length === 0) {
-        return BlockType.Unknown;
-    }
-
-    return BlockType.Paragraph;
+function isCalloutHeaderLine(text: string, tabSize: number): boolean {
+    return parseLine(text, tabSize).marker?.kind === 'callout';
 }
 
-/**
- * 获取行的缩进级别
- */
-export function getIndentLevel(lineText: string, tabSize = 2): number {
-    const match = lineText.match(/^(\s*)/);
-    if (!match) return 0;
-
-    const spaces = match[1];
-    const width = getIndentWidthWithTabSize(spaces, tabSize);
-    const unit = tabSize > 0 ? tabSize : 2;
-    return Math.floor(width / unit);
-}
-
-function getIndentWidthWithTabSize(indentRaw: string, tabSize: number): number {
-    const unit = tabSize > 0 ? tabSize : 2;
-    let width = 0;
-    for (const ch of indentRaw) {
-        width += ch === '\t' ? unit : 1;
-    }
-    return width;
-}
-
-function getIndentWidth(lineText: string, tabSize: number): number {
-    const match = lineText.match(/^(\s*)/);
-    if (!match) return 0;
-    return getIndentWidthWithTabSize(match[1], tabSize);
-}
-
-function parseListMarker(lineText: string, tabSize: number): { isListItem: boolean; indentWidth: number } {
-    const match = lineText.match(/^(\s*)([-*+])\s\[[ xX]\]\s+/);
-    if (match) {
-        return { isListItem: true, indentWidth: getIndentWidthWithTabSize(match[1], tabSize) };
-    }
-
-    const unorderedMatch = lineText.match(/^(\s*)([-*+])\s+/);
-    if (unorderedMatch) {
-        return { isListItem: true, indentWidth: getIndentWidthWithTabSize(unorderedMatch[1], tabSize) };
-    }
-
-    const orderedMatch = lineText.match(/^(\s*)(\d+)[.)]\s+/);
-    if (orderedMatch) {
-        return { isListItem: true, indentWidth: getIndentWidthWithTabSize(orderedMatch[1], tabSize) };
-    }
-
-    return { isListItem: false, indentWidth: getIndentWidth(lineText, tabSize) };
-}
-
-
-function isCalloutHeader(restText: string): boolean {
-    return restText.trimStart().startsWith('[!');
-}
-
-function isInsideCalloutContainer(doc: Doc, lineNumber: number, depth: number): boolean {
+function isInsideCalloutContainer(doc: Doc, lineNumber: number, depth: number, tabSize: number): boolean {
     for (let i = lineNumber; i >= 1; i--) {
         const text = doc.line(i).text;
-        const lineDepth = getBlockquoteDepthFromLine(text);
-        if (lineDepth === 0 || lineDepth < depth) break;
-        const info = splitBlockquotePrefix(text);
-        if (isCalloutHeader(info.rest)) return true;
+        const p = parseLine(text, tabSize);
+        if (p.quote.depth === 0 || p.quote.depth < depth) break;
+        if (p.marker?.kind === 'callout' || isCalloutHeaderLine(text, tabSize)) return true;
     }
     return false;
 }
 
-function getBlockquoteContainerRange(doc: Doc, lineNumber: number, depth: number): { startLine: number; endLine: number } {
+function getBlockquoteContainerRange(doc: Doc, lineNumber: number, depth: number, tabSize: number): { startLine: number; endLine: number } {
     let startLine = lineNumber;
     for (let i = lineNumber - 1; i >= 1; i--) {
-        const d = getBlockquoteDepthFromLine(doc.line(i).text);
+        const d = parseLine(doc.line(i).text, tabSize).quote.depth;
         if (d === 0 || d < depth) break;
         startLine = i;
     }
 
     let endLine = lineNumber;
     for (let i = lineNumber + 1; i <= doc.lines; i++) {
-        const d = getBlockquoteDepthFromLine(doc.line(i).text);
+        const d = parseLine(doc.line(i).text, tabSize).quote.depth;
         if (d === 0 || d < depth) break;
         endLine = i;
     }
@@ -169,31 +78,32 @@ function getBlockquoteContainerRange(doc: Doc, lineNumber: number, depth: number
 }
 
 function getListItemSubtreeRange(doc: Doc, lineNumber: number, tabSize: number): { startLine: number; endLine: number } {
-    const lineText = doc.line(lineNumber).text;
-    const currentInfo = parseListMarker(lineText, tabSize);
-    const currentIndent = currentInfo.indentWidth;
+    const current = parseLine(doc.line(lineNumber).text, tabSize);
+    const currentIndent = current.indent.width;
     let endLine = lineNumber;
 
     for (let i = lineNumber + 1; i <= doc.lines; i++) {
-        const nextLine = doc.line(i);
-        const nextText = nextLine.text;
+        const nextText = doc.line(i).text;
 
         if (nextText.trim().length === 0) {
             const lookahead = findNextNonEmptyLine(doc, i + 1, tabSize);
-            if (!lookahead || (lookahead.isListItem && lookahead.indentWidth <= currentIndent) || lookahead.indentWidth <= currentIndent) {
+            if (
+                !lookahead
+                || (lookahead.isList && lookahead.indentWidth <= currentIndent)
+                || lookahead.indentWidth <= currentIndent
+            ) {
                 break;
             }
             endLine = i;
             continue;
         }
 
-        const nextInfo = parseListMarker(nextText, tabSize);
-        if (nextInfo.isListItem && nextInfo.indentWidth <= currentIndent) {
+        const next = parseLine(nextText, tabSize);
+        if (isListLine(next) && next.indent.width <= currentIndent) {
             break;
         }
 
-        const nextIndent = getIndentWidth(nextText, tabSize);
-        if (nextInfo.isListItem || nextIndent > currentIndent) {
+        if (isListLine(next) || next.indent.width > currentIndent) {
             endLine = i;
             continue;
         }
@@ -204,12 +114,16 @@ function getListItemSubtreeRange(doc: Doc, lineNumber: number, tabSize: number):
     return { startLine: lineNumber, endLine };
 }
 
-function findNextNonEmptyLine(doc: Doc, fromLine: number, tabSize: number): { isListItem: boolean; indentWidth: number } | null {
+function findNextNonEmptyLine(
+    doc: Doc,
+    fromLine: number,
+    tabSize: number
+): { isList: boolean; indentWidth: number } | null {
     for (let i = fromLine; i <= doc.lines; i++) {
         const text = doc.line(i).text;
         if (text.trim().length === 0) continue;
-        const info = parseListMarker(text, tabSize);
-        return { isListItem: info.isListItem, indentWidth: info.indentWidth };
+        const p = parseLine(text, tabSize);
+        return { isList: isListLine(p), indentWidth: p.indent.width };
     }
     return null;
 }
@@ -258,23 +172,17 @@ export function setDetectBlockPerfRecorder(
     detectBlockPerfRecorder = recorder;
 }
 
-/**
- * 检测块的完整范围（包括多行块如代码块）
- */
 function detectBlockUncached(doc: Doc, lineNumber: number, tabSize: number): Block | null {
-
     if (lineNumber < 1 || lineNumber > doc.lines) {
         return null;
     }
 
-    // YAML frontmatter 区域（含两条 --- 分隔线）不可拖拽
     if (isInsideYamlFrontmatter(doc, lineNumber)) {
         return null;
     }
 
-    const line = doc.line(lineNumber);
-    const lineText = line.text;
-    let blockType = detectBlockType(lineText);
+    const lineText = doc.line(lineNumber).text;
+    let blockType = detectBlockType(lineText, tabSize);
 
     const codeRange = findCodeBlockRange(doc, lineNumber);
     const mathRange = findMathBlockRange(doc, lineNumber);
@@ -302,10 +210,6 @@ function detectBlockUncached(doc: Doc, lineNumber: number, tabSize: number): Blo
         endLine = mathRange.endLine;
     }
 
-    // 代码块：找到结束的```
-    // （已由 codeRange 统一处理）
-
-    // 列表项：包含其子项
     if (blockType === BlockType.ListItem) {
         let lineMap = peekCachedLineMap(doc, { tabSize });
         if (!lineMap && doc.lines <= LIST_LINE_MAP_COLD_BUILD_MAX_LINES) {
@@ -320,48 +224,34 @@ function detectBlockUncached(doc: Doc, lineNumber: number, tabSize: number): Blo
         if (subtreeEndLine >= lineNumber) {
             endLine = subtreeEndLine;
         } else {
-            const range = getListItemSubtreeRange(doc, lineNumber, tabSize);
-            endLine = range.endLine;
+            endLine = getListItemSubtreeRange(doc, lineNumber, tabSize).endLine;
         }
     }
 
-    if (blockType === BlockType.Blockquote) {
-        const quoteDepth = getBlockquoteDepthFromLine(lineText);
-        const inCallout = isInsideCalloutContainer(doc, lineNumber, quoteDepth);
+    if (blockType === BlockType.Blockquote || blockType === BlockType.Callout) {
+        const quoteDepth = parseLine(lineText, tabSize).quote.depth;
+        const inCallout = blockType === BlockType.Callout
+            || isInsideCalloutContainer(doc, lineNumber, quoteDepth, tabSize);
         if (inCallout) {
-            const range = getBlockquoteContainerRange(doc, lineNumber, quoteDepth);
+            const range = getBlockquoteContainerRange(doc, lineNumber, quoteDepth, tabSize);
             startLine = range.startLine;
             endLine = range.endLine;
             blockType = BlockType.Callout;
         } else {
-            // Regular blockquotes are line-level blocks so sibling lines can be reordered.
             startLine = lineNumber;
             endLine = lineNumber;
             blockType = BlockType.Blockquote;
         }
     }
 
-    // 表格：向上合并连续的|行
     if (blockType === BlockType.Table) {
         for (let i = lineNumber - 1; i >= 1; i--) {
-            const prevLine = doc.line(i);
-            if (isTableLine(prevLine.text)) {
-                startLine = i;
-            } else {
-                break;
-            }
+            if (isTableLine(doc.line(i).text)) startLine = i;
+            else break;
         }
-    }
-
-    // 表格：连续的|行
-    if (blockType === BlockType.Table) {
         for (let i = lineNumber + 1; i <= doc.lines; i++) {
-            const nextLine = doc.line(i);
-            if (isTableLine(nextLine.text)) {
-                endLine = i;
-            } else {
-                break;
-            }
+            if (isTableLine(doc.line(i).text)) endLine = i;
+            else break;
         }
     }
 
@@ -371,9 +261,6 @@ function detectBlockUncached(doc: Doc, lineNumber: number, tabSize: number): Blo
     };
 }
 
-/**
- * hot path cache: drag move 每帧会重复查询同一行块信息
- */
 function nowMs(): number {
     return typeof performance !== 'undefined' && typeof performance.now === 'function'
         ? performance.now()
@@ -402,10 +289,18 @@ export function detectBlock(
         return perDocCache.get(lineNumber) ?? null;
     }
 
-    const startedAt = nowMs();
-    const detected = detectBlockUncached(doc, lineNumber, tabSize);
-    recordDetectBlockPerf('detect_block_uncached', nowMs() - startedAt);
-    perDocCache.set(lineNumber, detected);
-    return detected;
-}
+    const started = nowMs();
+    const block = detectBlockUncached(doc, lineNumber, tabSize);
+    recordDetectBlockPerf('detect_block_uncached', nowMs() - started);
 
+    // Cache every line of the block for this query
+    if (block) {
+        for (let n = block.lines.startLine; n <= block.lines.endLine; n++) {
+            perDocCache.set(n, block);
+        }
+    } else {
+        perDocCache.set(lineNumber, null);
+    }
+
+    return block;
+}

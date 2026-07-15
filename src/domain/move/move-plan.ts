@@ -1,7 +1,7 @@
 import type { DropPosition } from '../command/drop-position';
 import type { Doc } from '../markdown/document-types';
 import { getLineMap } from '../markdown/line-map';
-import { createLineParsingContext } from '../markdown/line-parsing-service';
+import { parseLine } from '../parse/parse-line';
 import { canDropAt } from '../rules/container-policy';
 import { selfDrop } from '../rules/self-drop';
 import type { BlockSelection } from '../selection/block-selection';
@@ -60,13 +60,13 @@ export function planMove(input: PlanMoveInput): MoveResult {
 
     let allowIndent = false;
     if (input.sourceDoc === targetDoc) {
-        const lineParsing = createLineParsingContext(input.tabSize);
+        const parse = (text: string) => parseLine(text, input.tabSize);
         const self = selfDrop({
             doc: targetDoc,
             source: selectOne(captured.block),
             targetLineNumber: line,
-            parseLineWithQuote: lineParsing.parseLine,
-            getListContext: (doc, lineNumber) => getListContextNearLine(doc, lineNumber, lineParsing.parseLine),
+            parseLineWithQuote: parse,
+            getListContext: (doc, lineNumber) => getListContextNearLine(doc, lineNumber, parse),
             slotContext: slot.slotContext,
             lineMap,
             position,

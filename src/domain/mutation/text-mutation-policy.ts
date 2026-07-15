@@ -1,33 +1,39 @@
 import type { Block } from '../block/block-types';
 import { BlockType } from '../block/block-types';
-import { adjustListToTargetContext, buildInsertText, getListContextNearLine } from './list-mutation';
+import {
+    adjustListToTargetContext,
+    buildInsertText,
+    getListContextNearLine,
+} from './list-mutation';
 import type { DropPosition } from '../command/drop-position';
 import { dropContextLine, dropIndentWidth } from '../markdown/drop-locate';
-import { Doc } from '../markdown/document-types';
-import { LineParsingContext } from '../markdown/line-parsing-service';
+import type { Doc } from '../markdown/document-types';
+import { parseLine, formatIndent } from '../parse/parse-line';
 
+/**
+ * Build the text to insert at a drop site: relevel list indent when needed,
+ * then ensure a trailing newline for move insertion.
+ */
 export function buildInsertTextForDrop(params: {
-    lineParsing: LineParsingContext;
     doc: Doc;
     sourceBlock: Block;
     targetLineNumber: number;
     sourceContent: string;
     position: DropPosition;
+    tabSize: number;
     indentUnit?: number;
 }): string {
     const {
-        lineParsing,
         doc,
         sourceBlock,
         targetLineNumber,
         sourceContent,
         position,
+        tabSize,
         indentUnit = 2,
     } = params;
-    const getListContextForDoc = (activeDoc: Doc, lineNumber: number) =>
-        getListContextNearLine(activeDoc, lineNumber, lineParsing.parseLine);
 
-    const tabSize = lineParsing.getTabSize();
+    const parse = (line: string) => parseLine(line, tabSize);
     const targetIndentWidth = dropIndentWidth(position, { tabSize, indentUnit });
     const contextLineNumber = dropContextLine(position);
     const relevelList = sourceBlock.type === BlockType.ListItem
@@ -40,9 +46,10 @@ export function buildInsertTextForDrop(params: {
             doc,
             sourceContent: content,
             targetLineNumber,
-            parseLineWithQuote: lineParsing.parseLine,
-            buildIndentStringFromSample: lineParsing.buildIndentStringFromSample,
-            getListContext: getListContextForDoc,
+            parseLineWithQuote: parse,
+            buildIndentStringFromSample: (sample, width) => formatIndent(width, tabSize, sample),
+            getListContext: (activeDoc, lineNumber) =>
+                getListContextNearLine(activeDoc, lineNumber, parse),
             targetIndentWidth: relevelList ? targetIndentWidth : undefined,
             contextLineNumber,
         }),

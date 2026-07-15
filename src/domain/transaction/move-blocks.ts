@@ -5,11 +5,12 @@ import { resolveDeleteRange, resolveInsertionChange } from '../mutation/document
 import { selectionLineRanges, type BlockSelection } from '../selection/block-selection';
 import type { LineRange } from '../markdown/line-range-types';
 import { lineCount } from '../markdown/line-range';
-import { createLineParsingContext } from '../markdown/line-parsing-service';
+import { parseLine } from '../parse/parse-line';
 import { buildInsertTextForDrop } from '../mutation/text-mutation-policy';
 import type { MovePlan } from '../move/move-plan';
 import type { DocEdit, TextChange } from './block-transaction';
 import { reject, type Reject } from '../result';
+import { planOrderedListRenumberChanges } from './list-renumber';
 
 export type MoveSourceSegment = {
     lines: LineRange;
@@ -45,7 +46,7 @@ export function captureMoveSource(doc: Doc, selection: BlockSelection): Captured
     };
 }
 
-export function captureMoveSourcePayload(doc: Doc, selection: BlockSelection): MoveSourcePayload | null {
+function captureMoveSourcePayload(doc: Doc, selection: BlockSelection): MoveSourcePayload | null {
     const ranges = selectionLineRanges(doc.lines, selection);
     if (ranges.length === 0) return null;
 
@@ -72,15 +73,16 @@ export function moveTx(params: {
     const { sourceDoc, plan } = params;
     const targetDoc = plan.position.doc;
     const targetLine = plan.position.line;
-    const lineParsing = createLineParsingContext(plan.tabSize);
+    const tabSize = plan.tabSize;
+    const parse = (text: string) => parseLine(text, tabSize);
 
     const insertText = buildInsertTextForDrop({
-        lineParsing,
         doc: targetDoc,
         sourceBlock: plan.captured.block,
         targetLineNumber: targetLine,
         sourceContent: plan.captured.payload.content,
         position: plan.position,
+        tabSize,
         indentUnit: plan.indentUnit,
     });
     if (!insertText.length) return reject('no_insert_text');
@@ -93,9 +95,22 @@ export function moveTx(params: {
             insertText,
         });
         if ('type' in target) return target;
+        // Renumber ordered lists near insert and near deleted source (best-effort on pre-edit docs)
+        const targetRenumber = planOrderedListRenumberChanges(targetDoc, parse, targetLine);
+        const sourceRenumber = planOrderedListRenumberChanges(
+            sourceDoc,
+            parse,
+            plan.captured.payload.ranges[0]?.startLine ?? 1
+        );
         return [
-            target,
-            { doc: sourceDoc, changes: planSourceDeletion(plan.captured.payload) },
+            {
+                doc: targetDoc,
+                changes: mergeChanges(target.changes, targetRenumber),
+            },
+            {
+                doc: sourceDoc,
+                changes: mergeChanges(planSourceDeletion(plan.captured.payload), sourceRenumber),
+            },
         ];
     }
 
@@ -107,13 +122,40 @@ export function moveTx(params: {
         allowInPlaceIndentChange: plan.allowIndent,
     });
     if ('type' in tx) return tx;
-    return [tx];
+
+    // Same-doc: renumber near original source and near target (pre-edit coordinates;
+    // renumber only touches marker digits so order of application is: main edits then renumber by from desc).
+    const nearSource = plan.captured.payload.ranges[0]?.startLine ?? targetLine;
+    const renumber = [
+        ...planOrderedListRenumberChanges(targetDoc, parse, nearSource),
+        ...planOrderedListRenumberChanges(targetDoc, parse, targetLine),
+    ];
+    return [{
+        doc: targetDoc,
+        changes: mergeChanges(tx.changes, renumber),
+    }];
 }
 
 export function planSourceDeletion(payload: MoveSourcePayload): TextChange[] {
     return payload.segments
         .map((segment) => ({ from: segment.deleteFrom, to: segment.deleteTo, insert: '' }))
         .sort((a, b) => b.from - a.from);
+}
+
+function mergeChanges(primary: TextChange[], extra: TextChange[]): TextChange[] {
+    if (extra.length === 0) return primary;
+    // Dedupe identical spans; apply later changes with higher from first
+    const all = [...primary, ...extra];
+    const key = (c: TextChange) => `${c.from}:${c.to}:${c.insert}`;
+    const seen = new Set<string>();
+    const out: TextChange[] = [];
+    for (const c of all.sort((a, b) => b.from - a.from)) {
+        const k = key(c);
+        if (seen.has(k)) continue;
+        seen.add(k);
+        out.push(c);
+    }
+    return out;
 }
 
 function planInsertionAndDeletionTransaction(params: {
