@@ -1,7 +1,7 @@
 import { parseLine, isListLine } from '../parse/parse-line';
 import { Doc } from './document-types';
 import { isHorizontalRuleLine, isCalloutLine } from '../block/block-guards';
-import { normalizeTabSize } from './indent-calculator';
+import { normalizeTabSize } from '../parse';
 
 function nowMs(): number {
     return typeof performance !== 'undefined' && typeof performance.now === 'function'

@@ -21,7 +21,7 @@ export type SelfDropResult = {
     targetIndentWidth?: number;
 };
 
-function sourceRangesAreListStructured(params: {
+function isListSelection(params: {
     doc: Doc;
     source: BlockSelection;
     parseLine: (line: string) => ParsedLine;
@@ -116,7 +116,7 @@ export function selfDrop(params: {
         };
     }
 
-    if (!sourceRangesAreListStructured({
+    if (!isListSelection({
         doc,
         source,
         parseLine: parse,

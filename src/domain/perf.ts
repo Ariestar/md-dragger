@@ -5,5 +5,5 @@
 // `import from 'md-dragger/domain'` stays clean.
 
 export { setLineMapPerfRecorder, primeLineMapFromTransition } from './markdown/line-map';
-export { setDetectBlockPerfRecorder } from './block/block-detector';
+export { setDetectPerf } from './block/block-detector';
 export { prewarmFenceScan } from './markdown/fence-scanner';

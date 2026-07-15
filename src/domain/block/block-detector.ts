@@ -3,7 +3,7 @@ import { BlockType, type Block } from './block-types';
 import { getLineMap, getLineMetaAt, peekCachedLineMap } from '../markdown/line-map';
 import { isTableLine } from './block-guards';
 import { findCodeBlockRange, findMathBlockRange } from '../markdown/fence-scanner';
-import { normalizeTabSize } from '../markdown/indent-calculator';
+import { normalizeTabSize } from '../parse';
 import { parseLine, isListLine } from '../parse/parse-line';
 
 /**
@@ -129,13 +129,13 @@ function findNextNonEmptyLine(
 }
 
 const blockDetectionCache = new WeakMap<Doc, Map<number, Map<number, Block | null>>>();
-const LIST_LINE_MAP_COLD_BUILD_MAX_LINES = 30_000;
+const LINE_MAP_EAGER_MAX = 30_000;
 
 const YAML_FENCE_RE = /^-{3}\s*$/;
-const yamlFrontmatterEndLineCache = new WeakMap<Doc, number>();
+const yamlEndCache = new WeakMap<Doc, number>();
 
-function getYamlFrontmatterEndLine(doc: Doc): number {
-    const cached = yamlFrontmatterEndLineCache.get(doc);
+function yamlEndLine(doc: Doc): number {
+    const cached = yamlEndCache.get(doc);
     if (cached !== undefined) return cached;
 
     let endLine = 0;
@@ -147,27 +147,27 @@ function getYamlFrontmatterEndLine(doc: Doc): number {
             }
         }
     }
-    yamlFrontmatterEndLineCache.set(doc, endLine);
+    yamlEndCache.set(doc, endLine);
     return endLine;
 }
 
-function isInsideYamlFrontmatter(doc: Doc, lineNumber: number): boolean {
-    const endLine = getYamlFrontmatterEndLine(doc);
+function inYamlFrontmatter(doc: Doc, lineNumber: number): boolean {
+    const endLine = yamlEndLine(doc);
     return endLine > 0 && lineNumber >= 1 && lineNumber <= endLine;
 }
 
-type DetectBlockPerfDurationKey = 'detect_block_uncached';
+type DetectPerfKey = 'detect_block_uncached';
 
-let detectBlockPerfRecorder: ((key: DetectBlockPerfDurationKey, durationMs: number) => void) | null = null;
+let detectBlockPerfRecorder: ((key: DetectPerfKey, durationMs: number) => void) | null = null;
 
-function recordDetectBlockPerf(key: DetectBlockPerfDurationKey, durationMs: number): void {
+function recordDetectPerf(key: DetectPerfKey, durationMs: number): void {
     if (!detectBlockPerfRecorder) return;
     if (!isFinite(durationMs) || durationMs < 0) return;
     detectBlockPerfRecorder(key, durationMs);
 }
 
-export function setDetectBlockPerfRecorder(
-    recorder: ((key: DetectBlockPerfDurationKey, durationMs: number) => void) | null
+export function setDetectPerf(
+    recorder: ((key: DetectPerfKey, durationMs: number) => void) | null
 ): void {
     detectBlockPerfRecorder = recorder;
 }
@@ -177,7 +177,7 @@ function detectBlockUncached(doc: Doc, lineNumber: number, tabSize: number): Blo
         return null;
     }
 
-    if (isInsideYamlFrontmatter(doc, lineNumber)) {
+    if (inYamlFrontmatter(doc, lineNumber)) {
         return null;
     }
 
@@ -212,7 +212,7 @@ function detectBlockUncached(doc: Doc, lineNumber: number, tabSize: number): Blo
 
     if (blockType === BlockType.ListItem) {
         let lineMap = peekCachedLineMap(doc, { tabSize });
-        if (!lineMap && doc.lines <= LIST_LINE_MAP_COLD_BUILD_MAX_LINES) {
+        if (!lineMap && doc.lines <= LINE_MAP_EAGER_MAX) {
             lineMap = getLineMap(doc, { tabSize });
         }
 
@@ -291,7 +291,7 @@ export function detectBlock(
 
     const started = nowMs();
     const block = detectBlockUncached(doc, lineNumber, tabSize);
-    recordDetectBlockPerf('detect_block_uncached', nowMs() - started);
+    recordDetectPerf('detect_block_uncached', nowMs() - started);
 
     // Cache every line of the block for this query
     if (block) {

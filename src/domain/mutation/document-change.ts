@@ -8,7 +8,7 @@ export function resolveInsertionChange(
     targetLineNumber: number,
     insertText: string,
     options?: {
-        remainingLengthAfterDelete?: number;
+        lengthAfterDelete?: number;
     }
 ): { pos: number; text: string } {
     if (targetLineNumber <= doc.lines) {
@@ -23,8 +23,8 @@ export function resolveInsertionChange(
     if (!normalized.length) {
         return { pos: doc.length, text: normalized };
     }
-    const remainingLengthAfterDelete = options?.remainingLengthAfterDelete ?? doc.length;
-    if (remainingLengthAfterDelete <= 0) {
+    const lengthAfterDelete = options?.lengthAfterDelete ?? doc.length;
+    if (lengthAfterDelete <= 0) {
         return { pos: 0, text: normalized };
     }
     return {

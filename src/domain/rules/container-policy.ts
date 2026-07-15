@@ -36,7 +36,7 @@ function getActiveLineMap(
     return options.lineMap ?? getLineMap(doc, { tabSize: options.tabSize });
 }
 
-export function getPreviousNonEmptyLineNumber(
+export function prevNonEmpty(
     doc: Doc,
     lineNumber: number,
     lineMap?: LineMap
@@ -55,7 +55,7 @@ export function getPreviousNonEmptyLineNumber(
     return null;
 }
 
-export function getNextNonEmptyLineNumber(
+export function nextNonEmpty(
     doc: Doc,
     lineNumber: number,
     lineMap?: LineMap
@@ -160,8 +160,8 @@ function listSlotAt(
         targetLineNumber - 1,
         targetLineNumber,
         targetLineNumber + 1,
-        getPreviousNonEmptyLineNumber(doc, targetLineNumber - 1, lineMap),
-        getNextNonEmptyLineNumber(doc, targetLineNumber, lineMap),
+        prevNonEmpty(doc, targetLineNumber - 1, lineMap),
+        nextNonEmpty(doc, targetLineNumber, lineMap),
     ].filter((v): v is number => typeof v === 'number' && v >= 1 && v <= doc.lines);
     const seen = new Set<number>();
     let best: Block | null = null;

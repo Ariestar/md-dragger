@@ -88,7 +88,7 @@ export function moveTx(params: {
     if (!insertText.length) return reject('no_insert_text');
 
     if (sourceDoc !== targetDoc) {
-        const target = planInsertOnlyTransaction({
+        const target = planInsert({
             doc: targetDoc,
             payload: plan.captured.payload,
             targetLineNumber: targetLine,
@@ -114,7 +114,7 @@ export function moveTx(params: {
         ];
     }
 
-    const tx = planInsertionAndDeletionTransaction({
+    const tx = planSameDocMove({
         doc: targetDoc,
         payload: plan.captured.payload,
         targetLineNumber: targetLine,
@@ -158,7 +158,7 @@ function mergeChanges(primary: TextChange[], extra: TextChange[]): TextChange[] 
     return out;
 }
 
-function planInsertionAndDeletionTransaction(params: {
+function planSameDocMove(params: {
     doc: Doc;
     payload: MoveSourcePayload;
     targetLineNumber: number;
@@ -172,7 +172,7 @@ function planInsertionAndDeletionTransaction(params: {
         0
     );
     const insertion = resolveInsertionChange(doc, targetLineNumber, insertText, {
-        remainingLengthAfterDelete: doc.length - totalDeletedLength,
+        lengthAfterDelete: doc.length - totalDeletedLength,
     });
     if (payload.segments.some((segment) => insertion.pos > segment.deleteFrom && insertion.pos < segment.deleteTo)) {
         return reject('insertion_inside_deleted_range');
@@ -189,7 +189,7 @@ function planInsertionAndDeletionTransaction(params: {
     return { doc, changes };
 }
 
-function planInsertOnlyTransaction(params: {
+function planInsert(params: {
     doc: Doc;
     payload: MoveSourcePayload;
     targetLineNumber: number;
@@ -197,7 +197,7 @@ function planInsertOnlyTransaction(params: {
 }): DocEdit | Reject {
     const { doc, targetLineNumber, insertText } = params;
     const insertion = resolveInsertionChange(doc, targetLineNumber, insertText, {
-        remainingLengthAfterDelete: doc.length,
+        lengthAfterDelete: doc.length,
     });
     return {
         doc,
@@ -205,7 +205,7 @@ function planInsertOnlyTransaction(params: {
     };
 }
 
-export function resolveFinalInsertedStartLineNumber(targetLineNumber: number, payload: MoveSourcePayload): number {
+export function insertedStartLine(targetLineNumber: number, payload: MoveSourcePayload): number {
     let removedLineCountBeforeTarget = 0;
     for (const segment of payload.segments) {
         if (segment.lines.endLine < targetLineNumber) {
