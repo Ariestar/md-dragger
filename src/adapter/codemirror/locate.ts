@@ -46,7 +46,12 @@ function columnsOf(text: string, end: number, tabSize: number): number {
   return width;
 }
 
-/** Adapter measures pointer → domain DropPosition. */
+/**
+ * Adapter: pointer → domain DropPosition.
+ * Only reports document geometry:
+ *   hitLine, belowMid, pastMarker, pointerColumn (absolute indent columns).
+ * No nest-step pixels, no char-width heuristics.
+ */
 export function resolveDropPosition(
   view: EditorView,
   point: Point,
@@ -81,11 +86,11 @@ function belowMid(view: EditorView, line: number, y: number): boolean {
   } catch {
     const coords = view.coordsAtPos(from, 1);
     if (!coords) return false;
-    const height = view.defaultLineHeight;
-    return y > coords.top + height / 2;
+    return y > coords.top + view.defaultLineHeight / 2;
   }
 }
 
+/** True if pointer x is past the list marker end on this line. */
 function pastMarker(
   view: EditorView,
   line: number,
@@ -108,7 +113,7 @@ function pastMarker(
 
 /**
  * Absolute indent-width column of the pointer on a list line.
- * Uses document position (posAtCoords) + text column count — no pixel/char-width heuristics.
+ * posAtCoords → offset in line → column count (tab-aware).
  */
 function pointerColumn(
   view: EditorView,
@@ -120,8 +125,23 @@ function pointerColumn(
   const parsed = parseLine(docLine.text, tabSize);
   if (!isListLine(parsed)) return null;
 
-  const pos = view.posAtCoords({ x: point.x, y: point.y }, false);
-  if (typeof pos !== 'number') return null;
+  // Prefer y on the list line center so posAtCoords hits this line, not a neighbor.
+  const yMid = (() => {
+    try {
+      const block = view.lineBlockAt(docLine.from);
+      return view.documentTop + (block.top + block.bottom) / 2;
+    } catch {
+      return point.y;
+    }
+  })();
+
+  const pos = view.posAtCoords({ x: point.x, y: yMid }, false);
+  if (typeof pos !== 'number') {
+    // Left of text (gutter / indent widget): treat as column 0 on this line
+    const lineLeft = view.coordsAtPos(docLine.from, 1)?.left;
+    if (lineLeft !== undefined && point.x < lineLeft) return 0;
+    return null;
+  }
 
   const clamped = Math.max(docLine.from, Math.min(docLine.to, pos));
   return columnsOf(docLine.text, clamped - docLine.from, tabSize);

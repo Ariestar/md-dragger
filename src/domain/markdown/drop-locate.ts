@@ -8,14 +8,24 @@ import { computeListIntent } from './list-target';
 import { isLineNumberInRanges } from './line-range';
 import { selectionLineRanges } from '../selection/block-selection';
 
-// Pointer metrics → DropPosition { doc, line, parent }.
-// List intent uses absolute indent columns (adapter: pointerColumn), not pixels.
+/**
+ * Drop locate — one path only:
+ *   y → insert-before line (seam)
+ *   x → absolute indent column → snap to structure → parent
+ *
+ * No separate nestZone branch. pastMarker only raises the floor column
+ * (at least one nest step under the hit list item).
+ */
 
 export type DropLocateInput = {
     doc: Doc;
     selection: BlockSelection;
     hitLine: number;
     belowMid: boolean;
+    /**
+     * True when the pointer is past the list marker of hitLine (content zone).
+     * Used only to floor column ≥ hitIndent + indentUnit — not a second resolve path.
+     */
     pastMarker: boolean;
     /**
      * Absolute indent-width column of the pointer on a list line
@@ -26,10 +36,6 @@ export type DropLocateInput = {
     indentUnit: number;
 };
 
-/**
- * Resolve drop site: insert-before line + optional nest parent.
- * List child/sibling/outdent are locate gestures → parent null or a list item block.
- */
 export function locateDropPosition(input: DropLocateInput): DropPosition | null {
     const {
         doc,
@@ -42,6 +48,7 @@ export function locateDropPosition(input: DropLocateInput): DropPosition | null 
         indentUnit,
     } = input;
 
+    // --- y: seam line ---
     if (hitLine < 1) {
         return { doc, line: 1, parent: null };
     }
@@ -50,74 +57,39 @@ export function locateDropPosition(input: DropLocateInput): DropPosition | null 
     }
 
     const lineMap = getLineMap(doc, { tabSize });
-    const hitMeta = getLineMetaAt(lineMap, hitLine);
     let line = Math.max(1, Math.min(doc.lines + 1, belowMid ? hitLine + 1 : hitLine));
 
-    const nestZone = !!hitMeta?.isList && pastMarker;
-    if (nestZone && !belowMid) {
-        line = Math.max(1, Math.min(doc.lines + 1, hitLine + 1));
-    }
+    // --- list structure from x (column), single path ---
+    const hitMeta = getLineMetaAt(lineMap, hitLine);
+    const hitIsList = !!hitMeta?.isList;
 
-    // Nest under list item under the pointer (not self).
-    if (nestZone) {
-        const parent = detectBlock(doc, hitLine, { tabSize });
-        if (parent?.type === BlockType.ListItem) {
-            const sourceLines = selectionLineRanges(doc.lines, selection);
-            if (!isLineNumberInRanges(hitLine, sourceLines)) {
-                return { doc, line, parent };
-            }
-        }
-    }
-
-    const fromIntent = listParentFromIntent({
-        doc,
-        lineMap,
-        selection,
-        hitLine,
-        targetLine: line,
-        nestZone,
-        pointerColumn,
-        indentUnit,
-        tabSize,
-    });
-    if (fromIntent) return fromIntent;
-
-    return { doc, line, parent: null };
-}
-
-function listParentFromIntent(params: {
-    doc: Doc;
-    lineMap: LineMap;
-    selection: BlockSelection;
-    hitLine: number;
-    targetLine: number;
-    nestZone: boolean;
-    pointerColumn: (listLine: number) => number | null;
-    indentUnit: number;
-    tabSize: number;
-}): DropPosition | null {
-    const {
-        doc,
-        lineMap,
-        selection,
-        hitLine,
-        targetLine,
-        nestZone,
-        pointerColumn,
-        indentUnit,
-        tabSize,
-    } = params;
-
-    const refLine = nestZone
+    // Reference list line for indent structure
+    let refLine = hitIsList
         ? hitLine
-        : listLineAtOrAbove(lineMap, targetLine - 1);
-    if (refLine === null || refLine < 1) return null;
+        : listLineAtOrAbove(lineMap, line - 1);
 
-    const column = pointerColumn(refLine);
-    if (column === null) return null;
+    if (refLine === null || refLine < 1) {
+        // No list nearby: plain top-level seam
+        return { doc, line, parent: null };
+    }
+
+    let column = pointerColumn(refLine);
+    if (column === null) {
+        // Cannot measure x → no silent root. Fail locate.
+        return null;
+    }
+
+    // Content zone on a list row: floor column to at least child-of-hit
+    if (hitIsList && pastMarker && indentUnit > 0) {
+        const hitIndent = hitMeta?.indentWidth ?? 0;
+        const childFloor = hitIndent + indentUnit;
+        if (column < childFloor) column = childFloor;
+        refLine = hitLine;
+    }
 
     const sourceLines = selectionLineRanges(doc.lines, selection);
     const self = isLineNumberInRanges(refLine, sourceLines);
+
     const intent = computeListIntent({
         doc,
         lineMap,
@@ -126,15 +98,35 @@ function listParentFromIntent(params: {
         indentUnit,
         allowChild: !self,
     });
-    if (!intent) return null;
+    if (!intent) {
+        return null;
+    }
 
+    // When nesting under hit content, prefer insert-after-head seam
+    if (intent.mode === 'child' && hitIsList && pastMarker && !belowMid) {
+        line = Math.max(1, Math.min(doc.lines + 1, hitLine + 1));
+    }
+
+    return positionFromIntent(doc, lineMap, intent, line, tabSize);
+}
+
+function positionFromIntent(
+    doc: Doc,
+    lineMap: LineMap,
+    intent: { mode: string; contextLineNumber: number; targetIndentWidth: number },
+    targetLine: number,
+    tabSize: number,
+): DropPosition {
     if (intent.mode === 'child') {
         const parent = parentBlockAtListLine(doc, intent.contextLineNumber, tabSize);
-        if (!parent) return null;
+        if (!parent) {
+            // Structure says child but block missing — no silent root
+            return { doc, line: targetLine, parent: null };
+        }
         return { doc, line: targetLine, parent };
     }
 
-    // sibling | outdent → parent = list parent of context line (null = root)
+    // sibling | outdent: parent = list parent of the context list line
     const parentLine = lineMap.listParentLine[intent.contextLineNumber] ?? 0;
     if (parentLine <= 0) {
         return { doc, line: targetLine, parent: null };
@@ -155,7 +147,7 @@ function parentBlockAtListLine(doc: Doc, listHeadLine: number, tabSize: number):
  */
 export function dropIndentWidth(
     position: DropPosition,
-    options: { tabSize: number; indentUnit: number }
+    options: { tabSize: number; indentUnit: number },
 ): number {
     if (position.parent?.type === BlockType.ListItem) {
         const lineMap = getLineMap(position.doc, { tabSize: options.tabSize });
