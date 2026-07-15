@@ -3,13 +3,12 @@ import { BlockType, type Block } from './block-types';
 import { getLineMap, getLineMetaAt, peekCachedLineMap } from '../markdown/line-map';
 import { isTableLine } from './block-guards';
 import { findCodeBlockRange, findMathBlockRange } from '../markdown/fence-scanner';
-import { normalizeTabSize } from '../parse';
 import { parseLine, isListLine } from '../parse/parse-line';
 
 /**
  * Detect block type from one line of text (uses parseLine — single classification path).
  */
-export function detectBlockType(lineText: string, tabSize = 4): BlockType {
+export function detectBlockType(lineText: string, tabSize: number): BlockType {
     const p = parseLine(lineText, tabSize);
     if (p.marker?.kind === 'heading') return BlockType.Heading;
     if (p.marker?.kind === 'hr') return BlockType.HorizontalRule;
@@ -24,12 +23,12 @@ export function detectBlockType(lineText: string, tabSize = 4): BlockType {
     return BlockType.Paragraph;
 }
 
-export function getHeadingLevel(lineText: string, tabSize = 4): number | null {
+export function getHeadingLevel(lineText: string, tabSize: number): number | null {
     const p = parseLine(lineText, tabSize);
     return p.marker?.kind === 'heading' ? p.marker.level : null;
 }
 
-export function getHeadingSectionRange(doc: Doc, lineNumber: number, tabSize = 4): { startLine: number; endLine: number } | null {
+export function getHeadingSectionRange(doc: Doc, lineNumber: number, tabSize: number): { startLine: number; endLine: number } | null {
     if (lineNumber < 1 || lineNumber > doc.lines) return null;
     const currentHeadingLevel = getHeadingLevel(doc.line(lineNumber).text, tabSize);
     if (!currentHeadingLevel) return null;
@@ -272,7 +271,7 @@ export function detectBlock(
     lineNumber: number,
     options: { tabSize: number }
 ): Block | null {
-    const tabSize = normalizeTabSize(options.tabSize);
+    const tabSize = options.tabSize;
 
     let cacheByTabSize = blockDetectionCache.get(doc);
     if (!cacheByTabSize) {

@@ -28,7 +28,7 @@ export type DropSeam = {
 
 export type DropSeamOptions = {
   listIndentUnit: number;
-  tabSize?: number;
+  tabSize: number;
 };
 
 /** Selection: line box; left = marker start (after own indent only). */
@@ -73,7 +73,10 @@ export function dropSeam(
   const origin = view.coordsAtPos(band.from, 1)?.left;
   if (origin === undefined) return null;
 
-  const tabSize = options.tabSize ?? 4;
+  const tabSize = options.tabSize;
+  if (!(tabSize > 0)) {
+    throw new Error(`dropSeam: tabSize must be positive, got ${String(tabSize)}`);
+  }
   const indentCols = Math.max(0, dropIndentWidth(position, {
     tabSize,
     indentUnit: options.listIndentUnit,

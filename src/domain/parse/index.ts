@@ -5,7 +5,6 @@ export {
     isListLine,
     listMarkerText,
     listMarkerType,
-    normalizeTabSize,
     indentUnit,
     indentUnitFromDoc,
 } from './parse-line';

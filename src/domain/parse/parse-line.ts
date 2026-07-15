@@ -3,10 +3,9 @@ import type { MarkerType } from '../markdown/document-types';
 import type { Indent, LineMarker, ParsedLine } from './types';
 
 function indentWidth(raw: string, tabSize: number): number {
-    const unit = tabSize > 0 ? tabSize : 4;
     let width = 0;
     for (const ch of raw) {
-        width += ch === '\t' ? unit : 1;
+        width += ch === '\t' ? tabSize : 1;
     }
     return width;
 }
@@ -129,7 +128,6 @@ function parseMarkerAndBody(rest: string): { indent: Indent; marker: LineMarker 
  * Does not embed DocLine / Block.
  */
 export function parseLine(text: string, tabSize: number): ParsedLine {
-    const safeTab = tabSize > 0 ? tabSize : 4;
     const { prefix, depth, rest } = splitQuote(text);
     const { indent, marker, body } = parseMarkerAndBody(rest);
     return {
@@ -137,7 +135,7 @@ export function parseLine(text: string, tabSize: number): ParsedLine {
         quote: { depth, prefix },
         indent: {
             raw: indent.raw,
-            width: indentWidth(indent.raw, safeTab),
+            width: indentWidth(indent.raw, tabSize),
         },
         marker,
         body,
@@ -158,30 +156,23 @@ export function listMarkerType(p: ParsedLine): MarkerType | null {
 
 /** Build indent string of `width` columns, matching sample's space/tab style. */
 export function formatIndent(width: number, tabSize: number, sample = ' '): string {
-    const unit = tabSize > 0 ? tabSize : 4;
     const safeWidth = Math.max(0, width);
     if (safeWidth === 0) return '';
     if (sample.includes('\t')) {
-        const tabs = Math.floor(safeWidth / unit);
-        const spaces = safeWidth - tabs * unit;
+        const tabs = Math.floor(safeWidth / tabSize);
+        const spaces = safeWidth - tabs * tabSize;
         return '\t'.repeat(tabs) + ' '.repeat(spaces);
     }
     return ' '.repeat(safeWidth);
 }
 
-export function normalizeTabSize(tabSize: number): number {
-    if (!(tabSize > 0)) {
-        throw new Error(`tabSize must be positive, got ${String(tabSize)}`);
-    }
-    return tabSize;
-}
 
 /** Nesting step width from a concrete indent sample (spaces length, or tabSize if tabs). */
 export function indentUnit(sample: string, tabSize: number): number {
     if (sample.length === 0) {
         throw new Error('indentUnit: empty indent sample');
     }
-    if (sample.includes('\t')) return normalizeTabSize(tabSize);
+    if (sample.includes('\t')) return tabSize;
     return sample.length;
 }
 

@@ -211,21 +211,3 @@ export function relevelListText(params: {
     return quoteAdjustedLines.join('\n');
 }
 
-export function buildInsertText(params: {
-    sourceBlockType: BlockType;
-    sourceContent: string;
-    relevelListText: (sourceContent: string) => string;
-}): string {
-    const {
-        sourceBlockType,
-        sourceContent,
-        relevelListText: adjustList,
-    } = params;
-
-    let text = sourceContent;
-    if (sourceBlockType !== BlockType.Blockquote) {
-        text = adjustList(text);
-    }
-    text += '\n';
-    return text;
-}

@@ -1,7 +1,6 @@
 import { parseLine, isListLine } from '../parse/parse-line';
 import { Doc } from './document-types';
 import { isHorizontalRuleLine, isCalloutLine } from '../block/block-guards';
-import { normalizeTabSize } from '../parse';
 
 function nowMs(): number {
     return typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -188,7 +187,7 @@ export function buildLineMap(
     doc: Doc,
     options: { tabSize: number }
 ): LineMap {
-    const tabSize = normalizeTabSize(options.tabSize);
+    const tabSize = options.tabSize;
     const lineMeta = createLineMetaArray(doc, tabSize);
     return createLineMapFromMeta(doc, tabSize, lineMeta);
 }
@@ -394,7 +393,7 @@ export function primeLineMapFromTransition(params: {
     tabSize: number;
 }): LineMap {
     const startedAt = nowMs();
-    const tabSize = normalizeTabSize(params.tabSize);
+    const tabSize = params.tabSize;
     const previousDoc = params.previousDoc as Partial<Doc>;
     const nextDoc = params.nextDoc as Partial<Doc>;
     const hasOffsetHelpers = typeof previousDoc.lineAt === 'function'
@@ -440,7 +439,7 @@ export function getLineMap(
     options: { tabSize: number }
 ): LineMap {
     const startedAt = nowMs();
-    const tabSize = normalizeTabSize(options.tabSize);
+    const tabSize = options.tabSize;
     if (!doc || typeof doc !== 'object') {
         const buildStartedAt = nowMs();
         const built = buildLineMap(doc, { tabSize });
@@ -473,7 +472,7 @@ export function peekCachedLineMap(
     doc: Doc,
     options: { tabSize: number }
 ): LineMap | null {
-    const tabSize = normalizeTabSize(options.tabSize);
+    const tabSize = options.tabSize;
     if (!doc || typeof doc !== 'object') return null;
     if (!doc || typeof doc !== 'object') return null;
     return getCachedLineMapForDoc(doc, tabSize);

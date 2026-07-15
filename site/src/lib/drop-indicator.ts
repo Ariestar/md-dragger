@@ -5,9 +5,10 @@ import type { DropPosition } from 'md-dragger/domain';
 import type { PipelineResult } from 'md-dragger/runtime';
 
 // Demo drop line: paint only.
-// listIndentUnit must match mdDragger config (ink-mde nest step = one unit).
+// Must match mdDragger config (ink-mde nest step = one unit).
 
 const LIST_INDENT_UNIT = 2;
+const TAB_SIZE = 4;
 
 let active:
   | { consume(outputs: PipelineResult['outputs']): void }
@@ -78,7 +79,10 @@ export function dropIndicator(): Extension {
         return;
       }
 
-      const seam = dropSeam(this.view, position, { listIndentUnit: LIST_INDENT_UNIT });
+      const seam = dropSeam(this.view, position, {
+        listIndentUnit: LIST_INDENT_UNIT,
+        tabSize: TAB_SIZE,
+      });
       if (!seam) {
         this.el.hidden = true;
         return;

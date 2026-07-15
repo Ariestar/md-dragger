@@ -52,8 +52,8 @@ export function selfDrop(params: {
     slotContext?: InsertionSlotContext;
     lineMap?: LineMap;
     position?: DropPosition;
-    tabSize?: number;
-    indentUnit?: number;
+    tabSize: number;
+    indentUnit: number;
 }): SelfDropResult {
     const {
         doc,
@@ -64,8 +64,8 @@ export function selfDrop(params: {
         slotContext,
         lineMap,
         position,
-        tabSize = 4,
-        indentUnit = 2,
+        tabSize,
+        indentUnit,
     } = params;
     const sourceBlock = source.blocks[0];
     if (!sourceBlock) {

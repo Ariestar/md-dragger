@@ -1,18 +1,13 @@
 import type { Block } from '../block/block-types';
 import { BlockType } from '../block/block-types';
-import {
-    relevelListText,
-    buildInsertText,
-    getListContextNearLine,
-} from './list-mutation';
+import { relevelListText, getListContextNearLine } from './list-mutation';
 import type { DropPosition } from '../command/drop-position';
 import { listSampleLine, dropIndentWidth } from '../markdown/drop-locate';
 import type { Doc } from '../markdown/document-types';
 import { parseLine, formatIndent } from '../parse/parse-line';
 
 /**
- * Build the text to insert at a drop site: relevel list indent when needed,
- * then ensure a trailing newline for move insertion.
+ * Text to insert for a move: optional list relevel, then trailing newline.
  */
 export function insertTextForMove(params: {
     doc: Doc;
@@ -21,7 +16,7 @@ export function insertTextForMove(params: {
     sourceContent: string;
     position: DropPosition;
     tabSize: number;
-    indentUnit?: number;
+    indentUnit: number;
 }): string {
     const {
         doc,
@@ -30,28 +25,30 @@ export function insertTextForMove(params: {
         sourceContent,
         position,
         tabSize,
-        indentUnit = 2,
+        indentUnit,
     } = params;
 
     const parse = (line: string) => parseLine(line, tabSize);
-    const targetIndentWidth = dropIndentWidth(position, { tabSize, indentUnit });
-    const contextLineNumber = listSampleLine(position);
-    const relevelList = sourceBlock.type === BlockType.ListItem
-        || position.parent?.type === BlockType.ListItem;
+    let text = sourceContent;
 
-    return buildInsertText({
-        sourceBlockType: sourceBlock.type,
-        sourceContent,
-        relevelListText: (content) => relevelListText({
+    // Quotes keep source shape; lists relevel to drop indent.
+    if (sourceBlock.type !== BlockType.Blockquote) {
+        const relevel = sourceBlock.type === BlockType.ListItem
+            || position.parent?.type === BlockType.ListItem;
+        text = relevelListText({
             doc,
-            sourceContent: content,
+            sourceContent: text,
             targetLineNumber,
-            parse: parse,
+            parse,
             formatIndentFn: (sample, width) => formatIndent(width, tabSize, sample),
             getListContext: (activeDoc, lineNumber) =>
                 getListContextNearLine(activeDoc, lineNumber, parse),
-            targetIndentWidth: relevelList ? targetIndentWidth : undefined,
-            contextLineNumber,
-        }),
-    });
+            targetIndentWidth: relevel
+                ? dropIndentWidth(position, { tabSize, indentUnit })
+                : undefined,
+            contextLineNumber: listSampleLine(position),
+        });
+    }
+
+    return text.endsWith('\n') ? text : `${text}\n`;
 }
