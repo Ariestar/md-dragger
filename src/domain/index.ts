@@ -1,30 +1,15 @@
-// md-dragger/domain — pure calculation: detect, select, drop position, plan, compile.
+// md-dragger/domain — pure calculation layer.
+// Public surface: host-facing types and plan/edit/parse APIs only.
+// Internals (line-map, list-target, guards, capture details) stay unexported.
 
-// --- block ---
+// --- document ---
+export type { Doc, DocLine, MarkerType } from './markdown/document-types';
+export type { LineRange } from './markdown/line-range-types';
+
+// --- block identity ---
 export { BlockType, type Block, isContainerType } from './block/block-types';
-export {
-  detectBlock,
-  detectBlockType,
-  getHeadingLevel,
-  getHeadingSectionRange,
-} from './block/block-detector';
-export {
-  type ConvertTo,
-  planConvert,
-} from './block/block-type-conversion';
-export {
-  isHorizontalRuleLine,
-  isBlockquoteLine,
-  isCalloutLine,
-  isTableLine,
-  isMathFenceLine,
-  isCodeFenceLine,
-  isListItemLine,
-} from './block/block-guards';
-
-// --- command / drop ---
-export { type DropPosition } from './command/drop-position';
-export { type BlockCommand } from './command/block-command';
+export { detectBlock, detectBlockType } from './block/block-detector';
+export { type ConvertTo, planConvert } from './block/block-type-conversion';
 
 // --- selection ---
 export {
@@ -37,30 +22,7 @@ export {
   selectionLineRanges,
 } from './selection/block-selection';
 
-// --- results ---
-export { type Reject, type RejectReason, reject } from './result';
-
-// --- move planning ---
-export {
-  planMove,
-  type MovePlan,
-  type MoveResult,
-  type PlanMoveInput,
-} from './move/move-plan';
-
-// --- transaction ---
-export { type TextChange, type DocEdit } from './transaction/block-transaction';
-export {
-  moveTx,
-  planSourceDeletion,
-  captureMoveSource,
-  type CapturedMoveSource,
-  type MoveSourcePayload,
-  type MoveSourceSegment,
-} from './transaction/move-blocks';
-export { planDelete } from './transaction/delete-blocks';
-
-// --- parse ---
+// --- structure parse (not DocLine / not Block) ---
 export {
   type Indent,
   type LineMarker,
@@ -74,31 +36,8 @@ export {
   listMarkerType,
 } from './parse';
 
-// --- markdown ---
-export {
-  type ListContext,
-  type ListContextValue,
-  type MarkerType,
-  type Doc,
-  type DocLine,
-} from './markdown/document-types';
-export { type LineParsingContext, createLineParsingContext } from './markdown/line-parsing-service';
-export {
-  getLineMap,
-  getLineMetaAt,
-  peekCachedLineMap,
-  getNearestListLineAtOrBefore,
-  type LineMap,
-  type LineMeta,
-} from './markdown/line-map';
-export { type LineRange } from './markdown/line-range-types';
-export {
-  computeListIntent,
-  listRoot,
-  listAncestors,
-  type ListIntent,
-  type ListIntentMode,
-} from './markdown/list-target';
+// --- drop ---
+export type { DropPosition } from './command/drop-position';
 export {
   locateDropPosition,
   dropIndentWidth,
@@ -106,13 +45,17 @@ export {
   type DropLocateInput,
 } from './markdown/drop-locate';
 
+// --- commands (type only; construct as object literals) ---
+export type { BlockCommand } from './command/block-command';
+
+// --- plan / edit ---
+export { type Reject, type RejectReason, reject } from './result';
 export {
-  normalizeLineRange,
-  mergeLineRanges,
-  cloneLineRanges,
-  isLineNumberInRanges,
-  isLineRangeCoveredByRanges,
-  subtractLineRange,
-  lineCount,
-} from './markdown/line-range';
-export { type FenceRange, findCodeBlockRange, findMathBlockRange } from './markdown/fence-scanner';
+  planMove,
+  type MovePlan,
+  type MoveResult,
+  type PlanMoveInput,
+} from './move/move-plan';
+export { type TextChange, type DocEdit } from './transaction/block-transaction';
+export { moveTx } from './transaction/move-blocks';
+export { planDelete } from './transaction/delete-blocks';
