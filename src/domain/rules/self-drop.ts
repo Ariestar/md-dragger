@@ -6,7 +6,7 @@ import { resolveInsertionRule, type InsertionSlotContext } from './insertion-rul
 import type { RejectReason } from '../result';
 import { getLineMetaAt, type LineMap } from '../markdown/line-map';
 import { computeListIndentPlan } from '../mutation/list-mutation';
-import { dropContextLine, dropIndentWidth } from '../markdown/drop-locate';
+import { listSampleLine, dropIndentWidth } from '../markdown/drop-locate';
 import type { Doc, ListContext } from '../markdown/document-types';
 import type { ParsedLine } from '../parse/types';
 import { isListLine } from '../parse/parse-line';
@@ -47,7 +47,7 @@ export function selfDrop(params: {
     doc: Doc;
     source: BlockSelection;
     targetLineNumber: number;
-    parseLineWithQuote: (line: string) => ParsedLine;
+    parse: (line: string) => ParsedLine;
     getListContext: (doc: Doc, lineNumber: number) => ListContext;
     slotContext?: InsertionSlotContext;
     lineMap?: LineMap;
@@ -59,7 +59,7 @@ export function selfDrop(params: {
         doc,
         source,
         targetLineNumber,
-        parseLineWithQuote,
+        parse,
         getListContext,
         slotContext,
         lineMap,
@@ -119,7 +119,7 @@ export function selfDrop(params: {
     if (!sourceRangesAreListStructured({
         doc,
         source,
-        parseLine: parseLineWithQuote,
+        parseLine: parse,
         ranges: sourceRanges,
     })) {
         return {
@@ -139,7 +139,7 @@ export function selfDrop(params: {
         };
     }
     const sourceLineText = doc.line(sourceLineNumber).text;
-    const sourceParsed = parseLineWithQuote(sourceLineText);
+    const sourceParsed = parse(sourceLineText);
     if (!isListLine(sourceParsed)) {
         return {
             inSelfRange: true,
@@ -149,7 +149,7 @@ export function selfDrop(params: {
     }
 
     const listContextLineNumber = position
-        ? dropContextLine(position)
+        ? listSampleLine(position)
         : targetLineNumber;
 
     const indentPlan = computeListIndentPlan({
@@ -159,7 +159,7 @@ export function selfDrop(params: {
             indentRaw: sourceParsed.indent.raw,
         },
         targetLineNumber,
-        parseLineWithQuote,
+        parse,
         getListContext,
         targetIndentWidth,
         contextLineNumber: listContextLineNumber,

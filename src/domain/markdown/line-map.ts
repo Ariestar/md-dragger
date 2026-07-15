@@ -484,7 +484,7 @@ export function getLineMetaAt(lineMap: LineMap, lineNumber: number): LineMeta | 
     return lineMap.lineMeta[lineNumber] ?? null;
 }
 
-export function getNearestListLineAtOrBefore(lineMap: LineMap, lineNumber: number): number | null {
+export function listLineAtOrAbove(lineMap: LineMap, lineNumber: number): number | null {
     if (lineMap.doc.lines <= 0) return null;
     const clamped = Math.max(1, Math.min(lineMap.doc.lines, lineNumber));
     const meta = getLineMetaAt(lineMap, clamped);

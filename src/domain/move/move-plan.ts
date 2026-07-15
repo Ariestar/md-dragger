@@ -65,7 +65,7 @@ export function planMove(input: PlanMoveInput): MoveResult {
             doc: targetDoc,
             source: selectOne(captured.block),
             targetLineNumber: line,
-            parseLineWithQuote: parse,
+            parse: parse,
             getListContext: (doc, lineNumber) => getListContextNearLine(doc, lineNumber, parse),
             slotContext: slot.slotContext,
             lineMap,

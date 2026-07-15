@@ -1,7 +1,6 @@
 import type { Doc } from './document-types';
 import type { ParsedLine } from '../parse/types';
-import { formatIndent, parseLine } from '../parse/parse-line';
-import { isListLine } from '../parse/parse-line';
+import { formatIndent, parseLine, isListLine } from '../parse/parse-line';
 
 const indentUnitWidthCache = new WeakMap<object, number>();
 
@@ -10,16 +9,6 @@ export function normalizeTabSize(tabSize: number): number {
         throw new Error(`tabSize must be positive, got ${String(tabSize)}`);
     }
     return tabSize;
-}
-
-/** @deprecated use parseLine from domain/parse */
-export function parseLineWithQuote(line: string, tabSize: number): ParsedLine {
-    return parseLine(line, normalizeTabSize(tabSize));
-}
-
-/** @deprecated use formatIndent from domain/parse */
-export function buildIndentStringFromSample(sample: string, width: number, tabSize: number): string {
-    return formatIndent(width, normalizeTabSize(tabSize), sample);
 }
 
 export function getIndentUnitWidth(sample: string, tabSize: number): number {
@@ -67,3 +56,6 @@ export function getIndentUnitWidthForDoc(
     }
     return resolved;
 }
+
+// Re-export for internal markdown/* callers
+export { parseLine, formatIndent };

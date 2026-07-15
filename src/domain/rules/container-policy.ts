@@ -147,7 +147,7 @@ function isCalloutAfterBoundary(
         && prevBlock.lines.endLine === prevImmediateLine;
 }
 
-function resolveListContextAtInsertion(
+function listSlotAt(
     doc: Doc,
     targetLineNumber: number,
     detectBlockFn: DetectBlockFn | undefined,
@@ -193,7 +193,8 @@ function resolveListContextAtInsertion(
     return { type: BlockType.ListItem, block: best };
 }
 
-export function resolveSlotContextAtInsertion(
+/** Classify insert seam environment (list/quote/table/…). Private to canDropAt. */
+function slotAt(
     doc: Doc,
     targetLineNumber: number,
     detectBlockFn: DetectBlockFn | undefined,
@@ -245,7 +246,7 @@ export function resolveSlotContextAtInsertion(
         return 'quote_after';
     }
 
-    const listContext = resolveListContextAtInsertion(
+    const listContext = listSlotAt(
         doc,
         clampedTarget,
         activeDetectBlockFn,
@@ -269,7 +270,7 @@ export function canDropAt(
     options: { lineMap?: LineMap; tabSize: number }
 ): DropRuleContext {
     const lineMap = options.lineMap ?? getLineMap(doc, { tabSize: options.tabSize });
-    const slotContext = resolveSlotContextAtInsertion(
+    const slotContext = slotAt(
         doc,
         targetLineNumber,
         undefined,

@@ -3,7 +3,7 @@ import type { Doc } from './document-types';
 import { BlockType, type Block } from '../block/block-types';
 import { detectBlock } from '../block/block-detector';
 import type { DropPosition } from '../command/drop-position';
-import { getLineMap, getLineMetaAt, getNearestListLineAtOrBefore, type LineMap } from './line-map';
+import { getLineMap, getLineMetaAt, listLineAtOrAbove, type LineMap } from './line-map';
 import { computeListIntent } from './list-target';
 import { isLineNumberInRanges } from './line-range';
 import { selectionLineRanges } from '../selection/block-selection';
@@ -106,7 +106,7 @@ function listParentFromIntent(params: {
 
     const refLine = nestZone
         ? hitLine
-        : getNearestListLineAtOrBefore(lineMap, targetLine - 1);
+        : listLineAtOrAbove(lineMap, targetLine - 1);
     if (refLine === null || refLine < 1) return null;
 
     const offset = markerOffset(refLine);
@@ -168,7 +168,7 @@ export function dropIndentWidth(
 }
 
 /** Marker style sample line: parent head, else line above seam. */
-export function dropContextLine(position: DropPosition): number {
+export function listSampleLine(position: DropPosition): number {
     if (position.parent) return position.parent.lines.startLine;
     return Math.max(1, position.line - 1);
 }

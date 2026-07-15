@@ -6,11 +6,11 @@ import { selectionLineRanges, type BlockSelection } from '../selection/block-sel
 import type { LineRange } from '../markdown/line-range-types';
 import { lineCount } from '../markdown/line-range';
 import { parseLine } from '../parse/parse-line';
-import { buildInsertTextForDrop } from '../mutation/text-mutation-policy';
+import { insertTextForMove } from '../mutation/text-mutation-policy';
 import type { MovePlan } from '../move/move-plan';
 import type { DocEdit, TextChange } from './block-transaction';
 import { reject, type Reject } from '../result';
-import { planOrderedListRenumberChanges } from './list-renumber';
+import { renumberList } from './list-renumber';
 
 export type MoveSourceSegment = {
     lines: LineRange;
@@ -76,7 +76,7 @@ export function moveTx(params: {
     const tabSize = plan.tabSize;
     const parse = (text: string) => parseLine(text, tabSize);
 
-    const insertText = buildInsertTextForDrop({
+    const insertText = insertTextForMove({
         doc: targetDoc,
         sourceBlock: plan.captured.block,
         targetLineNumber: targetLine,
@@ -96,8 +96,8 @@ export function moveTx(params: {
         });
         if ('type' in target) return target;
         // Renumber ordered lists near insert and near deleted source (best-effort on pre-edit docs)
-        const targetRenumber = planOrderedListRenumberChanges(targetDoc, parse, targetLine);
-        const sourceRenumber = planOrderedListRenumberChanges(
+        const targetRenumber = renumberList(targetDoc, parse, targetLine);
+        const sourceRenumber = renumberList(
             sourceDoc,
             parse,
             plan.captured.payload.ranges[0]?.startLine ?? 1
@@ -127,8 +127,8 @@ export function moveTx(params: {
     // renumber only touches marker digits so order of application is: main edits then renumber by from desc).
     const nearSource = plan.captured.payload.ranges[0]?.startLine ?? targetLine;
     const renumber = [
-        ...planOrderedListRenumberChanges(targetDoc, parse, nearSource),
-        ...planOrderedListRenumberChanges(targetDoc, parse, targetLine),
+        ...renumberList(targetDoc, parse, nearSource),
+        ...renumberList(targetDoc, parse, targetLine),
     ];
     return [{
         doc: targetDoc,

@@ -1,15 +1,8 @@
 /**
- * @deprecated Prefer `import { parseLine } from '../parse'`.
- * Kept as thin re-exports for incremental call-site updates.
+ * Thin re-exports for call sites still under markdown/.
+ * Prefer: import { parseLine, formatIndent } from '../parse'
  */
-export {
-    parseLine as parseLineWithQuote,
-    formatIndent as buildIndentStringFromSample,
-    isListLine,
-    listMarkerText,
-    listMarkerType,
-} from '../parse/parse-line';
-export { parseLine, formatIndent } from '../parse/parse-line';
+export { parseLine, formatIndent, isListLine, listMarkerText, listMarkerType } from '../parse/parse-line';
 export type { ParsedLine, Indent, LineMarker } from '../parse/types';
 
 export function getIndentWidthFromIndentRaw(indentRaw: string, tabSize: number): number {

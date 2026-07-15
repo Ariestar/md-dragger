@@ -108,7 +108,7 @@ export function computeListIndentPlan(params: {
     doc: Doc;
     sourceBase: { indentWidth: number; indentRaw: string };
     targetLineNumber: number;
-    parseLineWithQuote: (line: string) => ParsedLine;
+    parse: (line: string) => ParsedLine;
     getListContext?: (doc: Doc, lineNumber: number) => ListContext;
     targetIndentWidth?: number;
     contextLineNumber?: number;
@@ -117,7 +117,7 @@ export function computeListIndentPlan(params: {
         doc,
         sourceBase,
         targetLineNumber,
-        parseLineWithQuote,
+        parse,
         getListContext: getListContextFn,
         targetIndentWidth: explicitTargetIndent,
         contextLineNumber,
@@ -126,7 +126,7 @@ export function computeListIndentPlan(params: {
     const listContextLineNumber = contextLineNumber ?? targetLineNumber;
     const targetContext = getListContextFn
         ? getListContextFn(doc, listContextLineNumber)
-        : getListContextNearLine(doc, listContextLineNumber, parseLineWithQuote);
+        : getListContextNearLine(doc, listContextLineNumber, parse);
     const indentSample = targetContext ? targetContext.indentRaw : sourceBase.indentRaw;
 
     const indentDelta = typeof explicitTargetIndent === 'number'
@@ -144,12 +144,12 @@ export function computeListIndentPlan(params: {
     };
 }
 
-export function adjustListToTargetContext(params: {
+export function relevelListText(params: {
     doc: Doc;
     sourceContent: string;
     targetLineNumber: number;
-    parseLineWithQuote: (line: string) => ParsedLine;
-    buildIndentStringFromSample: (sample: string, width: number) => string;
+    parse: (line: string) => ParsedLine;
+    formatIndentFn: (sample: string, width: number) => string;
     getListContext?: (doc: Doc, lineNumber: number) => ListContext;
     targetIndentWidth?: number;
     contextLineNumber?: number;
@@ -158,21 +158,21 @@ export function adjustListToTargetContext(params: {
         doc,
         sourceContent,
         targetLineNumber,
-        parseLineWithQuote,
-        buildIndentStringFromSample: buildIndent,
+        parse,
+        formatIndentFn: buildIndent,
         getListContext: getListContextFn,
         targetIndentWidth,
         contextLineNumber,
     } = params;
 
     const lines = sourceContent.split('\n');
-    const sourceBase = getSourceListBase(lines, parseLineWithQuote);
+    const sourceBase = getSourceListBase(lines, parse);
     if (!sourceBase) return sourceContent;
     const indentPlan = computeListIndentPlan({
         doc,
         sourceBase,
         targetLineNumber,
-        parseLineWithQuote,
+        parse,
         getListContext: getListContextFn,
         targetIndentWidth,
         contextLineNumber,
@@ -180,7 +180,7 @@ export function adjustListToTargetContext(params: {
 
     const quoteAdjustedLines = lines.map((line) => {
         if (line.trim().length === 0) return line;
-        const parsed = parseLineWithQuote(line);
+        const parsed = parse(line);
         const afterIndent = (() => {
             // rest after quote = indent.raw + marker + body (or body only)
             if (parsed.marker && 'text' in parsed.marker) {
@@ -214,12 +214,12 @@ export function adjustListToTargetContext(params: {
 export function buildInsertText(params: {
     sourceBlockType: BlockType;
     sourceContent: string;
-    adjustListToTargetContext: (sourceContent: string) => string;
+    relevelListText: (sourceContent: string) => string;
 }): string {
     const {
         sourceBlockType,
         sourceContent,
-        adjustListToTargetContext: adjustList,
+        relevelListText: adjustList,
     } = params;
 
     let text = sourceContent;

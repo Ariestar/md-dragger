@@ -3,7 +3,7 @@ import type { ParsedLine } from '../parse/types';
 import { isListLine, listMarkerText, listMarkerType } from '../parse/parse-line';
 import type { TextChange } from './block-transaction';
 
-export function planOrderedListRenumberChanges(
+export function renumberList(
     doc: Doc,
     parse: (line: string) => ParsedLine,
     lineNumber: number

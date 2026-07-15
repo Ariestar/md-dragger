@@ -15,13 +15,6 @@ export type DropResolution<TPreview = unknown> =
     | { type: 'platform_commit'; drop: DragDropSnapshot<TPreview> }
     | { type: 'cancel'; drop: DragDropSnapshot<TPreview>; reason?: DragCancelReason | null };
 
-export function createRejectedDropSnapshot(rejectReason: DragCancelReason): DragDropSnapshot {
-    return {
-        position: null,
-        rejectReason,
-    };
-}
-
 export function startDragDrop<TPreview>(params: {
     selection: BlockSelection;
     drop: DragDropSnapshot<TPreview>;

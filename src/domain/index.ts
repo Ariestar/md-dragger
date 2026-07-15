@@ -41,7 +41,7 @@ export type { DropPosition } from './command/drop-position';
 export {
   locateDropPosition,
   dropIndentWidth,
-  dropContextLine,
+  listSampleLine,
   type DropLocateInput,
 } from './markdown/drop-locate';
 

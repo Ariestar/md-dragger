@@ -1,6 +1,6 @@
 import type { Doc } from './document-types';
 import type { LineMap } from './line-map';
-import { getLineMetaAt, getNearestListLineAtOrBefore } from './line-map';
+import { getLineMetaAt, listLineAtOrAbove } from './line-map';
 
 // List drop intent — pure column-space logic.
 // Adapter measures pixels into `offset` + `indentUnit`;
@@ -99,7 +99,7 @@ export function listRoot(line: number, lineMap: LineMap): number | null {
 }
 
 function subtreeRoot(line: number, lineMap: LineMap): number | null {
-  const nearest = getNearestListLineAtOrBefore(lineMap, line);
+  const nearest = listLineAtOrAbove(lineMap, line);
   if (nearest === null) return null;
   let cursor = nearest;
   while (cursor > 0) {
