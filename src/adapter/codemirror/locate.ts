@@ -5,7 +5,6 @@ import {
   type BlockSelection,
   type DropPosition,
 } from '../../domain';
-import { parseLine, isListLine, listMarkerText } from '../../domain/parse';
 import {
   HANDLE_CLASS,
   resolveListIndentUnit,
@@ -34,9 +33,8 @@ export function lineAtPoint(view: EditorView, point: Point): number | null {
 }
 
 /**
- * Adapter: pointer → DropPosition.
- * Reports only hitLine, belowMid, pastMarker — domain maps that to parent.
- * pastMarker uses real marker-end screen coords (works for "1. " and "- ").
+ * Adapter → domain: only hitLine + belowMid (+ config).
+ * Nest vs sibling is decided in domain via detectBlock + line-map.
  */
 export function resolveDropPosition(
   view: EditorView,
@@ -57,7 +55,6 @@ export function resolveDropPosition(
     selection,
     hitLine,
     belowMid: inDoc ? belowMid(view, hitLine, point.y) : hitLine > doc.lines,
-    pastMarker: inDoc ? pastMarker(view, hitLine, point, tabSize) : false,
     tabSize,
     indentUnit,
   });
@@ -73,25 +70,4 @@ function belowMid(view: EditorView, line: number, y: number): boolean {
     if (!coords) return false;
     return y > coords.top + view.defaultLineHeight / 2;
   }
-}
-
-/** True if pointer x is past the list marker end on this line. */
-function pastMarker(
-  view: EditorView,
-  line: number,
-  point: Point,
-  tabSize: number,
-): boolean {
-  const docLine = view.state.doc.line(line);
-  const parsed = parseLine(docLine.text, tabSize);
-  if (!isListLine(parsed)) return false;
-
-  const markerEnd =
-    docLine.from
-    + parsed.quote.prefix.length
-    + parsed.indent.raw.length
-    + listMarkerText(parsed).length;
-  const coords = view.coordsAtPos(markerEnd, 1);
-  if (!coords) return false;
-  return point.x > coords.left;
 }

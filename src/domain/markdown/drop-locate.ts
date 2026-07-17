@@ -8,13 +8,13 @@ import { isLineNumberInRanges } from './line-range';
 import { selectionLineRanges } from '../selection/block-selection';
 
 /**
- * Drop locate — one simple model:
- *   y → which line (insert-before seam)
- *   x → on a list row: past marker = nest into that item;
- *                      otherwise = sibling of that item
- *   non-list row → top-level seam (parent null)
+ * Drop locate — y only for structure (reuse detectBlock + line-map):
+ *   hitLine + belowMid → insert-before seam line
+ *   list row under pointer → parent = that list item (nest, any depth)
+ *   seam between items   → parent = that item's list parent (sibling; null = root)
+ *   non-list             → parent = null
  *
- * No pixel columns, no dual nestZone/intent paths, no silent outdent-to-root snap.
+ * No pastMarker, no pixel columns, no dual intent paths.
  */
 
 export type DropLocateInput = {
@@ -22,14 +22,12 @@ export type DropLocateInput = {
     selection: BlockSelection;
     hitLine: number;
     belowMid: boolean;
-    /** Pointer x is past the list marker of hitLine (content / nest zone). */
-    pastMarker: boolean;
     tabSize: number;
     indentUnit: number;
 };
 
 export function locateDropPosition(input: DropLocateInput): DropPosition | null {
-    const { doc, selection, hitLine, belowMid, pastMarker, tabSize } = input;
+    const { doc, selection, hitLine, belowMid, tabSize } = input;
 
     if (hitLine < 1) {
         return { doc, line: 1, parent: null };
@@ -46,22 +44,28 @@ export function locateDropPosition(input: DropLocateInput): DropPosition | null 
         return { doc, line, parent: null };
     }
 
+    const item = listItemAt(doc, hitLine, tabSize);
+    if (!item) {
+        return { doc, line, parent: null };
+    }
+
     const sourceLines = selectionLineRanges(doc.lines, selection);
     const self = isLineNumberInRanges(hitLine, sourceLines);
 
-    // Nest into the list item under the pointer (any depth).
-    if (pastMarker && !self) {
-        const parent = listItemAt(doc, hitLine, tabSize);
-        if (parent) {
-            if (!belowMid) {
-                line = Math.max(1, Math.min(doc.lines + 1, hitLine + 1));
-            }
-            return { doc, line, parent };
-        }
+    // Pointer on a list row: nest into that item (any depth), unless self.
+    // Seam after the head (belowMid) still nests under the item when staying on its row zone;
+    // sibling is "between items" — modeled as: belowMid on item → insert after head under same parent
+    // of *next* structure is handled by line; for nest vs sibling we use:
+    //   upper half of item row → nest under item
+    //   lower half → sibling after item (parent = item's list parent)
+    // So belowMid selects sibling; !belowMid selects nest. Reuses existing belowMid, no pastMarker.
+    if (!belowMid && !self) {
+        // Nest into item: insert after head line
+        line = Math.max(1, Math.min(doc.lines + 1, hitLine + 1));
+        return { doc, line, parent: item };
     }
 
-    // Sibling of the list item under the pointer:
-    // parent = that item's list parent (null = top-level list).
+    // Sibling of this list item (or self-row lower half / self)
     const parentLine = lineMap.listParentLine[hitLine] ?? 0;
     if (parentLine <= 0) {
         return { doc, line, parent: null };
