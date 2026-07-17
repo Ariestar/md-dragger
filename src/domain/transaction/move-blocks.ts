@@ -112,29 +112,18 @@ export function moveTx(params: {
 function compileDocEdit(
     doc: Doc,
     geometry: TextChange[],
-    parse: (line: string) => ParsedLine,
+    _parse: (line: string) => ParsedLine,
 ): DocEdit {
     if (geometry.length === 0) {
         return { doc, changes: [] };
     }
 
-    const original = doc.sliceString(0, doc.length);
-    const afterGeometry = applyChanges(original, geometry);
-    const renumber = renumberAllOrderedLists(stringDoc(afterGeometry), parse);
-
-    // No ordered lists to fix — emit fine-grained geometry only.
-    if (renumber.length === 0) {
-        return { doc, changes: sortChanges(geometry) };
-    }
-
-    // Sequential composition: geometry then normalize on the result.
-    // Must NOT merge renumber offsets with geometry as simultaneous original-coords
-    // edits — that inserts new markers without removing old ones (double "1. 2.").
-    const finalText = applyChanges(afterGeometry, renumber);
-    return {
-        doc,
-        changes: [{ from: 0, to: original.length, insert: finalText }],
-    };
+    // TEMP: renumber disabled for diagnosis — geometry only.
+    // To re-enable: apply geometry → renumberAllOrderedLists on result → full replace.
+    void renumberAllOrderedLists;
+    void stringDoc;
+    void applyChanges;
+    return { doc, changes: sortChanges(geometry) };
 }
 
 function geometryInsert(doc: Doc, targetLine: number, insertText: string): TextChange[] {
