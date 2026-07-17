@@ -4,11 +4,7 @@ import { dropSeam } from 'md-dragger/adapter/codemirror';
 import type { DropPosition } from 'md-dragger/domain';
 import type { PipelineResult } from 'md-dragger/runtime';
 
-// Demo drop line: paint only.
-// Must match mdDragger config (ink-mde nest step = one unit).
-
-const LIST_INDENT_UNIT = 2;
-const TAB_SIZE = 4;
+// Demo drop line: paint only from DropPosition + real line DOM (dropSeam).
 
 let active:
   | { consume(outputs: PipelineResult['outputs']): void }
@@ -79,10 +75,7 @@ export function dropIndicator(): Extension {
         return;
       }
 
-      const seam = dropSeam(this.view, position, {
-        listIndentUnit: LIST_INDENT_UNIT,
-        tabSize: TAB_SIZE,
-      });
+      const seam = dropSeam(this.view, position);
       if (!seam) {
         this.el.hidden = true;
         return;

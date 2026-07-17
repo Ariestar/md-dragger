@@ -2,32 +2,31 @@ import { BlockType } from '../block/block-types';
 import type { BlockSelection } from '../selection/block-selection';
 import { selectionLineRanges } from '../selection/block-selection';
 import type { DropPosition } from '../command/drop-position';
-import { resolveInsertionRule, type InsertionSlotContext } from './insertion-rules';
-import type { RejectReason } from '../result';
+import type { InsertionSlotContext } from './insertion-rules';
+import { resolveInsertionRule } from './insertion-rules';
 import { getLineMetaAt, type LineMap } from '../markdown/line-map';
-import { computeListIndentPlan } from '../mutation/list-mutation';
-import { listSampleLine, dropIndentWidth } from '../markdown/drop-locate';
-import type { Doc, ListContext } from '../markdown/document-types';
+import { dropIndentWidth } from '../markdown/drop-locate';
+import type { Doc } from '../markdown/document-types';
 import type { ParsedLine } from '../parse/types';
 import { isListLine } from '../parse/parse-line';
 import type { LineRange } from '../markdown/line-range-types';
 import { isLineNumberInRanges } from '../markdown/line-range';
+import type { RejectReason } from '../result';
 
 export type SelfDropResult = {
     inSelfRange: boolean;
     allowInPlaceIndentChange: boolean;
     rejectReason?: RejectReason;
-    listContextLineNumber?: number;
     targetIndentWidth?: number;
 };
 
 function isListSelection(params: {
     doc: Doc;
     source: BlockSelection;
-    parseLine: (line: string) => ParsedLine;
+    parse: (line: string) => ParsedLine;
     ranges: LineRange[];
 }): boolean {
-    const { doc, source, parseLine, ranges } = params;
+    const { doc, source, parse, ranges } = params;
     if (source.blocks[0]?.type !== BlockType.ListItem) return false;
 
     for (const range of ranges) {
@@ -36,19 +35,22 @@ function isListSelection(params: {
             const text = doc.line(lineNumber).text;
             if (text.trim().length === 0) continue;
             foundContent = true;
-            if (!isListLine(parseLine(text))) return false;
+            if (!isListLine(parse(text))) return false;
         }
         if (!foundContent) return false;
     }
     return true;
 }
 
+/**
+ * Self-drop: dropping inside the source selection range.
+ * Indent intent comes only from DropPosition (dropIndentWidth) — no near-line scan.
+ */
 export function selfDrop(params: {
     doc: Doc;
     source: BlockSelection;
     targetLineNumber: number;
-    parse: (line: string) => ParsedLine;
-    getListContext: (doc: Doc, lineNumber: number) => ListContext;
+    parseLineWithQuote: (line: string) => ParsedLine;
     slotContext?: InsertionSlotContext;
     lineMap?: LineMap;
     position?: DropPosition;
@@ -59,14 +61,14 @@ export function selfDrop(params: {
         doc,
         source,
         targetLineNumber,
-        parse,
-        getListContext,
+        parseLineWithQuote: parse,
         slotContext,
         lineMap,
         position,
         tabSize,
         indentUnit,
     } = params;
+
     const sourceBlock = source.blocks[0];
     if (!sourceBlock) {
         return { inSelfRange: false, allowInPlaceIndentChange: false, rejectReason: 'self_range_blocked' };
@@ -101,14 +103,7 @@ export function selfDrop(params: {
         return { inSelfRange: false, allowInPlaceIndentChange: false };
     }
 
-    const targetIndentWidth = position
-        ? dropIndentWidth(position, { tabSize, indentUnit })
-        : undefined;
-    const hasListIntent = targetIndentWidth !== undefined && (
-        position?.parent?.type === BlockType.ListItem
-        || sourceBlock.type === BlockType.ListItem
-    );
-    if (!hasListIntent || targetIndentWidth === undefined) {
+    if (!position) {
         return {
             inSelfRange: true,
             allowInPlaceIndentChange: false,
@@ -116,12 +111,18 @@ export function selfDrop(params: {
         };
     }
 
-    if (!isListSelection({
-        doc,
-        source,
-        parseLine: parse,
-        ranges: sourceRanges,
-    })) {
+    const targetIndentWidth = dropIndentWidth(position, { tabSize, indentUnit });
+    const hasListIntent = position.parent?.type === BlockType.ListItem
+        || sourceBlock.type === BlockType.ListItem;
+    if (!hasListIntent) {
+        return {
+            inSelfRange: true,
+            allowInPlaceIndentChange: false,
+            rejectReason: 'self_range_blocked',
+        };
+    }
+
+    if (!isListSelection({ doc, source, parse, ranges: sourceRanges })) {
         return {
             inSelfRange: true,
             allowInPlaceIndentChange: false,
@@ -138,8 +139,7 @@ export function selfDrop(params: {
             rejectReason: 'self_range_blocked',
         };
     }
-    const sourceLineText = doc.line(sourceLineNumber).text;
-    const sourceParsed = parse(sourceLineText);
+    const sourceParsed = parse(doc.line(sourceLineNumber).text);
     if (!isListLine(sourceParsed)) {
         return {
             inSelfRange: true,
@@ -148,43 +148,29 @@ export function selfDrop(params: {
         };
     }
 
-    const listContextLineNumber = position
-        ? listSampleLine(position)
-        : targetLineNumber;
-
-    const indentPlan = computeListIndentPlan({
-        doc,
-        sourceBase: {
-            indentWidth: sourceParsed.indent.width,
-            indentRaw: sourceParsed.indent.raw,
-        },
-        targetLineNumber,
-        parse,
-        getListContext,
-        targetIndentWidth,
-        contextLineNumber: listContextLineNumber,
-    });
-
+    const sourceIndent = sourceParsed.indent.width;
     const isAfterSelf = targetLineNumber === effectiveSourceRange.endLine + 1;
     const isSameLine = targetLineNumber === effectiveSourceRange.startLine;
-    const isSelfContext = indentPlan.listContextLineNumber === sourceLineNumber;
-    const isContextInsideSource = indentPlan.listContextLineNumber >= sourceLineNumber
-        && indentPlan.listContextLineNumber <= effectiveSourceRange.endLine;
 
-    if (isAfterSelf && isContextInsideSource && indentPlan.targetIndentWidth > sourceParsed.indent.width) {
+    // Nesting under self as child while dropping after self range = embedding
+    if (
+        isAfterSelf
+        && position.parent
+        && isLineNumberInRanges(position.parent.lines.startLine, sourceRanges)
+        && targetIndentWidth > sourceIndent
+    ) {
         return {
             inSelfRange: true,
             allowInPlaceIndentChange: false,
             rejectReason: 'self_embedding',
-            listContextLineNumber: indentPlan.listContextLineNumber,
-            targetIndentWidth: indentPlan.targetIndentWidth,
+            targetIndentWidth,
         };
     }
 
     const allowInPlaceIndentChange = (
-        (isAfterSelf && indentPlan.targetIndentWidth !== sourceParsed.indent.width)
-        || (isSameLine && indentPlan.targetIndentWidth !== sourceParsed.indent.width && !isSelfContext)
-        || (!isAfterSelf && indentPlan.targetIndentWidth < sourceParsed.indent.width)
+        (isAfterSelf && targetIndentWidth !== sourceIndent)
+        || (isSameLine && targetIndentWidth !== sourceIndent)
+        || (!isAfterSelf && targetIndentWidth < sourceIndent)
     );
 
     if (!allowInPlaceIndentChange) {
@@ -192,15 +178,13 @@ export function selfDrop(params: {
             inSelfRange: true,
             allowInPlaceIndentChange: false,
             rejectReason: 'self_range_blocked',
-            listContextLineNumber: indentPlan.listContextLineNumber,
-            targetIndentWidth: indentPlan.targetIndentWidth,
+            targetIndentWidth,
         };
     }
 
     return {
         inSelfRange: true,
         allowInPlaceIndentChange: true,
-        listContextLineNumber: indentPlan.listContextLineNumber,
-        targetIndentWidth: indentPlan.targetIndentWidth,
+        targetIndentWidth,
     };
 }

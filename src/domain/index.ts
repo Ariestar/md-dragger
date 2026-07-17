@@ -1,6 +1,6 @@
 // md-dragger/domain — pure calculation layer.
 // Public surface: host-facing types and plan/edit/parse APIs only.
-// Internals (line-map, list-target, guards, capture details) stay unexported.
+// Internals (line-map, guards, capture details) stay unexported.
 
 // --- document ---
 export type { Doc, DocLine, MarkerType } from './markdown/document-types';
@@ -41,7 +41,6 @@ export type { DropPosition } from './command/drop-position';
 export {
   locateDropPosition,
   dropIndentWidth,
-  listSampleLine,
   type DropLocateInput,
 } from './markdown/drop-locate';
 

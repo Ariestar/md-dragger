@@ -97,8 +97,3 @@ export function dropIndentWidth(
     return 0;
 }
 
-/** Marker style sample line: parent head, else line above seam. */
-export function listSampleLine(position: DropPosition): number {
-    if (position.parent) return position.parent.lines.startLine;
-    return Math.max(1, position.line - 1);
-}

@@ -10,9 +10,7 @@ import { lineBand } from 'md-dragger/adapter/codemirror';
 import type { BlockSelection } from 'md-dragger/domain';
 import type { PipelineResult } from 'md-dragger/runtime';
 
-// Demo selection paint. Geometry is adapter-owned (line box − own indent).
-
-const TAB_SIZE = 4;
+// Demo selection paint: line boxes from Drop/Block structure via lineBand (real DOM).
 
 type SelectionHost = {
   consume(outputs: PipelineResult['outputs']): void;
@@ -26,7 +24,7 @@ export function selectionHighlightOnChange(result: PipelineResult): void {
 
 export function selectionHighlight(): Extension {
   return ViewPlugin.fromClass(class implements SelectionHost {
-    decorations: DecrationsSet = Decrations.none;
+    decorations: DecorationSet = Decrations.none;
     private selection: BlockSelection | null = null;
 
     constructor(private readonly view: EditorView) {
@@ -67,15 +65,15 @@ function selectionFromOutputs(outputs: PipelineResult['outputs']): BlockSelectio
 }
 
 function buildDecorations(view: EditorView, selection: BlockSelection | null): DecorationSet {
-  if (!selection || selection.ranges.length === 0) return Decrations.none;
+  if (!selection || selection.blocks.length === 0) return Decrations.none;
 
   const builder: ReturnType<ReturnType<typeof selectedLineAt>['range']>[] = [];
-  for (const range of selection.ranges) {
-    const fromLine = Math.max(1, range.startLine + 1);
-    const toLine = Math.min(view.state.doc.lines, range.endLine + 1);
+  for (const block of selection.blocks) {
+    const fromLine = Math.max(1, block.lines.startLine);
+    const toLine = Math.min(view.state.doc.lines, block.lines.endLine);
     for (let line = fromLine; line <= toLine; line += 1) {
       const docLine = view.state.doc.line(line);
-      const inset = lineBand(view, line, TAB_SIZE)?.inset ?? 0;
+      const inset = lineBand(view, line)?.inset ?? 0;
       builder.push(selectedLineAt(inset).range(docLine.from));
     }
   }

@@ -6,7 +6,6 @@ import { canDropAt } from '../rules/container-policy';
 import { selfDrop } from '../rules/self-drop';
 import type { BlockSelection } from '../selection/block-selection';
 import { selectOne } from '../selection/block-selection';
-import { getListContextNearLine } from '../mutation/list-mutation';
 import { captureMoveSource, type CapturedMoveSource } from '../transaction/move-blocks';
 import type { RejectReason } from '../result';
 
@@ -65,8 +64,7 @@ export function planMove(input: PlanMoveInput): MoveResult {
             doc: targetDoc,
             source: selectOne(captured.block),
             targetLineNumber: line,
-            parse: parse,
-            getListContext: (doc, lineNumber) => getListContextNearLine(doc, lineNumber, parse),
+            parseLineWithQuote: parse,
             slotContext: slot.slotContext,
             lineMap,
             position,
