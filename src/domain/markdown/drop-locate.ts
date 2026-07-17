@@ -3,18 +3,18 @@ import type { Doc } from './document-types';
 import { BlockType, type Block } from '../block/block-types';
 import { detectBlock } from '../block/block-detector';
 import type { DropPosition } from '../command/drop-position';
-import { getLineMap, getLineMetaAt, listLineAtOrAbove, type LineMap } from './line-map';
-import { computeListIntent } from './list-target';
+import { getLineMap, getLineMetaAt } from './line-map';
 import { isLineNumberInRanges } from './line-range';
 import { selectionLineRanges } from '../selection/block-selection';
 
 /**
- * Drop locate — one path only:
- *   y → insert-before line (seam)
- *   x → absolute indent column → snap to structure → parent
+ * Drop locate — one simple model:
+ *   y → which line (insert-before seam)
+ *   x → on a list row: past marker = nest into that item;
+ *                      otherwise = sibling of that item
+ *   non-list row → top-level seam (parent null)
  *
- * No separate nestZone branch. pastMarker only raises the floor column
- * (at least one nest step under the hit list item).
+ * No pixel columns, no dual nestZone/intent paths, no silent outdent-to-root snap.
  */
 
 export type DropLocateInput = {
@@ -22,33 +22,15 @@ export type DropLocateInput = {
     selection: BlockSelection;
     hitLine: number;
     belowMid: boolean;
-    /**
-     * True when the pointer is past the list marker of hitLine (content zone).
-     * Used only to floor column ≥ hitIndent + indentUnit — not a second resolve path.
-     */
+    /** Pointer x is past the list marker of hitLine (content / nest zone). */
     pastMarker: boolean;
-    /**
-     * Absolute indent-width column of the pointer on a list line
-     * (same units as parseLine indent.width / LineMeta.indentWidth).
-     */
-    pointerColumn: (listLine: number) => number | null;
     tabSize: number;
     indentUnit: number;
 };
 
 export function locateDropPosition(input: DropLocateInput): DropPosition | null {
-    const {
-        doc,
-        selection,
-        hitLine,
-        belowMid,
-        pastMarker,
-        pointerColumn,
-        tabSize,
-        indentUnit,
-    } = input;
+    const { doc, selection, hitLine, belowMid, pastMarker, tabSize } = input;
 
-    // --- y: seam line ---
     if (hitLine < 1) {
         return { doc, line: 1, parent: null };
     }
@@ -59,83 +41,36 @@ export function locateDropPosition(input: DropLocateInput): DropPosition | null 
     const lineMap = getLineMap(doc, { tabSize });
     let line = Math.max(1, Math.min(doc.lines + 1, belowMid ? hitLine + 1 : hitLine));
 
-    // --- list structure from x (column), single path ---
     const hitMeta = getLineMetaAt(lineMap, hitLine);
-    const hitIsList = !!hitMeta?.isList;
-
-    // Reference list line for indent structure
-    let refLine = hitIsList
-        ? hitLine
-        : listLineAtOrAbove(lineMap, line - 1);
-
-    if (refLine === null || refLine < 1) {
-        // No list nearby: plain top-level seam
+    if (!hitMeta?.isList) {
         return { doc, line, parent: null };
     }
 
-    let column = pointerColumn(refLine);
-    if (column === null) {
-        // Cannot measure x → no silent root. Fail locate.
-        return null;
-    }
-
-    // Content zone on a list row: floor column to at least child-of-hit
-    if (hitIsList && pastMarker && indentUnit > 0) {
-        const hitIndent = hitMeta?.indentWidth ?? 0;
-        const childFloor = hitIndent + indentUnit;
-        if (column < childFloor) column = childFloor;
-        refLine = hitLine;
-    }
-
     const sourceLines = selectionLineRanges(doc.lines, selection);
-    const self = isLineNumberInRanges(refLine, sourceLines);
+    const self = isLineNumberInRanges(hitLine, sourceLines);
 
-    const intent = computeListIntent({
-        doc,
-        lineMap,
-        refLine,
-        column,
-        indentUnit,
-        allowChild: !self,
-    });
-    if (!intent) {
-        return null;
-    }
-
-    // When nesting under hit content, prefer insert-after-head seam
-    if (intent.mode === 'child' && hitIsList && pastMarker && !belowMid) {
-        line = Math.max(1, Math.min(doc.lines + 1, hitLine + 1));
-    }
-
-    return positionFromIntent(doc, lineMap, intent, line, tabSize);
-}
-
-function positionFromIntent(
-    doc: Doc,
-    lineMap: LineMap,
-    intent: { mode: string; contextLineNumber: number; targetIndentWidth: number },
-    targetLine: number,
-    tabSize: number,
-): DropPosition {
-    if (intent.mode === 'child') {
-        const parent = parentBlockAtListLine(doc, intent.contextLineNumber, tabSize);
-        if (!parent) {
-            // Structure says child but block missing — no silent root
-            return { doc, line: targetLine, parent: null };
+    // Nest into the list item under the pointer (any depth).
+    if (pastMarker && !self) {
+        const parent = listItemAt(doc, hitLine, tabSize);
+        if (parent) {
+            if (!belowMid) {
+                line = Math.max(1, Math.min(doc.lines + 1, hitLine + 1));
+            }
+            return { doc, line, parent };
         }
-        return { doc, line: targetLine, parent };
     }
 
-    // sibling | outdent: parent = list parent of the context list line
-    const parentLine = lineMap.listParentLine[intent.contextLineNumber] ?? 0;
+    // Sibling of the list item under the pointer:
+    // parent = that item's list parent (null = top-level list).
+    const parentLine = lineMap.listParentLine[hitLine] ?? 0;
     if (parentLine <= 0) {
-        return { doc, line: targetLine, parent: null };
+        return { doc, line, parent: null };
     }
-    const parent = parentBlockAtListLine(doc, parentLine, tabSize);
-    return { doc, line: targetLine, parent };
+    const parent = listItemAt(doc, parentLine, tabSize);
+    return { doc, line, parent };
 }
 
-function parentBlockAtListLine(doc: Doc, listHeadLine: number, tabSize: number): Block | null {
+function listItemAt(doc: Doc, listHeadLine: number, tabSize: number): Block | null {
     const block = detectBlock(doc, listHeadLine, { tabSize });
     if (!block || block.type !== BlockType.ListItem) return null;
     return block;

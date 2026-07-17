@@ -34,23 +34,9 @@ export function lineAtPoint(view: EditorView, point: Point): number | null {
 }
 
 /**
- * Columns (indent-width units) from the start of `text` up to `end` code units.
- * Same rules as parseLine indent.width (tabs expand to tabSize).
- */
-function columnsOf(text: string, end: number, tabSize: number): number {
-  const slice = text.slice(0, Math.max(0, Math.min(text.length, end)));
-  let width = 0;
-  for (const ch of slice) {
-    width += ch === '\t' ? tabSize : 1;
-  }
-  return width;
-}
-
-/**
- * Adapter: pointer → domain DropPosition.
- * Only reports document geometry:
- *   hitLine, belowMid, pastMarker, pointerColumn (absolute indent columns).
- * No nest-step pixels, no char-width heuristics.
+ * Adapter: pointer → DropPosition.
+ * Reports only hitLine, belowMid, pastMarker — domain maps that to parent.
+ * pastMarker uses real marker-end screen coords (works for "1. " and "- ").
  */
 export function resolveDropPosition(
   view: EditorView,
@@ -72,7 +58,6 @@ export function resolveDropPosition(
     hitLine,
     belowMid: inDoc ? belowMid(view, hitLine, point.y) : hitLine > doc.lines,
     pastMarker: inDoc ? pastMarker(view, hitLine, point, tabSize) : false,
-    pointerColumn: (listLine) => pointerColumn(view, listLine, point, tabSize),
     tabSize,
     indentUnit,
   });
@@ -109,40 +94,4 @@ function pastMarker(
   const coords = view.coordsAtPos(markerEnd, 1);
   if (!coords) return false;
   return point.x > coords.left;
-}
-
-/**
- * Absolute indent-width column of the pointer on a list line.
- * posAtCoords → offset in line → column count (tab-aware).
- */
-function pointerColumn(
-  view: EditorView,
-  listLine: number,
-  point: Point,
-  tabSize: number,
-): number | null {
-  const docLine = view.state.doc.line(listLine);
-  const parsed = parseLine(docLine.text, tabSize);
-  if (!isListLine(parsed)) return null;
-
-  // Prefer y on the list line center so posAtCoords hits this line, not a neighbor.
-  const yMid = (() => {
-    try {
-      const block = view.lineBlockAt(docLine.from);
-      return view.documentTop + (block.top + block.bottom) / 2;
-    } catch {
-      return point.y;
-    }
-  })();
-
-  const pos = view.posAtCoords({ x: point.x, y: yMid }, false);
-  if (typeof pos !== 'number') {
-    // Left of text (gutter / indent widget): treat as column 0 on this line
-    const lineLeft = view.coordsAtPos(docLine.from, 1)?.left;
-    if (lineLeft !== undefined && point.x < lineLeft) return 0;
-    return null;
-  }
-
-  const clamped = Math.max(docLine.from, Math.min(docLine.to, pos));
-  return columnsOf(docLine.text, clamped - docLine.from, tabSize);
 }
