@@ -12,6 +12,7 @@ import {
   type MdDraggerCodeMirrorOptions,
 } from './config';
 import { nativePointerEvent } from './pointer-input';
+import { viewAtPoint } from './views';
 
 /** Source line when press is on a drag handle; otherwise null. */
 export function sourceLineFromInput(view: EditorView, input: PressInput): number | null {
@@ -33,7 +34,7 @@ export function lineAtPoint(view: EditorView, point: Point): number | null {
 }
 
 /**
- * Adapter → domain: only hitLine + belowMid (+ config).
+ * Drop position on a specific view (one doc).
  * Nest vs sibling is decided in domain via detectBlock + line-map.
  */
 export function resolveDropPosition(
@@ -58,6 +59,27 @@ export function resolveDropPosition(
     tabSize,
     indentUnit,
   });
+}
+
+/**
+ * Default multi-doc drop locate: hit-test live views, then resolve on the target.
+ * Single-pane is the same path with one registered view.
+ */
+export function resolveDropPositionAtPoint(
+  point: Point,
+  selection: BlockSelection,
+  options: MdDraggerCodeMirrorOptions,
+): DropPosition | null {
+  const target = viewAtPoint(point.x, point.y);
+  if (!target) return null;
+  return resolveDropPosition(target, point, selection, options);
+}
+
+/** Line under point on whatever live view owns that screen position. */
+export function lineAtScreenPoint(point: Point): number | null {
+  const target = viewAtPoint(point.x, point.y);
+  if (!target) return null;
+  return lineAtPoint(target, point);
 }
 
 function belowMid(view: EditorView, line: number, y: number): boolean {

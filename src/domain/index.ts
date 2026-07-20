@@ -8,7 +8,12 @@ export type { LineRange } from './markdown/line-range-types';
 
 // --- block identity ---
 export { BlockType, type Block, isContainerType } from './block/block-types';
-export { detectBlock, detectBlockType } from './block/block-detector';
+export {
+  detectBlock,
+  detectBlockType,
+  getHeadingLevel,
+  getHeadingSectionRange,
+} from './block/block-detector';
 export { type ConvertTo, planConvert } from './block/block-type-conversion';
 
 // --- selection ---
@@ -48,7 +53,7 @@ export {
 export type { BlockCommand } from './command/block-command';
 
 // --- plan / edit ---
-export { type Reject, type RejectReason, reject } from './result';
+export { type Reject, type RejectReason, reject, isReject } from './result';
 export {
   planMove,
   type MovePlan,

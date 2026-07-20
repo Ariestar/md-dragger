@@ -7,18 +7,30 @@ import {
   type MdDraggerCodeMirrorOptions,
 } from './config';
 import { pointerInput } from './pointer-input';
-import { sourceLineFromInput, resolveDropPosition, lineAtPoint } from './locate';
+import {
+  sourceLineFromInput,
+  resolveDropPosition,
+  resolveDropPositionAtPoint,
+  lineAtPoint,
+  lineAtScreenPoint,
+} from './locate';
 import { applyCommit } from './commit';
 import { dragTransitionEffect } from './drag-events';
+import { registerView } from './views';
 
 // Constructs the headless runtime, wires it to CodeMirror's pointer input,
-// document, hit-test and commit, and rebroadcasts every pipeline transition
+// multi-doc hit-test and commit, and rebroadcasts every pipeline transition
 // as a dragTransitionEffect so visual plugins can derive from it.
+//
+// Every mounted instance registers its EditorView. Cross-pane drop/commit is
+// the default path: locate uses viewAtPoint, commit routes by edit.doc.
 export function dragRuntime(options: MdDraggerCodeMirrorOptions): Extension {
   return ViewPlugin.fromClass(class {
     private readonly runtime: DraggerRuntime;
+    private readonly unregisterView: () => void;
 
     constructor(private readonly view: EditorView) {
+      this.unregisterView = registerView(view);
       const locateOverride = resolveLocateOptions(options.locate, view);
       this.runtime = new DraggerRuntime({
         input: pointerInput(view),
@@ -31,13 +43,14 @@ export function dragRuntime(options: MdDraggerCodeMirrorOptions): Extension {
             ?? sourceLineFromInput(view, input),
           resolveDropPosition: (point, context) =>
             locateOverride?.resolveDropPosition?.(point, context)
-            ?? resolveDropPosition(view, point, context.selection, options),
+            ?? resolveDropPositionAtPoint(point, context.selection, options),
           lineFromPoint: (point) =>
             locateOverride?.lineFromPoint?.(point)
+            ?? lineAtScreenPoint(point)
             ?? lineAtPoint(view, point),
         },
         commit: {
-          apply: (commit) => applyCommit(view, commit),
+          apply: (edits) => applyCommit(edits),
         },
         onChange: (output) => {
           view.dispatch({ effects: dragTransitionEffect.of(output) });
@@ -51,6 +64,7 @@ export function dragRuntime(options: MdDraggerCodeMirrorOptions): Extension {
 
     destroy(): void {
       this.runtime.destroy();
+      this.unregisterView();
     }
   });
 }

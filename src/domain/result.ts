@@ -27,3 +27,9 @@ export type Reject = {
 export function reject(reason: RejectReason): Reject {
     return { type: 'reject', reason };
 }
+
+export function isReject(value: unknown): value is Reject {
+    return typeof value === 'object'
+        && value !== null
+        && (value as { type?: unknown }).type === 'reject';
+}

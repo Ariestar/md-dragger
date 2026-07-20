@@ -8,8 +8,17 @@ import { dragRuntime } from './runtime-plugin';
 // Adapter parts only: they wire CodeMirror into the headless runtime's five
 // IO axes. Rendering (drop indicator, selection highlight, …) is the
 // consumer's job — derive it from dragTransitionEffect / onChange.
+//
+// Multi-doc is default: every dragRuntime mount registers its view; commit
+// routes by DocEdit.doc; drop locate hit-tests live views.
 export { pointerInput } from './pointer-input';
-export { sourceLineFromInput, resolveDropPosition, lineAtPoint } from './locate';
+export {
+  sourceLineFromInput,
+  resolveDropPosition,
+  resolveDropPositionAtPoint,
+  lineAtPoint,
+  lineAtScreenPoint,
+} from './locate';
 export { lineBand, dropSeam } from './geometry';
 export type { LineBand, DropSeam } from './geometry';
 export { dragHandleGutter } from './handle-gutter';
@@ -33,6 +42,7 @@ export {
 const editorAttributes = EditorView.editorAttributes.of({ class: EDITOR_CLASS });
 
 // Thin composition. Host must pass config.tabSize + config.listIndentUnit.
+// Mount on each editor; cross-pane works when multiple instances are live.
 export function mdDragger(options: MdDraggerCodeMirrorOptions): Extension[] {
   return [
     editorAttributes,
