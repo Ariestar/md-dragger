@@ -1,4 +1,5 @@
 import type { Extension } from '@codemirror/state';
+import { EditorState } from '@codemirror/state';
 import { EditorView, ViewPlugin } from '@codemirror/view';
 import { DraggerRuntime } from '../../runtime';
 import {
@@ -9,7 +10,6 @@ import {
 import { pointerInput } from './pointer-input';
 import {
   sourceLineFromInput,
-  resolveDropPosition,
   resolveDropPositionAtPoint,
   lineAtPoint,
   lineAtScreenPoint,
@@ -24,6 +24,7 @@ import { registerView } from './views';
 //
 // Every mounted instance registers its EditorView. Cross-pane drop/commit is
 // the default path: locate uses viewAtPoint, commit routes by edit.doc.
+// tabSize is always read live from EditorState.tabSize.
 export function dragRuntime(options: MdDraggerCodeMirrorOptions): Extension {
   return ViewPlugin.fromClass(class {
     private readonly runtime: DraggerRuntime;
@@ -56,7 +57,13 @@ export function dragRuntime(options: MdDraggerCodeMirrorOptions): Extension {
           view.dispatch({ effects: dragTransitionEffect.of(output) });
           options.onChange?.(output);
         },
-        config: resolveConfig(options.config),
+        config: () => {
+          const raw = typeof options.config === 'function' ? options.config() : options.config;
+          return resolveConfig({
+            tabSize: view.state.facet(EditorState.tabSize),
+            listIndentUnit: raw.listIndentUnit,
+          });
+        },
         ux: options.ux,
       });
       this.runtime.mount();

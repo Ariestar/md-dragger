@@ -1,3 +1,4 @@
+import { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import type { Point, PressInput } from '../../runtime';
 import {
@@ -8,7 +9,6 @@ import {
 import {
   HANDLE_CLASS,
   resolveListIndentUnit,
-  resolveTabSize,
   type MdDraggerCodeMirrorOptions,
 } from './config';
 import { nativePointerEvent } from './pointer-input';
@@ -35,7 +35,7 @@ export function lineAtPoint(view: EditorView, point: Point): number | null {
 
 /**
  * Drop position on a specific view (one doc).
- * Nest vs sibling is decided in domain via detectBlock + line-map.
+ * tabSize comes from the view's EditorState.tabSize.
  */
 export function resolveDropPosition(
   view: EditorView,
@@ -47,7 +47,7 @@ export function resolveDropPosition(
   if (hitLine === null) return null;
 
   const doc = view.state.doc;
-  const tabSize = resolveTabSize(options);
+  const tabSize = view.state.facet(EditorState.tabSize);
   const indentUnit = resolveListIndentUnit(options);
   const inDoc = hitLine >= 1 && hitLine <= doc.lines;
 
@@ -63,7 +63,6 @@ export function resolveDropPosition(
 
 /**
  * Default multi-doc drop locate: hit-test live views, then resolve on the target.
- * Single-pane is the same path with one registered view.
  */
 export function resolveDropPositionAtPoint(
   point: Point,
