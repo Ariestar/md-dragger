@@ -14,11 +14,22 @@ import {
 import { nativePointerEvent } from './pointer-input';
 import { viewAtPoint } from './views';
 
-/** Source line when press is on a drag handle; otherwise null. */
+/**
+ * Source line for a press on a drag handle.
+ * Prefer data-block-start (handle identity) over Y geometry — tall widgets
+ * (callout/table) place the handle on the block-start gutter row while the
+ * pointer Y can sit over later visual rows.
+ */
 export function sourceLineFromInput(view: EditorView, input: PressInput): number | null {
   const event = nativePointerEvent(input.native);
   const target = event?.target instanceof Element ? event.target : null;
-  if (!target?.closest(`.${HANDLE_CLASS}`)) return null;
+  const handle = target?.closest(`.${HANDLE_CLASS}`) ?? null;
+  if (!handle || !view.dom.contains(handle)) return null;
+
+  const fromAttr = Number(handle.getAttribute('data-block-start'));
+  if (Number.isInteger(fromAttr) && fromAttr >= 1 && fromAttr <= view.state.doc.lines) {
+    return fromAttr;
+  }
   return lineAtPoint(view, input.point);
 }
 
