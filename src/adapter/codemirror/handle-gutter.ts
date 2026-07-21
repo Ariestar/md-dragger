@@ -3,7 +3,6 @@ import { EditorView, GutterMarker, type BlockInfo as ViewBlockInfo, gutter } fro
 import { detectBlock } from '../../domain';
 import { HANDLE_CLASS, resolveTabSize, type MdDraggerCodeMirrorOptions, type RenderHandle } from './config';
 
-// Default handle: a plain ⋮⋮ button.
 function createDefaultHandle(): HTMLElement {
   const handle = document.createElement('button');
   handle.type = 'button';
@@ -13,33 +12,49 @@ function createDefaultHandle(): HTMLElement {
   return handle;
 }
 
-// A GutterMarker whose toDOM delegates to a consumer-provided factory (or the
-// default). One marker instance is reused for every draggable line.
-function createHandleMarker(render: RenderHandle | undefined): GutterMarker {
-  return new (class extends GutterMarker {
-    toDOM(): HTMLElement {
-      return render?.() ?? createDefaultHandle();
-    }
-  })();
+/** One marker per block-start line so handles keep line identity across updates. */
+class BlockHandleMarker extends GutterMarker {
+  constructor(
+    readonly startLine: number,
+    private readonly render?: RenderHandle,
+  ) {
+    super();
+  }
+
+  eq(other: GutterMarker): boolean {
+    return other instanceof BlockHandleMarker
+      && other.startLine === this.startLine
+      && other.render === this.render;
+  }
+
+  toDOM(): HTMLElement {
+    const handle = this.render?.() ?? createDefaultHandle();
+    handle.setAttribute('data-block-start', String(this.startLine));
+    return handle;
+  }
 }
 
 export function dragHandleGutter(options: MdDraggerCodeMirrorOptions): Extension {
-  const marker = createHandleMarker(options.handle?.render);
   return gutter({
     class: 'md-dragger-gutter',
     lineMarker: (view, line) => {
-      if (!isDraggableBlockStart(view, line, options)) return null;
-      return marker;
+      const startLine = blockStartLine(view, line, options);
+      if (startLine === null) return null;
+      return new BlockHandleMarker(startLine, options.handle?.render);
     },
   });
 }
 
-function isDraggableBlockStart(view: EditorView, line: ViewBlockInfo, options: MdDraggerCodeMirrorOptions): boolean {
+function blockStartLine(
+  view: EditorView,
+  line: ViewBlockInfo,
+  options: MdDraggerCodeMirrorOptions,
+): number | null {
   const docLine = view.state.doc.lineAt(line.from);
-  if (docLine.from !== line.from) return false;
+  if (docLine.from !== line.from) return null;
   const block = detectBlock(view.state.doc, docLine.number, {
     tabSize: resolveTabSize(options),
   });
-  return block?.lines.startLine === docLine.number;
+  if (!block || block.lines.startLine !== docLine.number) return null;
+  return block.lines.startLine;
 }
-

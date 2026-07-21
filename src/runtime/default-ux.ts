@@ -377,9 +377,9 @@ export class DefaultUx implements Ux {
         session.rangeActive = true;
         session.selectedDragReady = false;
         session.ready = false;
-        // Cancel hold if still holding — multi-select is persistent selection, not a hold.
+        // Leave hold without a short-press cancel: host menus listen for press_cancelled only.
         if (this.runtime().state.type === 'holding' || this.runtime().state.type === 'ready_to_drag') {
-            this.runtime().cancel('press_cancelled', session.pointer.type);
+            this.runtime().cancel('session_interrupted', session.pointer.type);
         }
         this.runtime().setSelection(selectOne(session.anchorBlock));
         session.selection = selectOne(session.anchorBlock);
