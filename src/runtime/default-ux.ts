@@ -1,7 +1,9 @@
 import { detectBlock } from '../domain/block/block-detector';
 import type { Block } from '../domain/block/block-types';
 import {
+    addBlocks,
     hasBlock,
+    removeBlocks,
     selectBlocks,
     selectOne,
     type BlockSelection,
@@ -55,10 +57,13 @@ export type UxDeps = {
 //   press → hold
 //   short release before multiSelectMs → press_cancelled (host menu)
 //   hold to dragArmMs → ready (move past threshold → drag)
-//   hold to multiSelectMs → selecting; pointer move range-selects in UX
-//   long-press on already-selected block → group drag
+//   hold to multiSelectMs → selecting; pointer move range-selects
 //
-// Range multi-select (anchor → current block span) lives here, not in domain.
+// while selecting:
+//   press unselected → toggle-sweep (XOR base∩range as pointer moves)
+//   press selected → long-press (max(dragArmMs, multiSelectMs)) then move = group drag
+//   press selected short release → toggle that block off
+//   press selected + move before long-press → toggle-sweep instead
 export class DefaultUx implements Ux {
     private readonly disposables: Disposable[] = [];
     private pressSession: PressSession | null = null;
@@ -119,29 +124,54 @@ export class DefaultUx implements Ux {
         const selectedDragCandidate = inSelecting && existing !== null && hasBlock(existing, block);
 
         if (inSelecting) {
-            const armMs = cfg.dragArmMs;
-            const timer = selectedDragCandidate && armMs > 0
-                ? this.deps.scheduler.setTimer(
-                    () => this.markSelectedDragReady(sessionId, input.pointer),
-                    armMs,
-                )
-                : null;
+            // Group-drag arm is independent of desktop dragArmMs=0.
+            const groupArmMs = Math.max(cfg.dragArmMs, cfg.multiSelectMs);
+            if (selectedDragCandidate) {
+                const timer = groupArmMs > 0
+                    ? this.deps.scheduler.setTimer(
+                        () => this.markSelectedDragReady(sessionId, input.pointer),
+                        groupArmMs,
+                    )
+                    : null;
+                this.pressSession = {
+                    sessionId,
+                    pointer: input.pointer,
+                    start: input.point,
+                    anchorBlock: block,
+                    selection: existing!,
+                    baseSelection: existing!,
+                    ready: false,
+                    rangeActive: false,
+                    toggleSweep: false,
+                    selectedDragCandidate: true,
+                    selectedDragReady: groupArmMs <= 0,
+                    armTimer: timer,
+                    multiSelectTimer: null,
+                    releaseCapture: input.releaseCapture,
+                    dragActive: false,
+                };
+                return;
+            }
+
+            // Unselected block while selecting → toggle-sweep from here.
             this.pressSession = {
                 sessionId,
                 pointer: input.pointer,
                 start: input.point,
                 anchorBlock: block,
                 selection: existing ?? selection,
+                baseSelection: existing ?? { blocks: [] },
                 ready: false,
                 rangeActive: false,
-                selectedDragCandidate,
-                selectedDragReady: selectedDragCandidate && armMs <= 0,
-                armTimer: timer,
+                toggleSweep: false,
+                selectedDragCandidate: false,
+                selectedDragReady: false,
+                armTimer: null,
                 multiSelectTimer: null,
                 releaseCapture: input.releaseCapture,
                 dragActive: false,
             };
-            if (!selectedDragCandidate) this.startRangeSweep(this.pressSession);
+            this.startToggleSweep(this.pressSession);
             return;
         }
 
@@ -168,8 +198,10 @@ export class DefaultUx implements Ux {
                 start: input.point,
                 anchorBlock: block,
                 selection,
+                baseSelection: { blocks: [] },
                 ready: armMs <= 0,
                 rangeActive: false,
+                toggleSweep: false,
                 selectedDragCandidate: false,
                 selectedDragReady: false,
                 armTimer,
@@ -195,8 +227,10 @@ export class DefaultUx implements Ux {
             start: input.point,
             anchorBlock: block,
             selection,
+            baseSelection: { blocks: [] },
             ready: armMs <= 0,
             rangeActive: false,
+            toggleSweep: false,
             selectedDragCandidate: false,
             selectedDragReady: false,
             armTimer,
@@ -235,9 +269,15 @@ export class DefaultUx implements Ux {
             return;
         }
 
-        if (session.selectedDragCandidate && !session.rangeActive) {
+        // Moved before group-drag long-press matured → toggle-sweep instead.
+        if (session.selectedDragCandidate && !session.toggleSweep && !session.rangeActive) {
             if (distance < cfg.dragStartMoveThresholdPx) return;
-            this.startRangeSweep(session);
+            this.startToggleSweep(session);
+        }
+
+        if (session.toggleSweep) {
+            this.updateToggleSelection(session, input.point);
+            return;
         }
 
         if (session.rangeActive) {
@@ -245,21 +285,19 @@ export class DefaultUx implements Ux {
             return;
         }
 
-        if (!session.rangeActive) {
-            if (!session.ready) {
-                if (distance > cfg.dragCancelMoveThresholdPx) {
-                    this.cancelPress('press_cancelled', input.pointer.type);
-                }
-                return;
+        if (!session.ready) {
+            if (distance > cfg.dragCancelMoveThresholdPx) {
+                this.cancelPress('press_cancelled', input.pointer.type);
             }
-            if (distance < cfg.dragStartMoveThresholdPx) return;
-            input.claim?.();
-            this.clearTimers();
-            if (this.runtime().state.type === 'holding') {
-                this.runtime().markHoldReady(session.sessionId, input.pointer.type);
-            }
-            this.startDrag(session, session.selection, input.point, input.pointer);
+            return;
         }
+        if (distance < cfg.dragStartMoveThresholdPx) return;
+        input.claim?.();
+        this.clearTimers();
+        if (this.runtime().state.type === 'holding') {
+            this.runtime().markHoldReady(session.sessionId, input.pointer.type);
+        }
+        this.startDrag(session, session.selection, input.point, input.pointer);
     }
 
     private handleRelease(input: ReleaseInput): void {
@@ -277,16 +315,22 @@ export class DefaultUx implements Ux {
         }
         if (!(session && samePointer(session.pointer, input.pointer))) return;
 
-        if (session.rangeActive) {
-            // Leave selecting state with last setSelection result.
+        if (session.rangeActive || session.toggleSweep) {
+            this.clearPress();
+            return;
+        }
+
+        // Short press on an already-selected block → toggle it off.
+        if (session.selectedDragCandidate && !session.selectedDragReady) {
+            const next = removeBlocks(session.baseSelection, [session.anchorBlock]);
+            if (next.blocks.length === 0) this.runtime().clearSelection();
+            else this.runtime().setSelection(next);
             this.clearPress();
             return;
         }
 
         if (session.selectedDragCandidate) {
-            if (!session.selectedDragReady) {
-                this.startRangeSweep(session);
-            }
+            // Long-pressed but never moved — keep selection.
             this.clearPress();
             return;
         }
@@ -372,7 +416,7 @@ export class DefaultUx implements Ux {
     }
 
     private startRangeSweep(session: PressSession): void {
-        if (session.rangeActive) return;
+        if (session.rangeActive || session.toggleSweep) return;
         this.clearTimers();
         session.rangeActive = true;
         session.selectedDragReady = false;
@@ -383,6 +427,33 @@ export class DefaultUx implements Ux {
         }
         this.runtime().setSelection(selectOne(session.anchorBlock));
         session.selection = selectOne(session.anchorBlock);
+        session.baseSelection = { blocks: [] };
+    }
+
+    private startToggleSweep(session: PressSession): void {
+        if (session.toggleSweep || session.rangeActive) return;
+        this.clearTimers();
+        session.toggleSweep = true;
+        session.selectedDragCandidate = false;
+        session.selectedDragReady = false;
+        session.ready = false;
+        this.applyToggleRange(session, session.anchorBlock);
+    }
+
+    private updateToggleSelection(session: PressSession, point: Point): void {
+        const lineNumber = this.deps.lineFromPoint(point);
+        if (lineNumber === null) return;
+        const focus = detectBlock(this.deps.getDoc(), lineNumber, { tabSize: this.deps.tabSize });
+        if (!focus) return;
+        this.applyToggleRange(session, focus);
+    }
+
+    private applyToggleRange(session: PressSession, focus: Block): void {
+        const range = blocksBetween(this.deps.getDoc(), this.deps.tabSize, session.anchorBlock, focus);
+        const next = xorSelection(session.baseSelection, range);
+        session.selection = next;
+        if (next.blocks.length === 0) this.runtime().clearSelection();
+        else this.runtime().setSelection(next);
     }
 
     private updateRangeSelection(session: PressSession, point: Point): void {
@@ -439,8 +510,11 @@ type PressSession = {
     start: Point;
     anchorBlock: Block;
     selection: BlockSelection;
+    /** Selection at press start; toggle-sweep XORs the pointer range against this. */
+    baseSelection: BlockSelection;
     ready: boolean;
     rangeActive: boolean;
+    toggleSweep: boolean;
     selectedDragCandidate: boolean;
     selectedDragReady: boolean;
     armTimer: TimerToken | null;
@@ -473,4 +547,15 @@ function blocksBetween(doc: Doc, tabSize: number, anchor: Block, focus: Block): 
         cursor = block.lines.endLine + 1;
     }
     return blocks;
+}
+
+/** Symmetric difference by block line-span identity. */
+function xorSelection(base: BlockSelection, range: Block[]): BlockSelection {
+    let next = base;
+    for (const block of range) {
+        next = hasBlock(next, block)
+            ? removeBlocks(next, [block])
+            : addBlocks(next, [block]);
+    }
+    return next;
 }
