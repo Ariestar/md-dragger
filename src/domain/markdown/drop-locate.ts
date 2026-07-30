@@ -3,75 +3,100 @@ import type { Doc } from './document-types';
 import { BlockType, type Block } from '../block/block-types';
 import { detectBlock } from '../block/block-detector';
 import type { DropPosition } from '../command/drop-position';
-import { getLineMap, getLineMetaAt } from './line-map';
+import { getLineMap, getLineMetaAt, listLineAtOrAbove } from './line-map';
 import { isLineNumberInRanges } from './line-range';
 import { selectionLineRanges } from '../selection/block-selection';
 
 /**
- * Drop locate — y only for structure (reuse detectBlock + line-map):
- *   hitLine + belowMid → insert-before seam line
- *   list row under pointer → parent = that list item (nest, any depth)
- *   seam between items   → parent = that item's list parent (sibling; null = root)
- *   non-list             → parent = null
- *
- * No pastMarker, no pixel columns, no dual intent paths.
+ * Drop locate — two independent axes, no cross-null:
+ *   y → insert-before seam line (always)
+ *   x → target indent → parent at that seam (clamp to structure, never kills y)
  */
-
 export type DropLocateInput = {
     doc: Doc;
     selection: BlockSelection;
     hitLine: number;
     belowMid: boolean;
+    sourceIndentWidth: number;
+    targetIndentWidth: number;
     tabSize: number;
     indentUnit: number;
 };
 
-export function locateDropPosition(input: DropLocateInput): DropPosition | null {
-    const { doc, selection, hitLine, belowMid, tabSize } = input;
+export function locateDropPosition(input: DropLocateInput): DropPosition {
+    const {
+        doc,
+        selection,
+        hitLine,
+        belowMid,
+        sourceIndentWidth,
+        targetIndentWidth,
+        tabSize,
+        indentUnit,
+    } = input;
 
-    if (hitLine < 1) {
-        return { doc, line: 1, parent: null };
+    const line = Math.max(
+        1,
+        Math.min(doc.lines + 1, belowMid ? hitLine + 1 : hitLine),
+    );
+
+    // x cannot veto y: root seam is always valid.
+    if (indentUnit <= 0 || line <= 1) {
+        return { doc, line, parent: null };
     }
-    if (hitLine > doc.lines) {
-        return { doc, line: doc.lines + 1, parent: null };
+
+    // One drop may nest freely, but can outdent by at most one level.
+    const want = Math.max(
+        quantizeIndent(targetIndentWidth, indentUnit),
+        quantizeIndent(sourceIndentWidth, indentUnit) - indentUnit,
+    );
+    if (want <= 0) {
+        return { doc, line, parent: null };
     }
 
     const lineMap = getLineMap(doc, { tabSize });
-    let line = Math.max(1, Math.min(doc.lines + 1, belowMid ? hitLine + 1 : hitLine));
-
-    const hitMeta = getLineMetaAt(lineMap, hitLine);
-    if (!hitMeta?.isList) {
+    const above = line - 1;
+    let parentLine = listLineAtOrAbove(lineMap, above);
+    if (
+        parentLine === null
+        || lineMap.listSubtreeEndLine[parentLine] < above
+    ) {
         return { doc, line, parent: null };
     }
 
-    const item = listItemAt(doc, hitLine, tabSize);
-    if (!item) {
-        return { doc, line, parent: null };
-    }
-
+    // Child indent `want` needs parent indent `want - unit`.
+    // Walk up until indent ≤ desired; skip self-selection.
+    const desiredParentIndent = want - indentUnit;
     const sourceLines = selectionLineRanges(doc.lines, selection);
-    const self = isLineNumberInRanges(hitLine, sourceLines);
 
-    // Pointer on a list row: nest into that item (any depth), unless self.
-    // Seam after the head (belowMid) still nests under the item when staying on its row zone;
-    // sibling is "between items" — modeled as: belowMid on item → insert after head under same parent
-    // of *next* structure is handled by line; for nest vs sibling we use:
-    //   upper half of item row → nest under item
-    //   lower half → sibling after item (parent = item's list parent)
-    // So belowMid selects sibling; !belowMid selects nest. Reuses existing belowMid, no pastMarker.
-    if (!belowMid && !self) {
-        // Nest into item: insert after head line
-        line = Math.max(1, Math.min(doc.lines + 1, hitLine + 1));
-        return { doc, line, parent: item };
+    while (parentLine > 0) {
+        const meta = getLineMetaAt(lineMap, parentLine);
+        if (!meta?.isList) {
+            parentLine = 0;
+            break;
+        }
+        if (isLineNumberInRanges(parentLine, sourceLines)) {
+            parentLine = lineMap.listParentLine[parentLine] ?? 0;
+            continue;
+        }
+        if (meta.indentWidth > desiredParentIndent) {
+            parentLine = lineMap.listParentLine[parentLine] ?? 0;
+            continue;
+        }
+        break;
     }
 
-    // Sibling of this list item (or self-row lower half / self)
-    const parentLine = lineMap.listParentLine[hitLine] ?? 0;
     if (parentLine <= 0) {
         return { doc, line, parent: null };
     }
+
     const parent = listItemAt(doc, parentLine, tabSize);
     return { doc, line, parent };
+}
+
+function quantizeIndent(width: number, indentUnit: number): number {
+    if (!(width > 0) || !(indentUnit > 0)) return 0;
+    return Math.max(0, Math.round(width / indentUnit) * indentUnit);
 }
 
 function listItemAt(doc: Doc, listHeadLine: number, tabSize: number): Block | null {
@@ -96,4 +121,3 @@ export function dropIndentWidth(
     }
     return 0;
 }
-
