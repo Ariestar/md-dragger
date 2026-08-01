@@ -50,7 +50,7 @@ export function pointerInput(view: EditorView): InputSource {
             return () => window.removeEventListener('pointerup', listener, true);
         },
         onCancel: (handler) => {
-            const listener = (event: PointerEvent) => {
+            const pointerCancelListener = (event: PointerEvent) => {
                 handler({
                     pointer: { id: event.pointerId, type: event.pointerType },
                     reason: 'pointer_cancelled',
@@ -58,8 +58,26 @@ export function pointerInput(view: EditorView): InputSource {
                     releaseCapture: () => releasePointerCapture(view.dom, event.pointerId),
                 });
             };
-            window.addEventListener('pointercancel', listener, { capture: true, passive: false });
-            return () => window.removeEventListener('pointercancel', listener, true);
+            window.addEventListener('pointercancel', pointerCancelListener, { capture: true, passive: false });
+            // A drag can lose its pointer stream entirely — window blur or tab
+            // hidden — with no pointerup/pointercancel ever firing, leaving the
+            // drag state and the host's grabbing cursor stuck. Force-cancel then.
+            const cancelFallback = () =>
+                handler({
+                    pointer: { id: -1, type: null },
+                    reason: 'pointer_cancelled',
+                });
+            const onWindowBlur = () => cancelFallback();
+            const onVisibilityChange = () => {
+                if (document.visibilityState === 'hidden') cancelFallback();
+            };
+            window.addEventListener('blur', onWindowBlur);
+            document.addEventListener('visibilitychange', onVisibilityChange);
+            return () => {
+                window.removeEventListener('pointercancel', pointerCancelListener, true);
+                window.removeEventListener('blur', onWindowBlur);
+                document.removeEventListener('visibilitychange', onVisibilityChange);
+            };
         },
         onEscape: (handler) => {
             const listener = (event: KeyboardEvent) => {

@@ -293,15 +293,6 @@ export class DefaultUx implements Ux {
             this.pressSession = null;
             return;
         }
-        // Gesture still active but pressSession is gone or the pointer no longer
-        // matches (e.g. a second press cleared the session mid-drag). Force-close
-        // the gesture — otherwise the runtime keeps an active drag and the host's
-        // grabbing cursor stays stuck forever.
-        if (this.runtime().isGestureActive()) {
-            this.runtime().cancel('pointer_cancelled', input.pointer.type);
-            this.pressSession = null;
-            return;
-        }
         if (!(session && samePointer(session.pointer, input.pointer))) return;
 
         if (session.rangeActive || session.toggleSweep) {
