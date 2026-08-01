@@ -31,12 +31,35 @@ describe('domain/rules/container-policy', () => {
         expect(drop(doc, paragraph, 5).decision.allowDrop).toBe(true);
     });
 
+    it('rejects seams inside a fenced math block', () => {
+        const doc = '$$\nx^2 + 1\n$$\nafter';
+        expect(drop(doc, paragraph, 2).decision).toEqual({ allowDrop: false, rejectReason: 'inside_math_block' });
+        expect(drop(doc, paragraph, 3).decision).toEqual({ allowDrop: false, rejectReason: 'inside_math_block' });
+        expect(drop(doc, listItem, 2).decision).toEqual({ allowDrop: false, rejectReason: 'inside_math_block' });
+    });
+
+    it('allows seams at and around math block fences, and inside single-line or unclosed math', () => {
+        const doc = '$$\nx^2 + 1\n$$\nafter';
+        expect(drop(doc, paragraph, 1).decision.allowDrop).toBe(true);
+        expect(drop(doc, paragraph, 4).decision.allowDrop).toBe(true);
+        expect(drop(doc, paragraph, 5).decision.allowDrop).toBe(true);
+
+        // Single-line math ($$ x $$) has no interior seam.
+        expect(drop('$$ x^2 $$', paragraph, 1).decision.allowDrop).toBe(true);
+        // Unclosed math fence keeps historical behavior: only the fence line counts.
+        expect(drop('$$\nunclosed', paragraph, 1).decision.allowDrop).toBe(true);
+        expect(drop('$$\nunclosed', paragraph, 2).decision.allowDrop).toBe(true);
+    });
+
     it('classifies fence interior before quote/list content inside it', () => {
         const quoteLike = '```\n> fake quote\n```';
         expect(drop(quoteLike, paragraph, 2).decision.rejectReason).toBe('inside_code_block');
 
         const listLike = '```\n- fake item\n```';
         expect(drop(listLike, paragraph, 2).decision.rejectReason).toBe('inside_code_block');
+
+        const mathListLike = '$$\n- fake item\n$$';
+        expect(drop(mathListLike, paragraph, 2).decision.rejectReason).toBe('inside_math_block');
     });
 
     it('rejects inside a quote run unless the source is a blockquote', () => {

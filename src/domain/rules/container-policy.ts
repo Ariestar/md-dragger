@@ -200,14 +200,15 @@ function slotAt(
     const activeDetectBlockFn = detectBlockFn ?? defaultDetectBlock;
 
     // Fence interior seams (between the opening fence and the closing fence)
-    // belong to the code block itself — no block may be inserted there.
+    // belong to the fenced block itself — no block may be inserted there.
     const targetBlock = activeDetectBlockFn(doc, clampedTarget, detectOptions);
     if (
-        targetBlock?.type === BlockType.CodeBlock &&
+        targetBlock &&
+        (targetBlock.type === BlockType.CodeBlock || targetBlock.type === BlockType.MathBlock) &&
         clampedTarget > targetBlock.lines.startLine &&
         clampedTarget <= targetBlock.lines.endLine
     ) {
-        return 'inside_code_block';
+        return targetBlock.type === BlockType.MathBlock ? 'inside_math_block' : 'inside_code_block';
     }
 
     if (isCalloutAfterBoundary(doc, prevImmediateLine, nextIsQuoteLike, activeDetectBlockFn, detectOptions)) {

@@ -11,6 +11,7 @@ export type RejectReason =
     | 'container_policy'
     | 'inside_code_block'
     | 'inside_list'
+    | 'inside_math_block'
     | 'inside_quote_run'
     | 'quote_boundary'
     | 'callout_after'
