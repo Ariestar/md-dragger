@@ -1,11 +1,11 @@
-export type { Indent, LineMarker, ParsedLine, ParsedBlock } from './types';
+export { parseBlock } from './parse-block';
 export {
-    parseLine,
     formatIndent,
+    indentUnit,
+    indentUnitFromDoc,
     isListLine,
     listMarkerText,
     listMarkerType,
-    indentUnit,
-    indentUnitFromDoc,
+    parseLine,
 } from './parse-line';
-export { parseBlock } from './parse-block';
+export type { Indent, LineMarker, ParsedBlock, ParsedLine } from './types';

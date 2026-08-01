@@ -1,9 +1,9 @@
 import type { Doc } from '../markdown/document-types';
-import { BlockType, type Block } from './block-types';
-import { getLineMap, getLineMetaAt, peekCachedLineMap } from '../markdown/line-map';
-import { isTableLine } from './block-guards';
 import { findCodeBlockRange, findMathBlockRange } from '../markdown/fence-scanner';
-import { parseLine, isListLine } from '../parse/parse-line';
+import { getLineMap, getLineMetaAt, peekCachedLineMap } from '../markdown/line-map';
+import { isListLine, parseLine } from '../parse/parse-line';
+import { isTableLine } from './block-guards';
+import { type Block, BlockType } from './block-types';
 
 /**
  * Detect block type from one line of text (uses parseLine — single classification path).
@@ -28,7 +28,11 @@ export function getHeadingLevel(lineText: string, tabSize: number): number | nul
     return p.marker?.kind === 'heading' ? p.marker.level : null;
 }
 
-export function getHeadingSectionRange(doc: Doc, lineNumber: number, tabSize: number): { startLine: number; endLine: number } | null {
+export function getHeadingSectionRange(
+    doc: Doc,
+    lineNumber: number,
+    tabSize: number,
+): { startLine: number; endLine: number } | null {
     if (lineNumber < 1 || lineNumber > doc.lines) return null;
     const currentHeadingLevel = getHeadingLevel(doc.line(lineNumber).text, tabSize);
     if (!currentHeadingLevel) return null;
@@ -59,7 +63,12 @@ function isInsideCalloutContainer(doc: Doc, lineNumber: number, depth: number, t
     return false;
 }
 
-function getBlockquoteContainerRange(doc: Doc, lineNumber: number, depth: number, tabSize: number): { startLine: number; endLine: number } {
+function getBlockquoteContainerRange(
+    doc: Doc,
+    lineNumber: number,
+    depth: number,
+    tabSize: number,
+): { startLine: number; endLine: number } {
     let startLine = lineNumber;
     for (let i = lineNumber - 1; i >= 1; i--) {
         const d = parseLine(doc.line(i).text, tabSize).quote.depth;
@@ -76,7 +85,11 @@ function getBlockquoteContainerRange(doc: Doc, lineNumber: number, depth: number
     return { startLine, endLine };
 }
 
-function getListItemSubtreeRange(doc: Doc, lineNumber: number, tabSize: number): { startLine: number; endLine: number } {
+function getListItemSubtreeRange(
+    doc: Doc,
+    lineNumber: number,
+    tabSize: number,
+): { startLine: number; endLine: number } {
     const current = parseLine(doc.line(lineNumber).text, tabSize);
     const currentIndent = current.indent.width;
     let endLine = lineNumber;
@@ -87,9 +100,9 @@ function getListItemSubtreeRange(doc: Doc, lineNumber: number, tabSize: number):
         if (nextText.trim().length === 0) {
             const lookahead = findNextNonEmptyLine(doc, i + 1, tabSize);
             if (
-                !lookahead
-                || (lookahead.isList && lookahead.indentWidth <= currentIndent)
-                || lookahead.indentWidth <= currentIndent
+                !lookahead ||
+                (lookahead.isList && lookahead.indentWidth <= currentIndent) ||
+                lookahead.indentWidth <= currentIndent
             ) {
                 break;
             }
@@ -116,7 +129,7 @@ function getListItemSubtreeRange(doc: Doc, lineNumber: number, tabSize: number):
 function findNextNonEmptyLine(
     doc: Doc,
     fromLine: number,
-    tabSize: number
+    tabSize: number,
 ): { isList: boolean; indentWidth: number } | null {
     for (let i = fromLine; i <= doc.lines; i++) {
         const text = doc.line(i).text;
@@ -161,13 +174,11 @@ let detectBlockPerfRecorder: ((key: DetectPerfKey, durationMs: number) => void) 
 
 function recordDetectPerf(key: DetectPerfKey, durationMs: number): void {
     if (!detectBlockPerfRecorder) return;
-    if (!isFinite(durationMs) || durationMs < 0) return;
+    if (!Number.isFinite(durationMs) || durationMs < 0) return;
     detectBlockPerfRecorder(key, durationMs);
 }
 
-export function setDetectPerf(
-    recorder: ((key: DetectPerfKey, durationMs: number) => void) | null
-): void {
+export function setDetectPerf(recorder: ((key: DetectPerfKey, durationMs: number) => void) | null): void {
     detectBlockPerfRecorder = recorder;
 }
 
@@ -216,9 +227,7 @@ function detectBlockUncached(doc: Doc, lineNumber: number, tabSize: number): Blo
         }
 
         const lineMeta = lineMap ? getLineMetaAt(lineMap, lineNumber) : null;
-        const subtreeEndLine = lineMeta?.isList && lineMap
-            ? lineMap.listSubtreeEndLine[lineNumber]
-            : 0;
+        const subtreeEndLine = lineMeta?.isList && lineMap ? lineMap.listSubtreeEndLine[lineNumber] : 0;
 
         if (subtreeEndLine >= lineNumber) {
             endLine = subtreeEndLine;
@@ -229,8 +238,8 @@ function detectBlockUncached(doc: Doc, lineNumber: number, tabSize: number): Blo
 
     if (blockType === BlockType.Blockquote || blockType === BlockType.Callout) {
         const quoteDepth = parseLine(lineText, tabSize).quote.depth;
-        const inCallout = blockType === BlockType.Callout
-            || isInsideCalloutContainer(doc, lineNumber, quoteDepth, tabSize);
+        const inCallout =
+            blockType === BlockType.Callout || isInsideCalloutContainer(doc, lineNumber, quoteDepth, tabSize);
         if (inCallout) {
             const range = getBlockquoteContainerRange(doc, lineNumber, quoteDepth, tabSize);
             startLine = range.startLine;
@@ -261,16 +270,10 @@ function detectBlockUncached(doc: Doc, lineNumber: number, tabSize: number): Blo
 }
 
 function nowMs(): number {
-    return typeof performance !== 'undefined' && typeof performance.now === 'function'
-        ? performance.now()
-        : Date.now();
+    return typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now();
 }
 
-export function detectBlock(
-    doc: Doc,
-    lineNumber: number,
-    options: { tabSize: number }
-): Block | null {
+export function detectBlock(doc: Doc, lineNumber: number, options: { tabSize: number }): Block | null {
     const tabSize = options.tabSize;
 
     let cacheByTabSize = blockDetectionCache.get(doc);

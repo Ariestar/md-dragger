@@ -1,9 +1,9 @@
-import type { PipelineEvent } from './pipeline-event';
-import type { PipelineOutput } from './pipeline-output';
 import type { BlockSelection } from '../domain/selection/block-selection';
-import { drop, dragOver, startDragDrop } from './pipeline-drop';
-import { clearSelection, cancelPipeline, destroyPipeline, exitForUnavailableGuard } from './pipeline-exit';
+import { dragOver, drop, startDragDrop } from './pipeline-drop';
+import type { PipelineEvent } from './pipeline-event';
+import { cancelPipeline, clearSelection, destroyPipeline, exitForUnavailableGuard } from './pipeline-exit';
 import { withGuardDeps } from './pipeline-guard';
+import type { PipelineOutput } from './pipeline-output';
 import { IDLE_PIPELINE_STATE, type PipelineState } from './pipeline-state';
 
 export type PipelineTransitionResult<TPreview = unknown> = {
@@ -13,7 +13,7 @@ export type PipelineTransitionResult<TPreview = unknown> = {
 
 export function transitionPipelineState<TPreview>(
     state: PipelineState,
-    event: PipelineEvent<TPreview>
+    event: PipelineEvent<TPreview>,
 ): PipelineTransitionResult<TPreview> {
     switch (event.type) {
         case 'hold_start':
@@ -40,8 +40,8 @@ export function transitionPipelineState<TPreview>(
 }
 
 function onHoldStart<TPreview>(
-    state: PipelineState,
-    event: Extract<PipelineEvent<TPreview>, { type: 'hold_start' }>
+    _state: PipelineState,
+    event: Extract<PipelineEvent<TPreview>, { type: 'hold_start' }>,
 ): PipelineTransitionResult<TPreview> {
     const next: PipelineState = {
         type: 'holding',
@@ -53,15 +53,13 @@ function onHoldStart<TPreview>(
     };
     return {
         state: next,
-        outputs: [
-            { type: 'state_changed', state: next },
-        ],
+        outputs: [{ type: 'state_changed', state: next }],
     };
 }
 
 function onHoldReady<TPreview>(
     state: PipelineState,
-    event: Extract<PipelineEvent<TPreview>, { type: 'hold_ready' }>
+    event: Extract<PipelineEvent<TPreview>, { type: 'hold_ready' }>,
 ): PipelineTransitionResult<TPreview> {
     if (state.type !== 'holding' || state.hold.sessionId !== event.sessionId) {
         return { state, outputs: [] };
@@ -72,15 +70,13 @@ function onHoldReady<TPreview>(
     };
     return {
         state: next,
-        outputs: [
-            { type: 'state_changed', state: next },
-        ],
+        outputs: [{ type: 'state_changed', state: next }],
     };
 }
 
 function onSelectionSet<TPreview>(
     _state: PipelineState,
-    event: Extract<PipelineEvent<TPreview>, { type: 'selection_set' }>
+    event: Extract<PipelineEvent<TPreview>, { type: 'selection_set' }>,
 ): PipelineTransitionResult<TPreview> {
     const next: PipelineState = {
         type: 'selecting',
@@ -111,7 +107,7 @@ function dragSourceFrom(state: PipelineState): BlockSelection | null {
 
 function onDragStart<TPreview>(
     state: PipelineState,
-    event: Extract<PipelineEvent<TPreview>, { type: 'drag_start' }>
+    event: Extract<PipelineEvent<TPreview>, { type: 'drag_start' }>,
 ): PipelineTransitionResult<TPreview> {
     if (state.type !== 'ready_to_drag' && state.type !== 'selecting') {
         return { state, outputs: [] };
@@ -124,9 +120,7 @@ function onDragStart<TPreview>(
     if (sessionId !== event.sessionId) {
         return { state, outputs: [] };
     }
-    const guardDeps = state.type === 'ready_to_drag'
-        ? state.hold.guardDeps
-        : state.selection.guardDeps;
+    const guardDeps = state.type === 'ready_to_drag' ? state.hold.guardDeps : state.selection.guardDeps;
     const next: PipelineState = {
         type: 'dragging',
         drag: {
@@ -151,7 +145,7 @@ function onDragStart<TPreview>(
 
 function onDragOver<TPreview>(
     state: PipelineState,
-    event: Extract<PipelineEvent<TPreview>, { type: 'drag_over' }>
+    event: Extract<PipelineEvent<TPreview>, { type: 'drag_over' }>,
 ): PipelineTransitionResult<TPreview> {
     if (state.type !== 'dragging' || state.drag.sessionId !== event.sessionId) {
         return { state, outputs: [] };
@@ -178,7 +172,7 @@ function onDragOver<TPreview>(
 
 function onDrop<TPreview>(
     state: PipelineState,
-    event: Extract<PipelineEvent<TPreview>, { type: 'drop' }>
+    event: Extract<PipelineEvent<TPreview>, { type: 'drop' }>,
 ): PipelineTransitionResult<TPreview> {
     if (state.type !== 'dragging' || state.drag.sessionId !== event.sessionId) {
         return { state, outputs: [] };

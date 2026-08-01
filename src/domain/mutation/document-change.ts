@@ -1,7 +1,6 @@
-import { Doc } from '../markdown/document-types';
+import type { Doc } from '../markdown/document-types';
 
 export type { TextChange } from '../transaction/block-transaction';
-import type { TextChange } from '../transaction/block-transaction';
 
 export function resolveInsertionChange(
     doc: Doc,
@@ -9,7 +8,7 @@ export function resolveInsertionChange(
     insertText: string,
     options?: {
         lengthAfterDelete?: number;
-    }
+    },
 ): { pos: number; text: string } {
     if (targetLineNumber <= doc.lines) {
         return {
@@ -17,9 +16,7 @@ export function resolveInsertionChange(
             text: insertText,
         };
     }
-    const normalized = insertText.endsWith('\n')
-        ? insertText.slice(0, -1)
-        : insertText;
+    const normalized = insertText.endsWith('\n') ? insertText.slice(0, -1) : insertText;
     if (!normalized.length) {
         return { pos: doc.length, text: normalized };
     }
@@ -33,11 +30,7 @@ export function resolveInsertionChange(
     };
 }
 
-export function resolveDeleteRange(
-    doc: Doc,
-    sourceFrom: number,
-    sourceTo: number
-): { from: number; to: number } {
+export function resolveDeleteRange(doc: Doc, sourceFrom: number, sourceTo: number): { from: number; to: number } {
     if (sourceTo < doc.length) {
         return {
             from: sourceFrom,

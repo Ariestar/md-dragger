@@ -1,16 +1,12 @@
-import { Block, BlockType } from '../block/block-types';
 import { detectBlock } from '../block/block-detector';
-import { getLineMap, getLineMetaAt, LineMap } from '../markdown/line-map';
-import { InsertionRuleDecision, InsertionSlotContext, resolveInsertionRule } from './insertion-rules';
-import { Doc } from '../markdown/document-types';
 import { isBlockquoteLine, isHorizontalRuleLine } from '../block/block-guards';
+import { type Block, BlockType } from '../block/block-types';
+import type { Doc } from '../markdown/document-types';
+import { getLineMap, getLineMetaAt, type LineMap } from '../markdown/line-map';
+import { type InsertionRuleDecision, type InsertionSlotContext, resolveInsertionRule } from './insertion-rules';
 
 type ContainerType = BlockType.ListItem | BlockType.Blockquote | BlockType.Callout;
-export type DetectBlockFn = (
-    doc: Doc,
-    lineNumber: number,
-    options: { tabSize: number }
-) => Block | null;
+export type DetectBlockFn = (doc: Doc, lineNumber: number, options: { tabSize: number }) => Block | null;
 
 const defaultDetectBlock: DetectBlockFn = (doc, lineNumber, options) => detectBlock(doc, lineNumber, options);
 
@@ -29,18 +25,11 @@ function getImmediateLineText(doc: Doc, lineNumber: number): string | null {
     return doc.line(lineNumber).text;
 }
 
-function getActiveLineMap(
-    doc: Doc,
-    options: ContainerPolicyResolveOptions
-): LineMap {
+function getActiveLineMap(doc: Doc, options: ContainerPolicyResolveOptions): LineMap {
     return options.lineMap ?? getLineMap(doc, { tabSize: options.tabSize });
 }
 
-export function prevNonEmpty(
-    doc: Doc,
-    lineNumber: number,
-    lineMap?: LineMap
-): number | null {
+export function prevNonEmpty(doc: Doc, lineNumber: number, lineMap?: LineMap): number | null {
     if (lineMap && lineMap.doc === doc) {
         if (doc.lines <= 0) return null;
         const clampedLine = Math.max(1, Math.min(doc.lines, lineNumber));
@@ -55,11 +44,7 @@ export function prevNonEmpty(
     return null;
 }
 
-export function nextNonEmpty(
-    doc: Doc,
-    lineNumber: number,
-    lineMap?: LineMap
-): number | null {
+export function nextNonEmpty(doc: Doc, lineNumber: number, lineMap?: LineMap): number | null {
     if (lineMap && lineMap.doc === doc) {
         if (doc.lines <= 0) return null;
         const clampedLine = Math.max(1, Math.min(doc.lines, lineNumber));
@@ -78,7 +63,7 @@ export function findEnclosingListBlock(
     doc: Doc,
     lineNumber: number,
     detectBlockFn: DetectBlockFn | undefined,
-    options: ContainerPolicyResolveOptions
+    options: ContainerPolicyResolveOptions,
 ): Block | null {
     if (lineNumber < 1 || lineNumber > doc.lines) return null;
     const lineMap = getActiveLineMap(doc, options);
@@ -99,7 +84,7 @@ export function findEnclosingListBlock(
         const blockEnd = block.lines.endLine;
         if (lineNumber < blockStart || lineNumber > blockEnd) continue;
 
-        if (!best || ((block.lines.endLine - block.lines.startLine)) > ((best.lines.endLine - best.lines.startLine))) {
+        if (!best || block.lines.endLine - block.lines.startLine > best.lines.endLine - best.lines.startLine) {
             best = block;
         }
     }
@@ -111,7 +96,7 @@ function isTableBlockStartAtLine(
     doc: Doc,
     lineNumber: number,
     detectBlockFn: DetectBlockFn,
-    options: { tabSize: number }
+    options: { tabSize: number },
 ): boolean {
     if (lineNumber < 1 || lineNumber > doc.lines) return false;
     const block = detectBlockFn(doc, lineNumber, options);
@@ -122,7 +107,7 @@ function isHorizontalRuleAtLine(
     doc: Doc,
     lineNumber: number,
     detectBlockFn: DetectBlockFn,
-    options: { tabSize: number }
+    options: { tabSize: number },
 ): boolean {
     if (lineNumber < 1 || lineNumber > doc.lines) return false;
     const block = detectBlockFn(doc, lineNumber, options);
@@ -137,21 +122,19 @@ function isCalloutAfterBoundary(
     prevImmediateLine: number,
     nextIsQuoteLike: boolean,
     detectBlockFn: DetectBlockFn,
-    options: { tabSize: number }
+    options: { tabSize: number },
 ): boolean {
     if (prevImmediateLine < 1 || prevImmediateLine > doc.lines) return false;
     if (nextIsQuoteLike) return false;
     const prevBlock = detectBlockFn(doc, prevImmediateLine, options);
-    return !!prevBlock
-        && prevBlock.type === BlockType.Callout
-        && prevBlock.lines.endLine === prevImmediateLine;
+    return !!prevBlock && prevBlock.type === BlockType.Callout && prevBlock.lines.endLine === prevImmediateLine;
 }
 
 function listSlotAt(
     doc: Doc,
     targetLineNumber: number,
     detectBlockFn: DetectBlockFn | undefined,
-    options: ContainerPolicyResolveOptions
+    options: ContainerPolicyResolveOptions,
 ): { type: ContainerType; block: Block } | null {
     if (doc.lines <= 0) return null;
     const lineMap = getActiveLineMap(doc, options);
@@ -180,11 +163,10 @@ function listSlotAt(
 
         const blockTopBoundary = block.lines.startLine;
         const blockBottomBoundary = block.lines.endLine + 1;
-        const isInsideContainer = targetLineNumber > blockTopBoundary
-            && targetLineNumber < blockBottomBoundary;
+        const isInsideContainer = targetLineNumber > blockTopBoundary && targetLineNumber < blockBottomBoundary;
         if (!isInsideContainer) continue;
 
-        if (!best || ((block.lines.endLine - block.lines.startLine)) > ((best.lines.endLine - best.lines.startLine))) {
+        if (!best || block.lines.endLine - block.lines.startLine > best.lines.endLine - best.lines.startLine) {
             best = block;
         }
     }
@@ -198,7 +180,7 @@ function slotAt(
     doc: Doc,
     targetLineNumber: number,
     detectBlockFn: DetectBlockFn | undefined,
-    options: ContainerPolicyResolveOptions
+    options: ContainerPolicyResolveOptions,
 ): InsertionSlotContext {
     const lineMap = getActiveLineMap(doc, options);
     const clampedTarget = Math.max(1, Math.min(doc.lines + 1, targetLineNumber));
@@ -208,9 +190,8 @@ function slotAt(
     const nextMeta = nextImmediateLine === null ? null : getLineMetaAt(lineMap, nextImmediateLine);
 
     const prevImmediateText = prevMeta ? null : getImmediateLineText(doc, prevImmediateLine);
-    const nextImmediateText = nextMeta || nextImmediateLine === null
-        ? null
-        : getImmediateLineText(doc, nextImmediateLine);
+    const nextImmediateText =
+        nextMeta || nextImmediateLine === null ? null : getImmediateLineText(doc, nextImmediateLine);
     const prevIsQuoteLike = prevMeta ? prevMeta.isQuote : isBlockquoteLine(prevImmediateText);
     const nextIsQuoteLike = nextMeta ? nextMeta.isQuote : isBlockquoteLine(nextImmediateText);
 
@@ -223,15 +204,15 @@ function slotAt(
     }
 
     if (
-        nextImmediateLine !== null
-        && isTableBlockStartAtLine(doc, nextImmediateLine, activeDetectBlockFn, detectOptions)
+        nextImmediateLine !== null &&
+        isTableBlockStartAtLine(doc, nextImmediateLine, activeDetectBlockFn, detectOptions)
     ) {
         return 'table_before';
     }
 
     if (
-        nextImmediateLine !== null
-        && isHorizontalRuleAtLine(doc, nextImmediateLine, activeDetectBlockFn, detectOptions)
+        nextImmediateLine !== null &&
+        isHorizontalRuleAtLine(doc, nextImmediateLine, activeDetectBlockFn, detectOptions)
     ) {
         return 'hr_before';
     }
@@ -246,12 +227,7 @@ function slotAt(
         return 'quote_after';
     }
 
-    const listContext = listSlotAt(
-        doc,
-        clampedTarget,
-        activeDetectBlockFn,
-        { lineMap, tabSize: options.tabSize }
-    );
+    const listContext = listSlotAt(doc, clampedTarget, activeDetectBlockFn, { lineMap, tabSize: options.tabSize });
     if (listContext) {
         return 'inside_list';
     }
@@ -267,20 +243,13 @@ export function canDropAt(
     doc: Doc,
     sourceBlock: Block,
     targetLineNumber: number,
-    options: { lineMap?: LineMap; tabSize: number }
+    options: { lineMap?: LineMap; tabSize: number },
 ): DropRuleContext {
     const lineMap = options.lineMap ?? getLineMap(doc, { tabSize: options.tabSize });
-    const slotContext = slotAt(
-        doc,
-        targetLineNumber,
-        undefined,
-        { lineMap, tabSize: options.tabSize }
-    );
+    const slotContext = slotAt(doc, targetLineNumber, undefined, { lineMap, tabSize: options.tabSize });
     const decision = resolveInsertionRule({
         sourceType: sourceBlock.type,
         slotContext,
     });
     return { slotContext, decision };
 }
-
-

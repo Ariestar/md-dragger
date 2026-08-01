@@ -1,10 +1,10 @@
-import type { ParsedLine } from '../parse/types';
 import { isListLine } from '../parse/parse-line';
+import type { ParsedLine } from '../parse/types';
 
 /** First list line's indent in a multi-line source blob. */
 export function getSourceListBase(
     lines: string[],
-    parse: (line: string) => ParsedLine
+    parse: (line: string) => ParsedLine,
 ): { indentWidth: number; indentRaw: string } | null {
     for (const line of lines) {
         const parsed = parse(line);
@@ -34,27 +34,23 @@ export function relevelListText(params: {
     const delta = targetIndentWidth - sourceBase.indentWidth;
     if (delta === 0) return sourceContent;
 
-    return lines.map((line) => {
-        if (line.trim().length === 0) return line;
-        const parsed = parse(line);
-        const markerText = parsed.marker && parsed.marker.kind === 'list' ? parsed.marker.text : '';
-        const afterIndent = markerText + parsed.body;
+    return lines
+        .map((line) => {
+            if (line.trim().length === 0) return line;
+            const parsed = parse(line);
+            const markerText = parsed.marker && parsed.marker.kind === 'list' ? parsed.marker.text : '';
+            const afterIndent = markerText + parsed.body;
 
-        if (!isListLine(parsed)) {
-            if (parsed.indent.width >= sourceBase.indentWidth) {
-                const newIndent = formatIndentFn(
-                    sourceBase.indentRaw,
-                    Math.max(0, parsed.indent.width + delta),
-                );
-                return `${parsed.quote.prefix}${newIndent}${afterIndent}`;
+            if (!isListLine(parsed)) {
+                if (parsed.indent.width >= sourceBase.indentWidth) {
+                    const newIndent = formatIndentFn(sourceBase.indentRaw, Math.max(0, parsed.indent.width + delta));
+                    return `${parsed.quote.prefix}${newIndent}${afterIndent}`;
+                }
+                return line;
             }
-            return line;
-        }
 
-        const newIndent = formatIndentFn(
-            sourceBase.indentRaw,
-            Math.max(0, parsed.indent.width + delta),
-        );
-        return `${parsed.quote.prefix}${newIndent}${markerText}${parsed.body}`;
-    }).join('\n');
+            const newIndent = formatIndentFn(sourceBase.indentRaw, Math.max(0, parsed.indent.width + delta));
+            return `${parsed.quote.prefix}${newIndent}${markerText}${parsed.body}`;
+        })
+        .join('\n');
 }

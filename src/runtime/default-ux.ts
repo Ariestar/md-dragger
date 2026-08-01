@@ -1,17 +1,18 @@
 import { detectBlock } from '../domain/block/block-detector';
 import type { Block } from '../domain/block/block-types';
+import type { Doc } from '../domain/markdown/document-types';
 import {
     addBlocks,
+    type BlockSelection,
     hasBlock,
     removeBlocks,
     selectBlocks,
     selectOne,
-    type BlockSelection,
 } from '../domain/selection/block-selection';
-import type { Doc } from '../domain/markdown/document-types';
 import type { DragCancelReason } from '../pipeline/pipeline-event';
 import type { RuntimeController } from './dragger-runtime';
 import {
+    DEFAULT_GESTURE_CONFIG,
     type Disposable,
     type GestureConfig,
     type InputSource,
@@ -21,13 +22,8 @@ import {
     type PressInput,
     type ReleaseInput,
     type TimerToken,
-    DEFAULT_GESTURE_CONFIG,
 } from './dragger-runtime-types';
-import {
-    notifyModules,
-    type DefaultUxModule,
-    type DragUxContext,
-} from './ux-module';
+import { type DefaultUxModule, type DragUxContext, notifyModules } from './ux-module';
 
 export type Ux = {
     mount(): void;
@@ -127,12 +123,13 @@ export class DefaultUx implements Ux {
             // Group-drag arm is independent of desktop dragArmMs=0.
             const groupArmMs = Math.max(cfg.dragArmMs, cfg.multiSelectMs);
             if (selectedDragCandidate) {
-                const timer = groupArmMs > 0
-                    ? this.deps.scheduler.setTimer(
-                        () => this.markSelectedDragReady(sessionId, input.pointer),
-                        groupArmMs,
-                    )
-                    : null;
+                const timer =
+                    groupArmMs > 0
+                        ? this.deps.scheduler.setTimer(
+                              () => this.markSelectedDragReady(sessionId, input.pointer),
+                              groupArmMs,
+                          )
+                        : null;
                 this.pressSession = {
                     sessionId,
                     pointer: input.pointer,
@@ -180,18 +177,15 @@ export class DefaultUx implements Ux {
         if (cfg.multiSelectEnabled) {
             const multiMs = Math.max(0, cfg.multiSelectMs);
             const armMs = Math.max(0, cfg.dragArmMs);
-            const multiSelectTimer = multiMs > 0
-                ? this.deps.scheduler.setTimer(
-                    () => this.startRangeSweepIfCurrent(sessionId, input.pointer),
-                    multiMs,
-                )
-                : null;
-            const armTimer = armMs > 0
-                ? this.deps.scheduler.setTimer(
-                    () => this.markReady(sessionId, input.pointer),
-                    armMs,
-                )
-                : null;
+            const multiSelectTimer =
+                multiMs > 0
+                    ? this.deps.scheduler.setTimer(
+                          () => this.startRangeSweepIfCurrent(sessionId, input.pointer),
+                          multiMs,
+                      )
+                    : null;
+            const armTimer =
+                armMs > 0 ? this.deps.scheduler.setTimer(() => this.markReady(sessionId, input.pointer), armMs) : null;
             this.pressSession = {
                 sessionId,
                 pointer: input.pointer,
@@ -215,12 +209,8 @@ export class DefaultUx implements Ux {
         }
 
         const armMs = Math.max(0, cfg.dragArmMs);
-        const armTimer = armMs > 0
-            ? this.deps.scheduler.setTimer(
-                () => this.markReady(sessionId, input.pointer),
-                armMs,
-            )
-            : null;
+        const armTimer =
+            armMs > 0 ? this.deps.scheduler.setTimer(() => this.markReady(sessionId, input.pointer), armMs) : null;
         this.pressSession = {
             sessionId,
             pointer: input.pointer,
@@ -260,12 +250,7 @@ export class DefaultUx implements Ux {
             if (state.type !== 'selecting' || state.selection.selection.blocks.length === 0) return;
             input.claim?.();
             this.clearTimers();
-            this.startDrag(
-                session,
-                state.selection.selection,
-                input.point,
-                input.pointer,
-            );
+            this.startDrag(session, state.selection.selection, input.point, input.pointer);
             return;
         }
 
@@ -303,12 +288,7 @@ export class DefaultUx implements Ux {
     private handleRelease(input: ReleaseInput): void {
         const session = this.pressSession;
         if (this.runtime().isGestureActive() && session && samePointer(session.pointer, input.pointer)) {
-            const result = this.runtime().commitDrop(
-                session.sessionId,
-                input.point,
-                input.pointer,
-                input.pointer.type,
-            );
+            const result = this.runtime().commitDrop(session.sessionId, input.point, input.pointer, input.pointer.type);
             this.emitModule('onDragEnd', session, input.point, input.pointer, result ?? { kind: 'rejected' });
             this.pressSession = null;
             return;
@@ -352,22 +332,10 @@ export class DefaultUx implements Ux {
         }
     }
 
-    private startDrag(
-        session: PressSession,
-        selection: BlockSelection,
-        point: Point,
-        pointer: Pointer,
-    ): void {
+    private startDrag(session: PressSession, selection: BlockSelection, point: Point, pointer: Pointer): void {
         session.selection = selection;
         session.dragActive = true;
-        this.runtime().beginDrag(
-            session.sessionId,
-            selection,
-            point,
-            pointer,
-            pointer.type,
-            session.releaseCapture,
-        );
+        this.runtime().beginDrag(session.sessionId, selection, point, pointer, pointer.type, session.releaseCapture);
         this.emitModule('onDragStart', session, point, pointer);
     }
 
@@ -553,9 +521,7 @@ function blocksBetween(doc: Doc, tabSize: number, anchor: Block, focus: Block): 
 function xorSelection(base: BlockSelection, range: Block[]): BlockSelection {
     let next = base;
     for (const block of range) {
-        next = hasBlock(next, block)
-            ? removeBlocks(next, [block])
-            : addBlocks(next, [block]);
+        next = hasBlock(next, block) ? removeBlocks(next, [block]) : addBlocks(next, [block]);
     }
     return next;
 }

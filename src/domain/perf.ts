@@ -4,6 +4,6 @@
 // (telemetry, cache prewarming) need them. Separate entry so a plain
 // `import from 'md-dragger/domain'` stays clean.
 
-export { setLineMapPerfRecorder, primeLineMapFromTransition } from './markdown/line-map';
 export { setDetectPerf } from './block/block-detector';
 export { prewarmFenceScan } from './markdown/fence-scanner';
+export { primeLineMapFromTransition, setLineMapPerfRecorder } from './markdown/line-map';

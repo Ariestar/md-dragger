@@ -29,7 +29,5 @@ export function reject(reason: RejectReason): Reject {
 }
 
 export function isReject(value: unknown): value is Reject {
-    return typeof value === 'object'
-        && value !== null
-        && (value as { type?: unknown }).type === 'reject';
+    return typeof value === 'object' && value !== null && (value as { type?: unknown }).type === 'reject';
 }

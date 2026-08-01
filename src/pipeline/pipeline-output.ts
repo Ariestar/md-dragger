@@ -1,7 +1,7 @@
 import type { BlockCommand } from '../domain/command/block-command';
 import type { BlockSelection } from '../domain/selection/block-selection';
-import type { DragCancelReason } from './pipeline-event';
 import type { DragDropSnapshot } from './pipeline-drop';
+import type { DragCancelReason } from './pipeline-event';
 import type { PipelineState } from './pipeline-state';
 
 // The pipeline's single output stream. Every state transition produces a list

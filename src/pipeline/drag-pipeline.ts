@@ -17,9 +17,7 @@ export type DragPipelineOptions<TPreview = unknown> = {
 export class DragPipeline<TPreview = unknown> {
     private currentState: PipelineState = IDLE_PIPELINE_STATE;
 
-    constructor(
-        private readonly options: DragPipelineOptions<TPreview> = {}
-    ) { }
+    constructor(private readonly options: DragPipelineOptions<TPreview> = {}) {}
 
     get state(): PipelineState {
         return this.currentState;
@@ -47,7 +45,7 @@ export class DragPipeline<TPreview = unknown> {
         previous: PipelineState,
         current: PipelineState,
         event: PipelineEvent<TPreview>,
-        outputs: PipelineOutput<TPreview>[]
+        outputs: PipelineOutput<TPreview>[],
     ): PipelineOutput<TPreview>[] {
         const decorated = [...outputs];
         if (shouldClearSelectionVisual(previous, current) && !hasSelectionClearOutput(decorated)) {
@@ -78,7 +76,7 @@ function hasSelectionClearOutput(outputs: PipelineOutput[]): boolean {
 function resolveTerminalReason(
     previous: PipelineState,
     current: PipelineState,
-    event: PipelineEvent
+    event: PipelineEvent,
 ): Extract<PipelineOutput, { type: 'terminal' }>['reason'] | null {
     if (previous.type === 'idle' || current.type !== 'idle') return null;
     switch (event.type) {

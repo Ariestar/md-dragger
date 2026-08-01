@@ -1,5 +1,5 @@
-import type { DocEdit } from '../domain/transaction/block-transaction';
 import type { BlockSelection } from '../domain/selection/block-selection';
+import type { DocEdit } from '../domain/transaction/block-transaction';
 import type { Point, Pointer } from './dragger-runtime-types';
 
 // Generic DefaultUx module contract only.
@@ -12,10 +12,7 @@ export type DragUxContext = {
     pointer: Pointer;
 };
 
-export type CommitResult =
-    | { kind: 'applied'; edits: DocEdit[] }
-    | { kind: 'command' }
-    | { kind: 'rejected' };
+export type CommitResult = { kind: 'applied'; edits: DocEdit[] } | { kind: 'command' } | { kind: 'rejected' };
 
 export type DefaultUxModule = {
     name: string;

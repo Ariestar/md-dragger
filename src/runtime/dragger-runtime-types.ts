@@ -1,9 +1,9 @@
 import type { DropPosition } from '../domain/command/drop-position';
-import type { BlockSelection } from '../domain/selection/block-selection';
 import type { Doc } from '../domain/markdown/document-types';
+import type { BlockSelection } from '../domain/selection/block-selection';
 import type { DocEdit } from '../domain/transaction/block-transaction';
-import type { DragCancelReason } from '../pipeline/pipeline-event';
 import type { Change } from '../pipeline/drag-pipeline';
+import type { DragCancelReason } from '../pipeline/pipeline-event';
 
 export type Disposable = () => void;
 

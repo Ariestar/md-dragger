@@ -1,4 +1,3 @@
-import type { BlockSelection } from '../selection/block-selection';
 import type { Doc } from '../markdown/document-types';
 
 export type TextChange = {

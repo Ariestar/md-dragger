@@ -13,29 +13,29 @@ export type Indent = {
  */
 export type LineMarker =
     | {
-        kind: 'list';
-        text: string;
-        markerType: MarkerType;
-        checked?: boolean;
-    }
+          kind: 'list';
+          text: string;
+          markerType: MarkerType;
+          checked?: boolean;
+      }
     | {
-        kind: 'heading';
-        text: string;
-        level: 1 | 2 | 3 | 4 | 5 | 6;
-    }
+          kind: 'heading';
+          text: string;
+          level: 1 | 2 | 3 | 4 | 5 | 6;
+      }
     | { kind: 'hr'; text: string }
     | {
-        kind: 'fence';
-        text: string;
-        fence: 'code' | 'math';
-        info?: string;
-    }
+          kind: 'fence';
+          text: string;
+          fence: 'code' | 'math';
+          info?: string;
+      }
     | { kind: 'table-row'; text: string }
     | {
-        kind: 'callout';
-        text: string;
-        calloutType: string;
-    };
+          kind: 'callout';
+          text: string;
+          calloutType: string;
+      };
 
 /**
  * One line of MD structure. Not DocLine (no from/to).
@@ -60,22 +60,22 @@ export type ParsedBlock =
     | { type: BlockType.Paragraph }
     | { type: BlockType.Heading; level: 1 | 2 | 3 | 4 | 5 | 6 }
     | {
-        type: BlockType.ListItem;
-        markerType: MarkerType;
-        checked?: boolean;
-        indent: Indent;
-    }
+          type: BlockType.ListItem;
+          markerType: MarkerType;
+          checked?: boolean;
+          indent: Indent;
+      }
     | { type: BlockType.Blockquote; quoteDepth: number }
     | { type: BlockType.Callout; calloutType: string }
     | {
-        type: BlockType.CodeBlock;
-        lang: string | null;
-        contentLines: string[];
-    }
+          type: BlockType.CodeBlock;
+          lang: string | null;
+          contentLines: string[];
+      }
     | {
-        type: BlockType.MathBlock;
-        contentLines: string[];
-    }
+          type: BlockType.MathBlock;
+          contentLines: string[];
+      }
     | { type: BlockType.Table }
     | { type: BlockType.HorizontalRule }
     | { type: BlockType.Unknown };

@@ -1,14 +1,14 @@
 import type { Block } from '../block/block-types';
 import type { Doc } from '../markdown/document-types';
-import { resolveDeleteRange, resolveInsertionChange } from '../mutation/document-change';
-import { selectionLineRanges, type BlockSelection } from '../selection/block-selection';
 import type { LineRange } from '../markdown/line-range-types';
+import type { MovePlan } from '../move/move-plan';
+import { resolveDeleteRange, resolveInsertionChange } from '../mutation/document-change';
+import { insertTextForMove } from '../mutation/text-mutation-policy';
 import { parseLine } from '../parse/parse-line';
 import type { ParsedLine } from '../parse/types';
-import { insertTextForMove } from '../mutation/text-mutation-policy';
-import type { MovePlan } from '../move/move-plan';
+import { type Reject, reject } from '../result';
+import { type BlockSelection, selectionLineRanges } from '../selection/block-selection';
 import type { DocEdit, TextChange } from './block-transaction';
-import { reject, type Reject } from '../result';
 import { renumberAllOrderedLists } from './list-renumber';
 import { applyChanges, stringDoc } from './string-doc';
 
@@ -70,10 +70,7 @@ export function captureMoveSource(doc: Doc, selection: BlockSelection): Captured
  *                  else emit one replace of full text (sequential composition is
  *                  not the same as simultaneous geometry∪renumber on original)
  */
-export function moveTx(params: {
-    sourceDoc: Doc;
-    plan: MovePlan;
-}): DocEdit[] | Reject {
+export function moveTx(params: { sourceDoc: Doc; plan: MovePlan }): DocEdit[] | Reject {
     const { sourceDoc, plan } = params;
     const targetDoc = plan.position.doc;
     const parse = (text: string) => parseLine(text, plan.tabSize);
@@ -92,10 +89,7 @@ export function moveTx(params: {
     if (sourceDoc !== targetDoc) {
         const insert = geometryInsert(targetDoc, plan.position.line, insertText);
         const del = geometryDelete(plan.captured.payload);
-        return [
-            compileDocEdit(targetDoc, insert, parse),
-            compileDocEdit(sourceDoc, del, parse),
-        ];
+        return [compileDocEdit(targetDoc, insert, parse), compileDocEdit(sourceDoc, del, parse)];
     }
 
     const geometry = geometrySameDoc({
@@ -109,11 +103,7 @@ export function moveTx(params: {
     return [compileDocEdit(targetDoc, geometry, parse)];
 }
 
-function compileDocEdit(
-    doc: Doc,
-    geometry: TextChange[],
-    _parse: (line: string) => ParsedLine,
-): DocEdit {
+function compileDocEdit(doc: Doc, geometry: TextChange[], _parse: (line: string) => ParsedLine): DocEdit {
     if (geometry.length === 0) {
         return { doc, changes: [] };
     }
@@ -150,33 +140,27 @@ function geometrySameDoc(params: {
 }): TextChange[] | Reject {
     const { doc, payload, targetLine, insertText, allowInPlace } = params;
 
-    const deletedLen = payload.segments.reduce(
-        (sum, s) => sum + (s.deleteTo - s.deleteFrom),
-        0,
-    );
+    const deletedLen = payload.segments.reduce((sum, s) => sum + (s.deleteTo - s.deleteFrom), 0);
     const insertion = resolveInsertionChange(doc, targetLine, insertText, {
         lengthAfterDelete: doc.length - deletedLen,
     });
 
-    if (payload.segments.some(
-        (s) => insertion.pos > s.deleteFrom && insertion.pos < s.deleteTo,
-    )) {
+    if (payload.segments.some((s) => insertion.pos > s.deleteFrom && insertion.pos < s.deleteTo)) {
         return reject('insertion_inside_deleted_range');
     }
 
     const first = payload.segments[0];
     if (allowInPlace && insertion.pos === first.deleteFrom) {
-        return [{
-            from: first.deleteFrom,
-            to: first.deleteTo,
-            insert: insertion.text,
-        }];
+        return [
+            {
+                from: first.deleteFrom,
+                to: first.deleteTo,
+                insert: insertion.text,
+            },
+        ];
     }
 
-    return [
-        { from: insertion.pos, to: insertion.pos, insert: insertion.text },
-        ...geometryDelete(payload),
-    ];
+    return [{ from: insertion.pos, to: insertion.pos, insert: insertion.text }, ...geometryDelete(payload)];
 }
 
 function sortChanges(changes: TextChange[]): TextChange[] {

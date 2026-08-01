@@ -41,16 +41,14 @@ export function isLineNumberInRanges(line: number, ranges: LineRange[]): boolean
 export function isLineRangeCoveredByRanges(docLines: number, target: LineRange, ranges: LineRange[]): boolean {
     const normalizedTarget = normalizeLineRange(docLines, target.startLine, target.endLine);
     return mergeLineRanges(docLines, ranges).some(
-        (range) =>
-            range.startLine <= normalizedTarget.startLine
-            && range.endLine >= normalizedTarget.endLine
+        (range) => range.startLine <= normalizedTarget.startLine && range.endLine >= normalizedTarget.endLine,
     );
 }
 
 export function subtractLineRange(
     docLines: number,
     sourceRanges: LineRange[],
-    rangeToSubtract: LineRange
+    rangeToSubtract: LineRange,
 ): LineRange[] {
     const normalizedSource = mergeLineRanges(docLines, sourceRanges);
     const target = normalizeLineRange(docLines, rangeToSubtract.startLine, rangeToSubtract.endLine);

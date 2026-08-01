@@ -1,7 +1,7 @@
-import type { DragCancelReason, GuardId } from './pipeline-event';
-import type { PipelineOutput } from './pipeline-output';
 import { cancelDrop, type DragDropSnapshot } from './pipeline-drop';
+import type { DragCancelReason, GuardId } from './pipeline-event';
 import { dependsOnGuard } from './pipeline-guard';
+import type { PipelineOutput } from './pipeline-output';
 import { IDLE_PIPELINE_STATE, type PipelineState } from './pipeline-state';
 
 export type PipelineExitResult<TPreview = unknown> = {
@@ -12,17 +12,18 @@ export type PipelineExitResult<TPreview = unknown> = {
 export function cancelPipeline<TPreview>(
     state: PipelineState,
     reason: DragCancelReason,
-    pointerType: string | null
+    pointerType: string | null,
 ): PipelineExitResult<TPreview> {
     if (state.type === 'idle') {
         return { state, outputs: [] };
     }
 
-    const source = state.type === 'holding' || state.type === 'ready_to_drag'
-        ? state.hold.selection
-        : state.type === 'selecting'
-            ? state.selection.selection
-            : state.drag.selection;
+    const source =
+        state.type === 'holding' || state.type === 'ready_to_drag'
+            ? state.hold.selection
+            : state.type === 'selecting'
+              ? state.selection.selection
+              : state.drag.selection;
     const drop = state.type === 'dragging' ? state.drag.drop : null;
 
     return {
@@ -54,7 +55,7 @@ export function clearSelection<TPreview>(state: PipelineState): PipelineExitResu
 
 export function exitForUnavailableGuard<TPreview>(
     state: PipelineState,
-    guardId: GuardId
+    guardId: GuardId,
 ): PipelineExitResult<TPreview> {
     if (!dependsOnGuard(state, guardId)) {
         return { state, outputs: [] };
@@ -65,8 +66,6 @@ export function exitForUnavailableGuard<TPreview>(
 export function destroyPipeline<TPreview>(): PipelineExitResult<TPreview> {
     return {
         state: IDLE_PIPELINE_STATE,
-        outputs: [
-            { type: 'state_changed', state: IDLE_PIPELINE_STATE },
-        ],
+        outputs: [{ type: 'state_changed', state: IDLE_PIPELINE_STATE }],
     };
 }

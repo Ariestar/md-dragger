@@ -1,5 +1,5 @@
-import type { DropPosition } from '../domain/command/drop-position';
 import type { BlockCommand } from '../domain/command/block-command';
+import type { DropPosition } from '../domain/command/drop-position';
 import type { BlockSelection } from '../domain/selection/block-selection';
 import type { DragCancelReason } from './pipeline-event';
 import type { PipelineOutput } from './pipeline-output';

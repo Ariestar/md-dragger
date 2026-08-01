@@ -21,7 +21,7 @@ export function selectOne(block: Block): BlockSelection {
 /** Sort by document order. */
 export function selectBlocks(blocks: Block[]): BlockSelection {
     const sorted = [...blocks].sort(
-        (a, b) => a.lines.startLine - b.lines.startLine || a.lines.endLine - b.lines.endLine
+        (a, b) => a.lines.startLine - b.lines.startLine || a.lines.endLine - b.lines.endLine,
     );
     return { blocks: sorted };
 }
@@ -48,5 +48,8 @@ export function hasBlock(selection: BlockSelection, block: Block): boolean {
 
 /** Line ranges of the selection; adjacent/overlapping blocks are merged. */
 export function selectionLineRanges(docLines: number, selection: BlockSelection): LineRange[] {
-    return mergeLineRanges(docLines, selection.blocks.map((block) => block.lines));
+    return mergeLineRanges(
+        docLines,
+        selection.blocks.map((block) => block.lines),
+    );
 }

@@ -2,64 +2,60 @@
 // Public surface: host-facing types and plan/edit/parse APIs only.
 // Internals (line-map, guards, capture details) stay unexported.
 
-// --- document ---
-export type { Doc, DocLine, MarkerType } from './markdown/document-types';
-export type { LineRange } from './markdown/line-range-types';
-
-// --- block identity ---
-export { BlockType, type Block, isContainerType } from './block/block-types';
 export {
-  detectBlock,
-  detectBlockType,
-  getHeadingLevel,
-  getHeadingSectionRange,
+    detectBlock,
+    detectBlockType,
+    getHeadingLevel,
+    getHeadingSectionRange,
 } from './block/block-detector';
 export { type ConvertTo, planConvert } from './block/block-type-conversion';
 
-// --- selection ---
-export {
-  type BlockSelection,
-  selectOne,
-  selectBlocks,
-  addBlocks,
-  removeBlocks,
-  hasBlock,
-  selectionLineRanges,
-} from './selection/block-selection';
-
-// --- structure parse (not DocLine / not Block) ---
-export {
-  type Indent,
-  type LineMarker,
-  type ParsedLine,
-  type ParsedBlock,
-  parseLine,
-  parseBlock,
-  formatIndent,
-  isListLine,
-  listMarkerText,
-  listMarkerType,
-} from './parse';
-
-// --- drop ---
-export type { DropPosition } from './command/drop-position';
-export {
-  locateDropPosition,
-  dropIndentWidth,
-  type DropLocateInput,
-} from './markdown/drop-locate';
-
+// --- block identity ---
+export { type Block, BlockType, isContainerType } from './block/block-types';
 // --- commands (type only; construct as object literals) ---
 export type { BlockCommand } from './command/block-command';
+// --- drop ---
+export type { DropPosition } from './command/drop-position';
+// --- document ---
+export type { Doc, DocLine, MarkerType } from './markdown/document-types';
+export {
+    type DropLocateInput,
+    dropIndentWidth,
+    locateDropPosition,
+} from './markdown/drop-locate';
+export type { LineRange } from './markdown/line-range-types';
+export {
+    type MovePlan,
+    type MoveResult,
+    type PlanMoveInput,
+    planMove,
+} from './move/move-plan';
+// --- structure parse (not DocLine / not Block) ---
+export {
+    formatIndent,
+    type Indent,
+    isListLine,
+    type LineMarker,
+    listMarkerText,
+    listMarkerType,
+    type ParsedBlock,
+    type ParsedLine,
+    parseBlock,
+    parseLine,
+} from './parse';
 
 // --- plan / edit ---
-export { type Reject, type RejectReason, reject, isReject } from './result';
+export { isReject, type Reject, type RejectReason, reject } from './result';
+// --- selection ---
 export {
-  planMove,
-  type MovePlan,
-  type MoveResult,
-  type PlanMoveInput,
-} from './move/move-plan';
-export { type TextChange, type DocEdit } from './transaction/block-transaction';
-export { moveTx } from './transaction/move-blocks';
+    addBlocks,
+    type BlockSelection,
+    hasBlock,
+    removeBlocks,
+    selectBlocks,
+    selectionLineRanges,
+    selectOne,
+} from './selection/block-selection';
+export type { DocEdit, TextChange } from './transaction/block-transaction';
 export { planDelete } from './transaction/delete-blocks';
+export { moveTx } from './transaction/move-blocks';

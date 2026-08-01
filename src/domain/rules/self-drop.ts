@@ -1,17 +1,17 @@
 import { BlockType } from '../block/block-types';
+import type { DropPosition } from '../command/drop-position';
+import type { Doc } from '../markdown/document-types';
+import { dropIndentWidth } from '../markdown/drop-locate';
+import { getLineMetaAt, type LineMap } from '../markdown/line-map';
+import { isLineNumberInRanges } from '../markdown/line-range';
+import type { LineRange } from '../markdown/line-range-types';
+import { isListLine } from '../parse/parse-line';
+import type { ParsedLine } from '../parse/types';
+import type { RejectReason } from '../result';
 import type { BlockSelection } from '../selection/block-selection';
 import { selectionLineRanges } from '../selection/block-selection';
-import type { DropPosition } from '../command/drop-position';
 import type { InsertionSlotContext } from './insertion-rules';
 import { resolveInsertionRule } from './insertion-rules';
-import { getLineMetaAt, type LineMap } from '../markdown/line-map';
-import { dropIndentWidth } from '../markdown/drop-locate';
-import type { Doc } from '../markdown/document-types';
-import type { ParsedLine } from '../parse/types';
-import { isListLine } from '../parse/parse-line';
-import type { LineRange } from '../markdown/line-range-types';
-import { isLineNumberInRanges } from '../markdown/line-range';
-import type { RejectReason } from '../result';
 
 export type SelfDropResult = {
     inSelfRange: boolean;
@@ -112,8 +112,7 @@ export function selfDrop(params: {
     }
 
     const targetIndentWidth = dropIndentWidth(position, { tabSize, indentUnit });
-    const hasListIntent = position.parent?.type === BlockType.ListItem
-        || sourceBlock.type === BlockType.ListItem;
+    const hasListIntent = position.parent?.type === BlockType.ListItem || sourceBlock.type === BlockType.ListItem;
     if (!hasListIntent) {
         return {
             inSelfRange: true,
@@ -154,10 +153,10 @@ export function selfDrop(params: {
 
     // Nesting under self as child while dropping after self range = embedding
     if (
-        isAfterSelf
-        && position.parent
-        && isLineNumberInRanges(position.parent.lines.startLine, sourceRanges)
-        && targetIndentWidth > sourceIndent
+        isAfterSelf &&
+        position.parent &&
+        isLineNumberInRanges(position.parent.lines.startLine, sourceRanges) &&
+        targetIndentWidth > sourceIndent
     ) {
         return {
             inSelfRange: true,
@@ -167,11 +166,10 @@ export function selfDrop(params: {
         };
     }
 
-    const allowInPlaceIndentChange = (
-        (isAfterSelf && targetIndentWidth !== sourceIndent)
-        || (isSameLine && targetIndentWidth !== sourceIndent)
-        || (!isAfterSelf && targetIndentWidth < sourceIndent)
-    );
+    const allowInPlaceIndentChange =
+        (isAfterSelf && targetIndentWidth !== sourceIndent) ||
+        (isSameLine && targetIndentWidth !== sourceIndent) ||
+        (!isAfterSelf && targetIndentWidth < sourceIndent);
 
     if (!allowInPlaceIndentChange) {
         return {

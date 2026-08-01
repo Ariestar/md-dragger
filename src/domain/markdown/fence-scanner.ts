@@ -1,5 +1,5 @@
+import { isCodeFenceLine, isMathFenceLine } from '../block/block-guards';
 import type { Doc } from './document-types';
-import { isMathFenceLine, isCodeFenceLine } from '../block/block-guards';
 
 export type FenceRange = { startLine: number; endLine: number };
 
@@ -46,11 +46,7 @@ function getFenceLazyScanState(doc: Doc): FenceLazyScanState {
     return created;
 }
 
-function scanFenceLine(
-    state: FenceLazyScanState,
-    lineNumber: number,
-    text: string
-): void {
+function scanFenceLine(state: FenceLazyScanState, lineNumber: number, text: string): void {
     // When inside a code block, only look for closing code fence
     if (state.openCodeStartLine !== 0) {
         if (isCodeFenceLine(text)) {

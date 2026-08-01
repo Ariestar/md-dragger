@@ -1,7 +1,7 @@
+import { isCodeFenceLine, isMathFenceLine } from '../block/block-guards';
 import { BlockType } from '../block/block-types';
 import type { Doc } from '../markdown/document-types';
 import type { LineRange } from '../markdown/line-range-types';
-import { isCodeFenceLine, isMathFenceLine } from '../block/block-guards';
 import { parseLine } from './parse-line';
 import type { ParsedBlock } from './types';
 
@@ -52,7 +52,11 @@ export function parseBlock(doc: Doc, lines: LineRange, tabSize: number): ParsedB
     if (isCodeFenceLine(headText.trimStart()) && end > start) {
         const contentLines: string[] = [];
         for (let n = start + 1; n < end; n++) contentLines.push(doc.line(n).text);
-        const info = headText.trimStart().replace(/^```\s*/, '').trim() || null;
+        const info =
+            headText
+                .trimStart()
+                .replace(/^```\s*/, '')
+                .trim() || null;
         return { type: BlockType.CodeBlock, lang: info, contentLines };
     }
     if (isMathFenceLine(headText.trimStart()) && end > start) {

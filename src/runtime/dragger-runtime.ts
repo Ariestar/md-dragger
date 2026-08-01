@@ -1,22 +1,22 @@
 import type { DropPosition } from '../domain/command/drop-position';
+import { type MoveResult, planMove } from '../domain/move/move-plan';
 import type { BlockSelection } from '../domain/selection/block-selection';
-import { planMove, type MoveResult } from '../domain/move/move-plan';
+import type { DocEdit } from '../domain/transaction/block-transaction';
 import { moveTx } from '../domain/transaction/move-blocks';
 import { DragPipeline } from '../pipeline/drag-pipeline';
 import type { DragDropSnapshot, DropResolution } from '../pipeline/pipeline-drop';
 import type { DragCancelReason } from '../pipeline/pipeline-event';
 import type { PipelineState } from '../pipeline/pipeline-state';
-import type { DocEdit } from '../domain/transaction/block-transaction';
+import { DefaultUx } from './default-ux';
 import {
+    DEFAULT_GESTURE_CONFIG,
+    type DefaultUxConfig,
     type Point,
     type Pointer,
     type ResolvedConfig,
-    type DefaultUxConfig,
     type RuntimeOptions,
     type Ux,
-    DEFAULT_GESTURE_CONFIG,
 } from './dragger-runtime-types';
-import { DefaultUx } from './default-ux';
 import type { CommitResult } from './ux-module';
 
 type ActiveDragSession = {
@@ -37,9 +37,16 @@ export type RuntimeController = {
     createSessionId(): string;
     beginHold(sessionId: string, selection: BlockSelection, pointerType: string | null): void;
     markHoldReady(sessionId: string, pointerType: string | null): void;
-    beginDrag(sessionId: string, selection: BlockSelection, point: Point, pointer: Pointer, pointerType: string | null, releaseCapture?: () => void): void;
+    beginDrag(
+        sessionId: string,
+        selection: BlockSelection,
+        point: Point,
+        pointer: Pointer,
+        pointerType: string | null,
+        releaseCapture?: () => void,
+    ): void;
     moveDrag(sessionId: string, point: Point, pointer: Pointer, pointerType: string | null): void;
-    commitDrop(sessionId: string, point: Point, pointer: Pointer, pointerType: string | null): CommitResult | void;
+    commitDrop(sessionId: string, point: Point, pointer: Pointer, pointerType: string | null): CommitResult | undefined;
     /** Replace the persistent multi-select result. */
     setSelection(selection: BlockSelection): void;
     clearSelection(): void;
@@ -140,7 +147,12 @@ export class DraggerRuntime implements RuntimeController {
         });
     }
 
-    commitDrop(sessionId: string, point: Point, pointer: Pointer, pointerType: string | null): CommitResult | void {
+    commitDrop(
+        sessionId: string,
+        point: Point,
+        pointer: Pointer,
+        pointerType: string | null,
+    ): CommitResult | undefined {
         const drag = this.activeDragSession;
         if (!drag || drag.sessionId !== sessionId || !samePointer(drag.pointer, pointer)) return;
 
@@ -243,9 +255,7 @@ export class DraggerRuntime implements RuntimeController {
     }
 
     private resolveGestureConfig(uxConfig: DefaultUxConfig) {
-        const raw = typeof uxConfig.gesture === 'function'
-            ? uxConfig.gesture()
-            : uxConfig.gesture;
+        const raw = typeof uxConfig.gesture === 'function' ? uxConfig.gesture() : uxConfig.gesture;
         return { ...DEFAULT_GESTURE_CONFIG, ...raw };
     }
 
@@ -304,9 +314,7 @@ export class DraggerRuntime implements RuntimeController {
     }
 
     private config(): ResolvedConfig {
-        const raw = typeof this.options.config === 'function'
-            ? this.options.config()
-            : this.options.config;
+        const raw = typeof this.options.config === 'function' ? this.options.config() : this.options.config;
         if (!raw) {
             throw new Error('DraggerRuntime: config is required (tabSize, listIndentUnit)');
         }
@@ -314,7 +322,9 @@ export class DraggerRuntime implements RuntimeController {
             throw new Error(`DraggerRuntime: config.tabSize must be positive, got ${String(raw.tabSize)}`);
         }
         if (!(raw.listIndentUnit > 0)) {
-            throw new Error(`DraggerRuntime: config.listIndentUnit must be positive, got ${String(raw.listIndentUnit)}`);
+            throw new Error(
+                `DraggerRuntime: config.listIndentUnit must be positive, got ${String(raw.listIndentUnit)}`,
+            );
         }
         return raw;
     }

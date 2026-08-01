@@ -1,8 +1,8 @@
 import type { Doc, MarkerType } from '../markdown/document-types';
 import type { LineRange } from '../markdown/line-range-types';
 import type { TextChange } from '../transaction/block-transaction';
-import type { Block } from './block-types';
 import { isCodeFenceLine, isMathFenceLine } from './block-guards';
+import type { Block } from './block-types';
 import { BlockType } from './block-types';
 
 /** Target shape for block-type conversion (handle menu, commands). */
@@ -18,22 +18,9 @@ export type ConvertTo =
  * Plan character edits that change a block's markdown type.
  * Prefer `block` when you have one; `lines` for raw 1-based spans.
  */
-export function planConvert(params: {
-    doc: Doc;
-    block: Block;
-    to: ConvertTo;
-}): TextChange[];
-export function planConvert(params: {
-    doc: Doc;
-    lines: LineRange;
-    to: ConvertTo;
-}): TextChange[];
-export function planConvert(params: {
-    doc: Doc;
-    block?: Block;
-    lines?: LineRange;
-    to: ConvertTo;
-}): TextChange[] {
+export function planConvert(params: { doc: Doc; block: Block; to: ConvertTo }): TextChange[];
+export function planConvert(params: { doc: Doc; lines: LineRange; to: ConvertTo }): TextChange[];
+export function planConvert(params: { doc: Doc; block?: Block; lines?: LineRange; to: ConvertTo }): TextChange[] {
     const span = params.block?.lines ?? params.lines;
     if (!span) return [];
     return planConvertLines(params.doc, span.startLine, span.endLine, params.to);
@@ -42,12 +29,7 @@ export function planConvert(params: {
 type FenceTarget = Extract<ConvertTo, { type: BlockType.CodeBlock | BlockType.MathBlock }>;
 type NonFenceTarget = Exclude<ConvertTo, FenceTarget>;
 
-function planConvertLines(
-    doc: Doc,
-    startLine: number,
-    endLine: number,
-    to: ConvertTo
-): TextChange[] {
+function planConvertLines(doc: Doc, startLine: number, endLine: number, to: ConvertTo): TextChange[] {
     const fenced = readFencedContent(doc, startLine, endLine);
 
     if (isFenceTarget(to)) {
@@ -77,7 +59,7 @@ function isFenceTarget(to: ConvertTo): to is FenceTarget {
 function readFencedContent(
     doc: Doc,
     startLine: number,
-    endLine: number
+    endLine: number,
 ): { type: BlockType.CodeBlock | BlockType.MathBlock; contentLines: string[] } | null {
     const startText = doc.line(startLine).text;
     const endText = doc.line(endLine).text;
@@ -117,14 +99,16 @@ function unwrapFence(
     startLine: number,
     endLine: number,
     contentLines: string[],
-    to: NonFenceTarget
+    to: NonFenceTarget,
 ): TextChange[] {
     const from = doc.line(startLine).from;
     const toPos = doc.line(endLine).to;
-    const insert = contentLines.map((line, i) => {
-        const { indentRaw, body } = splitIndent(line);
-        return formatBody(indentRaw, body, to, i + 1);
-    }).join('\n');
+    const insert = contentLines
+        .map((line, i) => {
+            const { indentRaw, body } = splitIndent(line);
+            return formatBody(indentRaw, body, to, i + 1);
+        })
+        .join('\n');
     return [{ from, to: toPos, insert }];
 }
 
@@ -133,15 +117,16 @@ function wrapAsFence(
     startLine: number,
     endLine: number,
     to: FenceTarget,
-    existingContent: string[] | null
+    existingContent: string[] | null,
 ): TextChange[] {
     const from = doc.line(startLine).from;
     const toPos = doc.line(endLine).to;
     const content = existingContent
         ? existingContent.join('\n')
-        : Array.from({ length: endLine - startLine + 1 }, (_, i) =>
-            stripPrefix(doc.line(startLine + i).text).body
-        ).join('\n');
+        : Array.from(
+              { length: endLine - startLine + 1 },
+              (_, i) => stripPrefix(doc.line(startLine + i).text).body,
+          ).join('\n');
     const fence = to.type === BlockType.CodeBlock ? '```' : '$$';
     return [{ from, to: toPos, insert: `${fence}\n${content}\n${fence}` }];
 }

@@ -26,7 +26,13 @@ export type DragCancelReason =
  * Multi-select construction (range drag, modifiers, …) lives in UX.
  */
 export type PipelineEvent<TPreview = unknown> =
-    | { type: 'hold_start'; sessionId: string; selection: BlockSelection; guardDeps?: GuardId[]; pointerType?: string | null }
+    | {
+          type: 'hold_start';
+          sessionId: string;
+          selection: BlockSelection;
+          guardDeps?: GuardId[];
+          pointerType?: string | null;
+      }
     | { type: 'hold_ready'; sessionId: string; pointerType?: string | null }
     | { type: 'selection_set'; selection: BlockSelection; guardDeps?: GuardId[] }
     | { type: 'selection_clear' }

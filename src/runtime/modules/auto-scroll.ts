@@ -13,10 +13,7 @@ export type ScrollPort = {
     nudge(point: Point, cfg: AutoScrollConfig): void;
 };
 
-export function autoScroll(
-    port: ScrollPort,
-    config: AutoScrollConfig | (() => AutoScrollConfig),
-): DefaultUxModule {
+export function autoScroll(port: ScrollPort, config: AutoScrollConfig | (() => AutoScrollConfig)): DefaultUxModule {
     const cfg = () => (typeof config === 'function' ? config() : config);
     return {
         name: 'auto-scroll',

@@ -1,11 +1,11 @@
-import type { BlockSelection } from '../selection/block-selection';
-import type { Doc } from './document-types';
-import { BlockType, type Block } from '../block/block-types';
 import { detectBlock } from '../block/block-detector';
+import { type Block, BlockType } from '../block/block-types';
 import type { DropPosition } from '../command/drop-position';
+import type { BlockSelection } from '../selection/block-selection';
+import { selectionLineRanges } from '../selection/block-selection';
+import type { Doc } from './document-types';
 import { getLineMap, getLineMetaAt, listLineAtOrAbove } from './line-map';
 import { isLineNumberInRanges } from './line-range';
-import { selectionLineRanges } from '../selection/block-selection';
 
 /**
  * Drop locate — two independent axes, no cross-null:
@@ -24,21 +24,9 @@ export type DropLocateInput = {
 };
 
 export function locateDropPosition(input: DropLocateInput): DropPosition {
-    const {
-        doc,
-        selection,
-        hitLine,
-        belowMid,
-        sourceIndentWidth,
-        targetIndentWidth,
-        tabSize,
-        indentUnit,
-    } = input;
+    const { doc, selection, hitLine, belowMid, sourceIndentWidth, targetIndentWidth, tabSize, indentUnit } = input;
 
-    const line = Math.max(
-        1,
-        Math.min(doc.lines + 1, belowMid ? hitLine + 1 : hitLine),
-    );
+    const line = Math.max(1, Math.min(doc.lines + 1, belowMid ? hitLine + 1 : hitLine));
 
     // x cannot veto y: root seam is always valid.
     if (indentUnit <= 0 || line <= 1) {
@@ -57,10 +45,7 @@ export function locateDropPosition(input: DropLocateInput): DropPosition {
     const lineMap = getLineMap(doc, { tabSize });
     const above = line - 1;
     let parentLine = listLineAtOrAbove(lineMap, above);
-    if (
-        parentLine === null
-        || lineMap.listSubtreeEndLine[parentLine] < above
-    ) {
+    if (parentLine === null || lineMap.listSubtreeEndLine[parentLine] < above) {
         return { doc, line, parent: null };
     }
 
@@ -109,10 +94,7 @@ function listItemAt(doc: Doc, listHeadLine: number, tabSize: number): Block | nu
  * Indent for paint/compile from parent only.
  * root → 0; under list item → parentIndent + unit.
  */
-export function dropIndentWidth(
-    position: DropPosition,
-    options: { tabSize: number; indentUnit: number },
-): number {
+export function dropIndentWidth(position: DropPosition, options: { tabSize: number; indentUnit: number }): number {
     if (position.parent?.type === BlockType.ListItem) {
         const lineMap = getLineMap(position.doc, { tabSize: options.tabSize });
         const meta = getLineMetaAt(lineMap, position.parent.lines.startLine);

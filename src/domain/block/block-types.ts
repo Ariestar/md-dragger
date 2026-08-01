@@ -26,9 +26,5 @@ export type Block = {
 };
 
 export function isContainerType(type: BlockType): boolean {
-    return (
-        type === BlockType.ListItem
-        || type === BlockType.Blockquote
-        || type === BlockType.Callout
-    );
+    return type === BlockType.ListItem || type === BlockType.Blockquote || type === BlockType.Callout;
 }

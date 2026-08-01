@@ -9,37 +9,35 @@ import type { Doc } from '../../domain';
 const liveViews = new Set<EditorView>();
 
 export function registerView(view: EditorView): () => void {
-  liveViews.add(view);
-  return () => {
-    liveViews.delete(view);
-  };
+    liveViews.add(view);
+    return () => {
+        liveViews.delete(view);
+    };
 }
 
 export function viewForDoc(doc: Doc): EditorView | null {
-  for (const view of liveViews) {
-    if (view.state.doc === doc) return view;
-  }
-  return null;
+    for (const view of liveViews) {
+        if (view.state.doc === doc) return view;
+    }
+    return null;
 }
 
 /** Prefer the view that owns the topmost DOM node under the point. */
 export function viewAtPoint(x: number, y: number): EditorView | null {
-  if (liveViews.size === 0) return null;
+    if (liveViews.size === 0) return null;
 
-  const hit = typeof document !== 'undefined'
-    ? document.elementFromPoint(x, y)
-    : null;
-  if (hit) {
+    const hit = typeof document !== 'undefined' ? document.elementFromPoint(x, y) : null;
+    if (hit) {
+        for (const view of liveViews) {
+            if (view.dom.contains(hit)) return view;
+        }
+    }
+
     for (const view of liveViews) {
-      if (view.dom.contains(hit)) return view;
+        const rect = view.dom.getBoundingClientRect();
+        if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+            return view;
+        }
     }
-  }
-
-  for (const view of liveViews) {
-    const rect = view.dom.getBoundingClientRect();
-    if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
-      return view;
-    }
-  }
-  return null;
+    return null;
 }

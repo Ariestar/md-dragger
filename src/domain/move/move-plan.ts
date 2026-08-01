@@ -2,12 +2,12 @@ import type { DropPosition } from '../command/drop-position';
 import type { Doc } from '../markdown/document-types';
 import { getLineMap } from '../markdown/line-map';
 import { parseLine } from '../parse/parse-line';
+import type { RejectReason } from '../result';
 import { canDropAt } from '../rules/container-policy';
 import { selfDrop } from '../rules/self-drop';
 import type { BlockSelection } from '../selection/block-selection';
 import { selectOne } from '../selection/block-selection';
-import { captureMoveSource, type CapturedMoveSource } from '../transaction/move-blocks';
-import type { RejectReason } from '../result';
+import { type CapturedMoveSource, captureMoveSource } from '../transaction/move-blocks';
 
 export type { RejectReason };
 
@@ -29,9 +29,7 @@ export type MovePlan = {
     indentUnit: number;
 };
 
-export type MoveResult =
-    | { type: 'ok'; value: MovePlan }
-    | { type: 'reject'; reason: RejectReason };
+export type MoveResult = { type: 'ok'; value: MovePlan } | { type: 'reject'; reason: RejectReason };
 
 export function planMove(input: PlanMoveInput): MoveResult {
     const targetDoc = input.position.doc;

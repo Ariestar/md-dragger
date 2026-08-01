@@ -1,11 +1,9 @@
-import { parseLine, isListLine } from '../parse/parse-line';
-import { Doc } from './document-types';
-import { isHorizontalRuleLine, isCalloutLine } from '../block/block-guards';
+import { isCalloutLine, isHorizontalRuleLine } from '../block/block-guards';
+import { isListLine, parseLine } from '../parse/parse-line';
+import type { Doc } from './document-types';
 
 function nowMs(): number {
-    return typeof performance !== 'undefined' && typeof performance.now === 'function'
-        ? performance.now()
-        : Date.now();
+    return typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now();
 }
 
 export interface LineMeta {
@@ -38,13 +36,7 @@ const lineMapCache = new WeakMap<object, Map<number, LineMap>>();
 
 type LineMapChangeDescLike = {
     iterChanges: (
-        callback: (
-            fromA: number,
-            toA: number,
-            fromB: number,
-            toB: number,
-            inserted: unknown
-        ) => void
+        callback: (fromA: number, toA: number, fromB: number, toB: number, inserted: unknown) => void,
     ) => void;
 };
 
@@ -61,12 +53,12 @@ const EMPTY_LINE_META: LineMeta = {
 
 function recordLineMapPerf(key: LineMapPerfDurationKey, durationMs: number): void {
     if (!lineMapPerfRecorder) return;
-    if (!isFinite(durationMs) || durationMs < 0) return;
+    if (!Number.isFinite(durationMs) || durationMs < 0) return;
     lineMapPerfRecorder(key, durationMs);
 }
 
 export function setLineMapPerfRecorder(
-    recorder: ((key: LineMapPerfDurationKey, durationMs: number) => void) | null
+    recorder: ((key: LineMapPerfDurationKey, durationMs: number) => void) | null,
 ): void {
     lineMapPerfRecorder = recorder;
 }
@@ -97,7 +89,7 @@ function createLineMetaArray(doc: Doc, tabSize: number): LineMeta[] {
 
 function buildLineMapIndexes(
     lineMeta: LineMeta[],
-    totalLines: number
+    totalLines: number,
 ): {
     prevNonEmpty: Int32Array;
     nextNonEmpty: Int32Array;
@@ -143,9 +135,7 @@ function buildLineMapIndexes(
         if (!meta.isList) {
             continue;
         }
-        listParentLine[i] = listStack.length > 0
-            ? listStack[listStack.length - 1]
-            : 0;
+        listParentLine[i] = listStack.length > 0 ? listStack[listStack.length - 1] : 0;
         listSubtreeEndLine[i] = i;
         listStack.push(i);
         previousList = i;
@@ -183,10 +173,7 @@ function createLineMapFromMeta(doc: Doc, tabSize: number, lineMeta: LineMeta[]):
     };
 }
 
-export function buildLineMap(
-    doc: Doc,
-    options: { tabSize: number }
-): LineMap {
+export function buildLineMap(doc: Doc, options: { tabSize: number }): LineMap {
     const tabSize = options.tabSize;
     const lineMeta = createLineMetaArray(doc, tabSize);
     return createLineMapFromMeta(doc, tabSize, lineMeta);
@@ -225,20 +212,22 @@ function lineNumberAtPosExclusive(doc: Doc, fromPos: number, toPos: number): num
 }
 
 function isLineMetaEqual(a: LineMeta, b: LineMeta): boolean {
-    return a.isEmpty === b.isEmpty
-        && a.isList === b.isList
-        && a.isQuote === b.isQuote
-        && a.isCallout === b.isCallout
-        && a.isTable === b.isTable
-        && a.isHr === b.isHr
-        && a.indentWidth === b.indentWidth
-        && a.quoteDepth === b.quoteDepth;
+    return (
+        a.isEmpty === b.isEmpty &&
+        a.isList === b.isList &&
+        a.isQuote === b.isQuote &&
+        a.isCallout === b.isCallout &&
+        a.isTable === b.isTable &&
+        a.isHr === b.isHr &&
+        a.indentWidth === b.indentWidth &&
+        a.quoteDepth === b.quoteDepth
+    );
 }
 
 function collectChangedLinePairs(
     oldDoc: Doc,
     newDoc: Doc,
-    changes: LineMapChangeDescLike
+    changes: LineMapChangeDescLike,
 ): Array<{ oldLine: number; newLine: number }> | null {
     if (oldDoc.lines !== newDoc.lines) return null;
     const pairs: Array<{ oldLine: number; newLine: number }> = [];
@@ -270,15 +259,15 @@ function tryReuseUnchangedIndexes(
     previousLineMap: LineMap,
     nextDoc: Doc,
     changes: LineMapChangeDescLike,
-    tabSize: number
+    tabSize: number,
 ): LineMap | null {
     const oldDoc = previousLineMap.doc as Partial<Doc>;
     const newDoc = nextDoc as Partial<Doc>;
     if (
-        typeof oldDoc.lineAt !== 'function'
-        || typeof oldDoc.length !== 'number'
-        || typeof newDoc.lineAt !== 'function'
-        || typeof newDoc.length !== 'number'
+        typeof oldDoc.lineAt !== 'function' ||
+        typeof oldDoc.length !== 'number' ||
+        typeof newDoc.lineAt !== 'function' ||
+        typeof newDoc.length !== 'number'
     ) {
         return null;
     }
@@ -314,7 +303,7 @@ function buildLineMapIncremental(
     previousLineMap: LineMap,
     nextDoc: Doc,
     changes: LineMapChangeDescLike,
-    tabSize: number
+    tabSize: number,
 ): LineMap | null {
     const oldDoc = previousLineMap.doc as Doc;
     const newDoc = nextDoc as Doc;
@@ -329,11 +318,11 @@ function buildLineMapIncremental(
         oldStartLine: number,
         oldEndLine: number,
         newStartLine: number,
-        newEndLine: number
+        newEndLine: number,
     ): void => {
         if (oldEndLine < oldStartLine && newEndLine < newStartLine) return;
-        const oldCount = oldEndLine >= oldStartLine ? (oldEndLine - oldStartLine + 1) : 0;
-        const newCount = newEndLine >= newStartLine ? (newEndLine - newStartLine + 1) : 0;
+        const oldCount = oldEndLine >= oldStartLine ? oldEndLine - oldStartLine + 1 : 0;
+        const newCount = newEndLine >= newStartLine ? newEndLine - newStartLine + 1 : 0;
         if (oldCount !== newCount) {
             failed = true;
             return;
@@ -358,12 +347,7 @@ function buildLineMapIncremental(
         const newChangedStartLine = lineNumberAtPosInclusive(newDoc, fromB);
         const newChangedEndLine = lineNumberAtPosExclusive(newDoc, fromB, toB);
 
-        copyUnchangedSegment(
-            oldCursorLine,
-            oldChangedStartLine - 1,
-            newCursorLine,
-            newChangedStartLine - 1
-        );
+        copyUnchangedSegment(oldCursorLine, oldChangedStartLine - 1, newCursorLine, newChangedStartLine - 1);
         if (failed) return;
 
         parseChangedSegment(newChangedStartLine, newChangedEndLine);
@@ -396,10 +380,11 @@ export function primeLineMapFromTransition(params: {
     const tabSize = params.tabSize;
     const previousDoc = params.previousDoc as Partial<Doc>;
     const nextDoc = params.nextDoc as Partial<Doc>;
-    const hasOffsetHelpers = typeof previousDoc.lineAt === 'function'
-        && typeof previousDoc.length === 'number'
-        && typeof nextDoc.lineAt === 'function'
-        && typeof nextDoc.length === 'number';
+    const hasOffsetHelpers =
+        typeof previousDoc.lineAt === 'function' &&
+        typeof previousDoc.length === 'number' &&
+        typeof nextDoc.lineAt === 'function' &&
+        typeof nextDoc.length === 'number';
     if (!hasOffsetHelpers) {
         const rebuildStartedAt = nowMs();
         const rebuilt = buildLineMap(params.nextDoc, { tabSize });
@@ -408,8 +393,8 @@ export function primeLineMapFromTransition(params: {
         recordLineMapPerf('line_map_get', nowMs() - startedAt);
         return rebuilt;
     }
-    const previousCached = getCachedLineMapForDoc(params.previousDoc, tabSize)
-        ?? buildLineMap(params.previousDoc, { tabSize });
+    const previousCached =
+        getCachedLineMapForDoc(params.previousDoc, tabSize) ?? buildLineMap(params.previousDoc, { tabSize });
     const fastReuseStartedAt = nowMs();
     const fastReused = tryReuseUnchangedIndexes(previousCached, params.nextDoc, params.changes, tabSize);
     if (fastReused) {
@@ -434,10 +419,7 @@ export function primeLineMapFromTransition(params: {
     return result;
 }
 
-export function getLineMap(
-    doc: Doc,
-    options: { tabSize: number }
-): LineMap {
+export function getLineMap(doc: Doc, options: { tabSize: number }): LineMap {
     const startedAt = nowMs();
     const tabSize = options.tabSize;
     if (!doc || typeof doc !== 'object') {
@@ -468,10 +450,7 @@ export function getLineMap(
     return built;
 }
 
-export function peekCachedLineMap(
-    doc: Doc,
-    options: { tabSize: number }
-): LineMap | null {
+export function peekCachedLineMap(doc: Doc, options: { tabSize: number }): LineMap | null {
     const tabSize = options.tabSize;
     if (!doc || typeof doc !== 'object') return null;
     if (!doc || typeof doc !== 'object') return null;

@@ -1,10 +1,10 @@
 import type { Block } from '../block/block-types';
 import { BlockType } from '../block/block-types';
-import { relevelListText } from './list-mutation';
 import type { DropPosition } from '../command/drop-position';
-import { dropIndentWidth } from '../markdown/drop-locate';
 import type { Doc } from '../markdown/document-types';
-import { parseLine, formatIndent } from '../parse/parse-line';
+import { dropIndentWidth } from '../markdown/drop-locate';
+import { formatIndent, parseLine } from '../parse/parse-line';
+import { relevelListText } from './list-mutation';
 
 /**
  * Text to insert for a move: relevel list indent from DropPosition.parent only,
@@ -19,21 +19,14 @@ export function insertTextForMove(params: {
     tabSize: number;
     indentUnit: number;
 }): string {
-    const {
-        sourceBlock,
-        sourceContent,
-        position,
-        tabSize,
-        indentUnit,
-    } = params;
+    const { sourceBlock, sourceContent, position, tabSize, indentUnit } = params;
 
     const parse = (line: string) => parseLine(line, tabSize);
     let text = sourceContent;
 
     // Structure only: parent list → target indent from dropIndentWidth(parent).
     // No getListContextNearLine / listSampleLine side channel.
-    const nestList = sourceBlock.type === BlockType.ListItem
-        || position.parent?.type === BlockType.ListItem;
+    const nestList = sourceBlock.type === BlockType.ListItem || position.parent?.type === BlockType.ListItem;
     if (sourceBlock.type !== BlockType.Blockquote && nestList) {
         const targetIndentWidth = dropIndentWidth(position, { tabSize, indentUnit });
         text = relevelListText({

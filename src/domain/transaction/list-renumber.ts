@@ -1,17 +1,13 @@
 import type { Doc } from '../markdown/document-types';
-import type { ParsedLine } from '../parse/types';
 import { isListLine, listMarkerText, listMarkerType } from '../parse/parse-line';
+import type { ParsedLine } from '../parse/types';
 import type { TextChange } from './block-transaction';
 
 /**
  * Renumber one contiguous ordered-list run that contains `line`
  * (same indent + quote depth). Returns marker-only TextChanges on `doc`.
  */
-export function renumberList(
-    doc: Doc,
-    parse: (line: string) => ParsedLine,
-    line: number,
-): TextChange[] {
+export function renumberList(doc: Doc, parse: (line: string) => ParsedLine, line: number): TextChange[] {
     if (line < 1 || line > doc.lines) return [];
 
     const at = (n: number) => {
@@ -61,10 +57,7 @@ export function renumberList(
  * Renumber every ordered-list run in `doc`.
  * No anchors / no special cases — full-document normalize step.
  */
-export function renumberAllOrderedLists(
-    doc: Doc,
-    parse: (line: string) => ParsedLine,
-): TextChange[] {
+export function renumberAllOrderedLists(doc: Doc, parse: (line: string) => ParsedLine): TextChange[] {
     const changes: TextChange[] = [];
     const doneRunStart = new Set<number>();
 
@@ -78,10 +71,10 @@ export function renumberAllOrderedLists(
         while (start > 1) {
             const prev = parse(doc.line(start - 1).text);
             if (
-                !isListLine(prev)
-                || listMarkerType(prev) !== 'ordered'
-                || prev.indent.width !== indent
-                || prev.quote.depth !== quote
+                !isListLine(prev) ||
+                listMarkerType(prev) !== 'ordered' ||
+                prev.indent.width !== indent ||
+                prev.quote.depth !== quote
             ) {
                 break;
             }

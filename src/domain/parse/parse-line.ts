@@ -1,4 +1,10 @@
-import { isCalloutLine, isCodeFenceLine, isHorizontalRuleLine, isMathFenceLine, isTableLine } from '../block/block-guards';
+import {
+    isCalloutLine,
+    isCodeFenceLine,
+    isHorizontalRuleLine,
+    isMathFenceLine,
+    isTableLine,
+} from '../block/block-guards';
 import type { MarkerType } from '../markdown/document-types';
 import type { Indent, LineMarker, ParsedLine } from './types';
 
@@ -166,7 +172,6 @@ export function formatIndent(width: number, tabSize: number, sample = ' '): stri
     return ' '.repeat(safeWidth);
 }
 
-
 /** Nesting step width from a concrete indent sample (spaces length, or tabSize if tabs). */
 export function indentUnit(sample: string, tabSize: number): number {
     if (sample.length === 0) {
@@ -199,7 +204,7 @@ export function indentUnitFromDoc(
         }
         prevIndent = parsed.indent.width;
     }
-    if (!isFinite(best)) {
+    if (!Number.isFinite(best)) {
         throw new Error('indentUnitFromDoc: document has no nested list sample');
     }
     if (doc && typeof doc === 'object') {
