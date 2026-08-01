@@ -9,6 +9,7 @@ export type RejectReason =
     | 'self_range_blocked'
     | 'self_embedding'
     | 'container_policy'
+    | 'inside_code_block'
     | 'inside_list'
     | 'inside_quote_run'
     | 'quote_boundary'

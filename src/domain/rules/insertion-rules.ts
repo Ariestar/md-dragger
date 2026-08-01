@@ -2,6 +2,7 @@ import { BlockType } from '../block/block-types';
 import type { RejectReason } from '../result';
 
 export type InsertionSlotContext =
+    | 'inside_code_block'
     | 'inside_list'
     | 'inside_quote_run'
     | 'quote_before'
@@ -34,6 +35,7 @@ function rejectEntries(
 }
 
 const REJECT_RULES: ReadonlyMap<RuleKey, RejectReason> = new Map<RuleKey, RejectReason>([
+    ...rejectEntries(ALL_TYPES, 'inside_code_block', 'inside_code_block'),
     ...rejectEntries(
         ALL_TYPES.filter((t) => t !== BlockType.ListItem),
         'inside_list',
