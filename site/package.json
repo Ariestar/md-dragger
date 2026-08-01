@@ -29,7 +29,7 @@
     "ink-mde": "^0.34.0",
     "katex": "^0.16.47",
     "lucide-react": "^1.17.0",
-    "md-dragger": "file:..",
+    "md-dragger": "link:..",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "tailwind-merge": "^3.6.0",

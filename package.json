@@ -5,7 +5,7 @@
   "type": "commonjs",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Ariestar/obsidian-dragger.git"
+    "url": "git+https://github.com/Ariestar/md-dragger.git"
   },
   "main": "./dist/npm/index.cjs",
   "module": "./dist/npm/index.mjs",
@@ -85,8 +85,17 @@
   "scripts": {
     "build": "node scripts/build-core-package.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "biome check src",
+    "format": "biome format --write",
+    "format:check": "biome format",
+    "test": "vitest run",
     "lint:pkg": "publint",
-    "check:types": "attw --pack --profile node16"
+    "check:types": "attw --pack --profile node16",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,mjs}": "biome check --write",
+    "*.json": "biome format --write"
   },
   "peerDependencies": {
     "@codemirror/state": "^6.0.0",
@@ -100,14 +109,22 @@
   ],
   "author": "Ariestar",
   "license": "MIT",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "packageManager": "pnpm@11.19.0",
   "devDependencies": {
-    "@types/node": "^16.11.6",
     "@arethetypeswrong/cli": "^0.18.2",
+    "@biomejs/biome": "^2.5.6",
     "@codemirror/state": "^6.6.0",
     "@codemirror/view": "^6.43.1",
-    "esbuild": "^0.17.3",
+    "@types/node": "^24.13.3",
+    "esbuild": "^0.28.1",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.2.0",
     "publint": "^0.3.15",
     "tslib": "^2.4.0",
-    "typescript": "^4.9.0"
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.10"
   }
 }
