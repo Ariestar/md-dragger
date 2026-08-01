@@ -23,6 +23,8 @@ export {
     dropIndentWidth,
     locateDropPosition,
 } from './markdown/drop-locate';
+// --- line ranges ---
+export { isLineNumberInRanges } from './markdown/line-range';
 export type { LineRange } from './markdown/line-range-types';
 export {
     type MovePlan,
@@ -43,7 +45,6 @@ export {
     parseBlock,
     parseLine,
 } from './parse';
-
 // --- plan / edit ---
 export { isReject, type Reject, type RejectReason, reject } from './result';
 // --- selection ---
