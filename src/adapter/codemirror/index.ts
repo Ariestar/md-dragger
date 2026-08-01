@@ -32,10 +32,13 @@ export {
   resolveLocateOptions,
   resolveTabSize,
   resolveListIndentUnit,
+  resolveListIndentWidthPx,
   type MdDraggerCodeMirrorOptions,
+  type CodeMirrorGeometryOptions,
   type HandleOptions,
   type LocateOptions,
   type LocateOptionInput,
+  type ListIndentWidthPx,
   type RenderHandle,
 } from './config';
 

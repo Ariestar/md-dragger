@@ -33,9 +33,15 @@ export type LocateOptions = {
 // (needed for row-as-handle, custom hit-testing, …).
 export type LocateOptionInput = LocateOptions | ((view: EditorView) => LocateOptions);
 
+// Rendered pixel width of one list nesting level. Host-owned rendering
+// knowledge (theme CSS): ink-mde 2rem, Obsidian --list-indent, …
+export type ListIndentWidthPx = number | ((view: EditorView) => number);
+
 export type MdDraggerCodeMirrorOptions = {
   // Required: tabSize + listIndentUnit. No silent defaults.
   config: Config;
+  // Required: pixel width of one rendered list nesting level (x-axis drag step).
+  listIndentWidthPx: ListIndentWidthPx;
   handle?: HandleOptions;
   locate?: LocateOptionInput;
   // Extra host observer for pipeline output (in addition to dragTransitionEffect).
@@ -43,6 +49,13 @@ export type MdDraggerCodeMirrorOptions = {
   // DefaultUx settings (gesture knobs + optional modules). Forwarded to Runtime.
   ux?: DefaultUxConfig;
 };
+
+// Geometry needs only the structural config plus the rendered indent step.
+// Shared by the adapter geometry module and consumer paint extensions.
+export type CodeMirrorGeometryOptions = Pick<
+  MdDraggerCodeMirrorOptions,
+  'config' | 'listIndentWidthPx'
+>;
 
 export function resolveConfig(config: Config): ResolvedConfig {
   const raw = typeof config === 'function' ? config() : config;
@@ -63,10 +76,25 @@ export function resolveLocateOptions(
   return typeof locate === 'function' ? locate(view) : locate;
 }
 
-export function resolveTabSize(options: MdDraggerCodeMirrorOptions): number {
+export function resolveTabSize(options: Pick<MdDraggerCodeMirrorOptions, 'config'>): number {
   return resolveConfig(options.config).tabSize;
 }
 
-export function resolveListIndentUnit(options: MdDraggerCodeMirrorOptions): number {
+export function resolveListIndentUnit(options: Pick<MdDraggerCodeMirrorOptions, 'config'>): number {
   return resolveConfig(options.config).listIndentUnit;
+}
+
+export function resolveListIndentWidthPx(
+  options: Pick<MdDraggerCodeMirrorOptions, 'listIndentWidthPx'>,
+  view: EditorView,
+): number {
+  const raw = typeof options.listIndentWidthPx === 'function'
+    ? options.listIndentWidthPx(view)
+    : options.listIndentWidthPx;
+  if (!Number.isFinite(raw) || !(raw > 0)) {
+    throw new Error(
+      `mdDragger: listIndentWidthPx must be a positive finite number, got ${String(raw)}`,
+    );
+  }
+  return raw;
 }

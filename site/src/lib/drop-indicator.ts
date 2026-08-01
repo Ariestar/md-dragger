@@ -1,10 +1,18 @@
 import type { Extension } from '@codemirror/state';
 import { EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view';
-import { dropSeam } from 'md-dragger/adapter/codemirror';
+import {
+  dropSeam,
+  type CodeMirrorGeometryOptions,
+} from 'md-dragger/adapter/codemirror';
 import type { DropPosition } from 'md-dragger/domain';
 import type { PipelineResult } from 'md-dragger/runtime';
 
-// Demo drop line: paint only from DropPosition + real line DOM (dropSeam).
+// Demo drop line: paint only from DropPosition + adapter content-band geometry.
+
+// Ink MDE renders one list nesting level as exactly 2rem.
+export function inkIndentWidthPx(): number {
+  return 2 * parseFloat(getComputedStyle(document.documentElement).fontSize);
+}
 
 let active:
   | { consume(outputs: PipelineResult['outputs']): void }
@@ -14,7 +22,7 @@ export function dropIndicatorOnChange(result: PipelineResult): void {
   active?.consume(result.outputs);
 }
 
-export function dropIndicator(): Extension {
+export function dropIndicator(options: CodeMirrorGeometryOptions): Extension {
   return ViewPlugin.fromClass(class {
     private readonly el: HTMLDivElement;
     private position: DropPosition | null = null;
@@ -75,7 +83,7 @@ export function dropIndicator(): Extension {
         return;
       }
 
-      const seam = dropSeam(this.view, position);
+      const seam = dropSeam(this.view, position, options);
       if (!seam) {
         this.el.hidden = true;
         return;

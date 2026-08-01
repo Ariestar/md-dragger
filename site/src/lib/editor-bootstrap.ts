@@ -4,9 +4,10 @@ import {
   lineAtPoint,
   mdDragger,
   sourceLineFromInput as handleSourceLineFromInput,
+  type CodeMirrorGeometryOptions,
 } from 'md-dragger/adapter/codemirror';
 import type { PressInput } from 'md-dragger/runtime';
-import { dropIndicator, dropIndicatorOnChange } from './drop-indicator';
+import { dropIndicator, dropIndicatorOnChange, inkIndentWidthPx } from './drop-indicator';
 import { handleBlockMenu } from './handle-menu';
 import { selectionHighlight, selectionHighlightOnChange } from './selection-highlight';
 
@@ -27,12 +28,17 @@ export function demoDraggerExtensions(options: DemoUxOptions = {}): Extension[] 
       : 0);
   const rowPressOnTouch = options.rowPressOnTouch !== false;
 
+  const geometryOptions: CodeMirrorGeometryOptions = {
+    config: {
+      tabSize: 4,
+      listIndentUnit: 2,
+    },
+    listIndentWidthPx: () => inkIndentWidthPx(),
+  };
+
   return [
     ...mdDragger({
-      config: {
-        tabSize: 4,
-        listIndentUnit: 2,
-      },
+      ...geometryOptions,
       ux: {
         gesture: {
           dragArmMs,
@@ -69,8 +75,8 @@ export function demoDraggerExtensions(options: DemoUxOptions = {}): Extension[] 
           })
         : undefined,
     }),
-    dropIndicator(),
-    selectionHighlight(),
+    dropIndicator(geometryOptions),
+    selectionHighlight(geometryOptions),
     handleBlockMenu(),
   ];
 }

@@ -213,15 +213,23 @@
   cursor: grabbing;
 }
 
-/* Full line-height box, left edge after indent (marker in). */
-.md-dragger-editor .cm-line.md-dragger-selected-line {
-  background-image: linear-gradient(
-    var(--md-dragger-selection-background),
-    var(--md-dragger-selection-background)
-  );
-  background-repeat: no-repeat;
-  background-position: var(--md-dragger-content-inset, 0px) 0;
-  background-size: calc(100% - var(--md-dragger-content-inset, 0px)) 100%;
+/* Selection highlight: fixed overlay boxes, same coordinate system as the
+   indicator. Left edge = content band (marker in), uniform across nesting. */
+.md-dragger-selection-layer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 999;
+  pointer-events: none;
+}
+
+.md-dragger-selected-box {
+  position: fixed;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  will-change: transform, width, height;
+  background: var(--md-dragger-selection-background);
 }
 
 /* Notion-like insert cue: same band as selection highlight. */

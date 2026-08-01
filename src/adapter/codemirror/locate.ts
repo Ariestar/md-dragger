@@ -2,15 +2,19 @@ import { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import type { Point, PressInput } from '../../runtime';
 import {
+  BlockType,
   locateDropPosition,
+  parseLine,
   type BlockSelection,
   type DropPosition,
 } from '../../domain';
 import {
   HANDLE_CLASS,
   resolveListIndentUnit,
+  resolveListIndentWidthPx,
   type MdDraggerCodeMirrorOptions,
 } from './config';
+import { lineBand } from './geometry';
 import { nativePointerEvent } from './pointer-input';
 import { viewAtPoint } from './views';
 
@@ -47,11 +51,14 @@ export function lineAtPoint(view: EditorView, point: Point): number | null {
 /**
  * Drop position on a specific view (one doc).
  * tabSize comes from the view's EditorState.tabSize.
+ * Indent widths are text columns (domain units), already derived from pixels.
  */
 export function resolveDropPosition(
   view: EditorView,
   point: Point,
   selection: BlockSelection,
+  sourceIndentWidth: number,
+  targetIndentWidth: number,
   options: MdDraggerCodeMirrorOptions,
 ): DropPosition | null {
   const hitLine = lineAtPoint(view, point);
@@ -67,22 +74,53 @@ export function resolveDropPosition(
     selection,
     hitLine,
     belowMid: inDoc ? belowMid(view, hitLine, point.y) : hitLine > doc.lines,
+    sourceIndentWidth,
+    targetIndentWidth,
     tabSize,
     indentUnit,
   });
 }
 
 /**
- * Default multi-doc drop locate: hit-test live views, then resolve on the target.
+ * Default multi-doc drop locate — two independent axes:
+ *   y → hit-test live views, seam on the target view
+ *   x → horizontal drag distance from the source content band, in rendered
+ *       list-indent steps → target indent width (domain clamps to structure)
  */
 export function resolveDropPositionAtPoint(
+  sourceView: EditorView,
   point: Point,
   selection: BlockSelection,
   options: MdDraggerCodeMirrorOptions,
 ): DropPosition | null {
+  const source = selection.blocks[0];
+  if (!source) return null;
+  const sourceDoc = sourceView.state.doc;
+  if (source.lines.startLine < 1 || source.lines.startLine > sourceDoc.lines) return null;
+
+  const originBand = lineBand(sourceView, source.lines.startLine, options);
+  if (!originBand) return null;
+
+  const indentUnit = resolveListIndentUnit(options);
+  const sourceIndentWidth = source.type === BlockType.ListItem
+    ? parseLine(
+      sourceDoc.line(source.lines.startLine).text,
+      sourceView.state.facet(EditorState.tabSize),
+    ).indent.width
+    : 0;
+  // Only list items nest on the x-axis; the rendered step is measured from
+  // list lines, so it is resolved lazily and never for paragraph sources.
+  let targetIndentWidth = sourceIndentWidth;
+  if (source.type === BlockType.ListItem) {
+    const horizontalSteps = Math.round(
+      (point.x - originBand.left) / resolveListIndentWidthPx(options, sourceView),
+    );
+    targetIndentWidth += horizontalSteps * indentUnit;
+  }
+
   const target = viewAtPoint(point.x, point.y);
   if (!target) return null;
-  return resolveDropPosition(target, point, selection, options);
+  return resolveDropPosition(target, point, selection, sourceIndentWidth, targetIndentWidth, options);
 }
 
 /** Line under point on whatever live view owns that screen position. */

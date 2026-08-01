@@ -44,7 +44,7 @@ export function dragRuntime(options: MdDraggerCodeMirrorOptions): Extension {
             ?? sourceLineFromInput(view, input),
           resolveDropPosition: (point, context) =>
             locateOverride?.resolveDropPosition?.(point, context)
-            ?? resolveDropPositionAtPoint(point, context.selection, options),
+            ?? resolveDropPositionAtPoint(view, point, context.selection, options),
           lineFromPoint: (point) =>
             locateOverride?.lineFromPoint?.(point)
             ?? lineAtScreenPoint(point)
