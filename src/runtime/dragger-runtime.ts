@@ -97,7 +97,10 @@ export class DraggerRuntime implements RuntimeController {
     }
 
     isGestureActive(): boolean {
-        return this.activeDragSession !== null;
+        // The pipeline state is the single source of truth for "a drag is in
+        // progress" — it stays in sync with activeDragSession (both are set and
+        // cleared synchronously by beginDrag/endDragSession).
+        return this.pipeline.state.type === 'dragging';
     }
 
     createSessionId(): string {

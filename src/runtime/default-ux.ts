@@ -345,6 +345,9 @@ export class DefaultUx implements Ux {
         session.selection = selection;
         session.dragActive = true;
         this.runtime().beginDrag(session.sessionId, selection, point, pointer, pointer.type, session.releaseCapture);
+        // Pointer-capture ownership moves to the runtime's active drag session,
+        // which releases it in endDragSession. Keep a single owner.
+        session.releaseCapture = undefined;
         this.emitModule('onDragStart', session, point, pointer);
     }
 
