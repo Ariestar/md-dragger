@@ -1,4 +1,3 @@
-import type { BlockType } from '../block/block-types';
 import type { MarkerType } from '../markdown/document-types';
 
 /** Indent: one shape everywhere. */
@@ -51,31 +50,3 @@ export type ParsedLine = {
     marker: LineMarker | null;
     body: string;
 };
-
-/**
- * Block structure only — no Block embed, no lines/from/to.
- * Range identity stays on Block / LineRange held by caller.
- */
-export type ParsedBlock =
-    | { type: BlockType.Paragraph }
-    | { type: BlockType.Heading; level: 1 | 2 | 3 | 4 | 5 | 6 }
-    | {
-          type: BlockType.ListItem;
-          markerType: MarkerType;
-          checked?: boolean;
-          indent: Indent;
-      }
-    | { type: BlockType.Blockquote; quoteDepth: number }
-    | { type: BlockType.Callout; calloutType: string }
-    | {
-          type: BlockType.CodeBlock;
-          lang: string | null;
-          contentLines: string[];
-      }
-    | {
-          type: BlockType.MathBlock;
-          contentLines: string[];
-      }
-    | { type: BlockType.Table }
-    | { type: BlockType.HorizontalRule }
-    | { type: BlockType.Unknown };

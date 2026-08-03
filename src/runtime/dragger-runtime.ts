@@ -3,10 +3,8 @@ import { type MoveResult, planMove } from '../domain/move/move-plan';
 import type { BlockSelection } from '../domain/selection/block-selection';
 import type { DocEdit } from '../domain/transaction/block-transaction';
 import { moveTx } from '../domain/transaction/move-blocks';
-import { DragPipeline } from '../pipeline/drag-pipeline';
-import type { DragDropSnapshot, DropResolution } from '../pipeline/pipeline-drop';
-import type { DragCancelReason } from '../pipeline/pipeline-event';
-import type { PipelineState } from '../pipeline/pipeline-state';
+import { DragPipeline } from '../pipeline/pipeline-reducer';
+import type { DragCancelReason, DragDropSnapshot, DropResolution, PipelineState } from '../pipeline/pipeline-types';
 import { DefaultUx } from './default-ux';
 import {
     DEFAULT_GESTURE_CONFIG,

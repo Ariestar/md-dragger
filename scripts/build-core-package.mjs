@@ -10,7 +10,6 @@ const common = {
     entryPoints: {
         index: 'src/index.ts',
         domain: 'src/domain/index.ts',
-        'domain/perf': 'src/domain/perf.ts',
         runtime: 'src/runtime/index.ts',
         'runtime/modules': 'src/runtime/modules/index.ts',
         'adapter/codemirror': 'src/adapter/codemirror/index.ts',

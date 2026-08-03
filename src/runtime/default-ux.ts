@@ -9,7 +9,7 @@ import {
     selectBlocks,
     selectOne,
 } from '../domain/selection/block-selection';
-import type { DragCancelReason } from '../pipeline/pipeline-event';
+import type { DragCancelReason } from '../pipeline/pipeline-types';
 import type { RuntimeController } from './dragger-runtime';
 import {
     DEFAULT_GESTURE_CONFIG,

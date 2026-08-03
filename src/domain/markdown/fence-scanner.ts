@@ -110,14 +110,6 @@ function ensureFenceScanComplete(doc: Doc): FenceLazyScanState {
     return state;
 }
 
-/**
- * Pre-warm fence scan for a document to ensure code/math block boundaries
- * are fully computed before interaction. Call this during idle time.
- */
-export function prewarmFenceScan(doc: Doc): void {
-    ensureFenceScanComplete(doc);
-}
-
 export function findMathBlockRange(doc: Doc, lineNumber: number): FenceRange | null {
     if (lineNumber < 1 || lineNumber > doc.lines) return null;
     const state = ensureFenceScanComplete(doc);

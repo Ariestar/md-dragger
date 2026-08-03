@@ -24,7 +24,3 @@ export type Block = {
     type: BlockType;
     lines: LineRange;
 };
-
-export function isContainerType(type: BlockType): boolean {
-    return type === BlockType.ListItem || type === BlockType.Blockquote || type === BlockType.Callout;
-}

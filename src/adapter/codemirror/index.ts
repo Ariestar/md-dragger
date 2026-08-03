@@ -21,7 +21,6 @@ export {
     resolveLocateOptions,
     resolveTabSize,
 } from './config';
-export { dragTransitionEffect } from './drag-events';
 export type { DropSeam, LineBand } from './geometry';
 export { dropSeam, lineBand } from './geometry';
 export { dragHandleGutter } from './handle-gutter';
@@ -40,7 +39,7 @@ export {
 // Multi-doc is default: every dragRuntime mount registers its view; commit
 // routes by DocEdit.doc; drop locate hit-tests live views.
 export { pointerInput } from './pointer-input';
-export { dragRuntime } from './runtime-plugin';
+export { dragRuntime, dragTransitionEffect } from './runtime-plugin';
 
 const editorAttributes = EditorView.editorAttributes.of({ class: EDITOR_CLASS });
 

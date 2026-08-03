@@ -23,32 +23,6 @@ export function detectBlockType(lineText: string, tabSize: number): BlockType {
     return BlockType.Paragraph;
 }
 
-export function getHeadingLevel(lineText: string, tabSize: number): number | null {
-    const p = parseLine(lineText, tabSize);
-    return p.marker?.kind === 'heading' ? p.marker.level : null;
-}
-
-export function getHeadingSectionRange(
-    doc: Doc,
-    lineNumber: number,
-    tabSize: number,
-): { startLine: number; endLine: number } | null {
-    if (lineNumber < 1 || lineNumber > doc.lines) return null;
-    const currentHeadingLevel = getHeadingLevel(doc.line(lineNumber).text, tabSize);
-    if (!currentHeadingLevel) return null;
-
-    let endLine = lineNumber;
-    for (let i = lineNumber + 1; i <= doc.lines; i++) {
-        const nextHeadingLevel = getHeadingLevel(doc.line(i).text, tabSize);
-        if (nextHeadingLevel !== null && nextHeadingLevel <= currentHeadingLevel) {
-            break;
-        }
-        endLine = i;
-    }
-
-    return { startLine: lineNumber, endLine };
-}
-
 function isCalloutHeaderLine(text: string, tabSize: number): boolean {
     return parseLine(text, tabSize).marker?.kind === 'callout';
 }
@@ -168,20 +142,6 @@ function inYamlFrontmatter(doc: Doc, lineNumber: number): boolean {
     return endLine > 0 && lineNumber >= 1 && lineNumber <= endLine;
 }
 
-type DetectPerfKey = 'detect_block_uncached';
-
-let detectBlockPerfRecorder: ((key: DetectPerfKey, durationMs: number) => void) | null = null;
-
-function recordDetectPerf(key: DetectPerfKey, durationMs: number): void {
-    if (!detectBlockPerfRecorder) return;
-    if (!Number.isFinite(durationMs) || durationMs < 0) return;
-    detectBlockPerfRecorder(key, durationMs);
-}
-
-export function setDetectPerf(recorder: ((key: DetectPerfKey, durationMs: number) => void) | null): void {
-    detectBlockPerfRecorder = recorder;
-}
-
 function detectBlockUncached(doc: Doc, lineNumber: number, tabSize: number): Block | null {
     if (lineNumber < 1 || lineNumber > doc.lines) {
         return null;
@@ -269,10 +229,6 @@ function detectBlockUncached(doc: Doc, lineNumber: number, tabSize: number): Blo
     };
 }
 
-function nowMs(): number {
-    return typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now();
-}
-
 export function detectBlock(doc: Doc, lineNumber: number, options: { tabSize: number }): Block | null {
     const tabSize = options.tabSize;
 
@@ -291,9 +247,7 @@ export function detectBlock(doc: Doc, lineNumber: number, options: { tabSize: nu
         return perDocCache.get(lineNumber) ?? null;
     }
 
-    const started = nowMs();
     const block = detectBlockUncached(doc, lineNumber, tabSize);
-    recordDetectPerf('detect_block_uncached', nowMs() - started);
 
     // Cache carefully: a list item's range includes nested list items, which are
     // their own blocks. Never cache the parent under a nested list-item start line

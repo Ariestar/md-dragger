@@ -1,15 +1,4 @@
 import type { Doc, DocLine } from '../markdown/document-types';
-import type { TextChange } from './block-transaction';
-
-/** Apply changes that are all relative to the same base string (high `from` first). */
-export function applyChanges(text: string, changes: TextChange[]): string {
-    if (changes.length === 0) return text;
-    let out = text;
-    for (const c of [...changes].sort((a, b) => b.from - a.from || b.to - a.to)) {
-        out = out.slice(0, c.from) + c.insert + out.slice(c.to);
-    }
-    return out;
-}
 
 /** Minimal Doc over a flat string (1-based lines). */
 export function stringDoc(text: string): Doc {

@@ -2,8 +2,8 @@ import type { DropPosition } from '../domain/command/drop-position';
 import type { Doc } from '../domain/markdown/document-types';
 import type { BlockSelection } from '../domain/selection/block-selection';
 import type { DocEdit } from '../domain/transaction/block-transaction';
-import type { Change } from '../pipeline/drag-pipeline';
-import type { DragCancelReason } from '../pipeline/pipeline-event';
+import type { Change } from '../pipeline/pipeline-reducer';
+import type { DragCancelReason } from '../pipeline/pipeline-types';
 
 export type Disposable = () => void;
 
@@ -100,9 +100,7 @@ export type GestureConfig = {
     multiSelectEnabled: boolean;
 };
 
-export type ResolvedGestureConfig = GestureConfig;
-
-export const DEFAULT_GESTURE_CONFIG: ResolvedGestureConfig = {
+export const DEFAULT_GESTURE_CONFIG: GestureConfig = {
     dragArmMs: 0,
     multiSelectMs: 500,
     dragStartMoveThresholdPx: 4,

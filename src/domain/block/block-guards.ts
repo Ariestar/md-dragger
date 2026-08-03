@@ -35,8 +35,3 @@ export function isCodeFenceLine(text: string | null): boolean {
     if (!text) return false;
     return text.trimStart().startsWith('```');
 }
-
-export function isListItemLine(text: string | null): boolean {
-    if (!text) return false;
-    return /^\s*(?:[-*+]\s(?:\[[ xX]\]\s+)?|\d+[.)]\s+)/.test(text);
-}

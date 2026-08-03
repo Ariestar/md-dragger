@@ -2,10 +2,6 @@ import { isCalloutLine, isHorizontalRuleLine } from '../block/block-guards';
 import { isListLine, parseLine } from '../parse/parse-line';
 import type { Doc } from './document-types';
 
-function nowMs(): number {
-    return typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now();
-}
-
 export interface LineMeta {
     isEmpty: boolean;
     isList: boolean;
@@ -28,17 +24,7 @@ export interface LineMap {
     tabSize: number;
 }
 
-type LineMapPerfDurationKey = 'line_map_get' | 'line_map_build';
-
-let lineMapPerfRecorder: ((key: LineMapPerfDurationKey, durationMs: number) => void) | null = null;
-
 const lineMapCache = new WeakMap<object, Map<number, LineMap>>();
-
-type LineMapChangeDescLike = {
-    iterChanges: (
-        callback: (fromA: number, toA: number, fromB: number, toB: number, inserted: unknown) => void,
-    ) => void;
-};
 
 const EMPTY_LINE_META: LineMeta = {
     isEmpty: true,
@@ -50,18 +36,6 @@ const EMPTY_LINE_META: LineMeta = {
     indentWidth: 0,
     quoteDepth: 0,
 };
-
-function recordLineMapPerf(key: LineMapPerfDurationKey, durationMs: number): void {
-    if (!lineMapPerfRecorder) return;
-    if (!Number.isFinite(durationMs) || durationMs < 0) return;
-    lineMapPerfRecorder(key, durationMs);
-}
-
-export function setLineMapPerfRecorder(
-    recorder: ((key: LineMapPerfDurationKey, durationMs: number) => void) | null,
-): void {
-    lineMapPerfRecorder = recorder;
-}
 
 function createLineMetaFromText(text: string, tabSize: number): LineMeta {
     const parsed = parseLine(text, tabSize);
@@ -193,266 +167,23 @@ function setCachedLineMapForDoc(doc: Doc, tabSize: number, lineMap: LineMap): vo
     lineMapCache.set(doc, new Map<number, LineMap>([[tabSize, lineMap]]));
 }
 
-function clampDocPos(doc: Doc, pos: number): number {
-    if (pos <= 0) return 0;
-    if (pos >= doc.length) return doc.length;
-    return pos;
-}
-
-function lineNumberAtPosInclusive(doc: Doc, pos: number): number {
-    const clamped = clampDocPos(doc, pos);
-    return doc.lineAt(clamped).number;
-}
-
-function lineNumberAtPosExclusive(doc: Doc, fromPos: number, toPos: number): number {
-    if (toPos <= fromPos) {
-        return lineNumberAtPosInclusive(doc, fromPos);
-    }
-    return lineNumberAtPosInclusive(doc, Math.max(fromPos, toPos - 1));
-}
-
-function isLineMetaEqual(a: LineMeta, b: LineMeta): boolean {
-    return (
-        a.isEmpty === b.isEmpty &&
-        a.isList === b.isList &&
-        a.isQuote === b.isQuote &&
-        a.isCallout === b.isCallout &&
-        a.isTable === b.isTable &&
-        a.isHr === b.isHr &&
-        a.indentWidth === b.indentWidth &&
-        a.quoteDepth === b.quoteDepth
-    );
-}
-
-function collectChangedLinePairs(
-    oldDoc: Doc,
-    newDoc: Doc,
-    changes: LineMapChangeDescLike,
-): Array<{ oldLine: number; newLine: number }> | null {
-    if (oldDoc.lines !== newDoc.lines) return null;
-    const pairs: Array<{ oldLine: number; newLine: number }> = [];
-    let valid = true;
-    changes.iterChanges((fromA, toA, fromB, toB) => {
-        if (!valid) return;
-        const oldStartLine = lineNumberAtPosInclusive(oldDoc, fromA);
-        const oldEndLine = lineNumberAtPosExclusive(oldDoc, fromA, toA);
-        const newStartLine = lineNumberAtPosInclusive(newDoc, fromB);
-        const newEndLine = lineNumberAtPosExclusive(newDoc, fromB, toB);
-        const oldCount = oldEndLine - oldStartLine + 1;
-        const newCount = newEndLine - newStartLine + 1;
-        if (oldCount !== newCount) {
-            valid = false;
-            return;
-        }
-        for (let i = 0; i < oldCount; i++) {
-            pairs.push({
-                oldLine: oldStartLine + i,
-                newLine: newStartLine + i,
-            });
-        }
-    });
-    if (!valid) return null;
-    return pairs;
-}
-
-function tryReuseUnchangedIndexes(
-    previousLineMap: LineMap,
-    nextDoc: Doc,
-    changes: LineMapChangeDescLike,
-    tabSize: number,
-): LineMap | null {
-    const oldDoc = previousLineMap.doc as Partial<Doc>;
-    const newDoc = nextDoc as Partial<Doc>;
-    if (
-        typeof oldDoc.lineAt !== 'function' ||
-        typeof oldDoc.length !== 'number' ||
-        typeof newDoc.lineAt !== 'function' ||
-        typeof newDoc.length !== 'number'
-    ) {
-        return null;
-    }
-    const oldDocTyped = oldDoc as Doc;
-    const newDocTyped = newDoc as Doc;
-    const pairs = collectChangedLinePairs(oldDocTyped, newDocTyped, changes);
-    if (!pairs) return null;
-
-    const checkedNewLines = new Set<number>();
-    for (const pair of pairs) {
-        if (checkedNewLines.has(pair.newLine)) continue;
-        checkedNewLines.add(pair.newLine);
-        const previousMeta = previousLineMap.lineMeta[pair.oldLine] ?? EMPTY_LINE_META;
-        const nextMeta = createLineMetaFromText(newDocTyped.line(pair.newLine).text ?? '', tabSize);
-        if (!isLineMetaEqual(previousMeta, nextMeta)) {
-            return null;
-        }
-    }
-
-    return {
-        doc: nextDoc,
-        lineMeta: previousLineMap.lineMeta,
-        prevNonEmpty: previousLineMap.prevNonEmpty,
-        nextNonEmpty: previousLineMap.nextNonEmpty,
-        prevListLine: previousLineMap.prevListLine,
-        listParentLine: previousLineMap.listParentLine,
-        listSubtreeEndLine: previousLineMap.listSubtreeEndLine,
-        tabSize,
-    };
-}
-
-function buildLineMapIncremental(
-    previousLineMap: LineMap,
-    nextDoc: Doc,
-    changes: LineMapChangeDescLike,
-    tabSize: number,
-): LineMap | null {
-    const oldDoc = previousLineMap.doc as Doc;
-    const newDoc = nextDoc as Doc;
-    const lineMeta = Array<LineMeta>(newDoc.lines + 1);
-    lineMeta[0] = EMPTY_LINE_META;
-
-    let oldCursorLine = 1;
-    let newCursorLine = 1;
-    let failed = false;
-
-    const copyUnchangedSegment = (
-        oldStartLine: number,
-        oldEndLine: number,
-        newStartLine: number,
-        newEndLine: number,
-    ): void => {
-        if (oldEndLine < oldStartLine && newEndLine < newStartLine) return;
-        const oldCount = oldEndLine >= oldStartLine ? oldEndLine - oldStartLine + 1 : 0;
-        const newCount = newEndLine >= newStartLine ? newEndLine - newStartLine + 1 : 0;
-        if (oldCount !== newCount) {
-            failed = true;
-            return;
-        }
-        for (let i = 0; i < oldCount; i++) {
-            lineMeta[newStartLine + i] = previousLineMap.lineMeta[oldStartLine + i] ?? EMPTY_LINE_META;
-        }
-    };
-
-    const parseChangedSegment = (newStartLine: number, newEndLine: number): void => {
-        if (newEndLine < newStartLine) return;
-        for (let line = newStartLine; line <= newEndLine; line++) {
-            const text = newDoc.line(line).text ?? '';
-            lineMeta[line] = createLineMetaFromText(text, tabSize);
-        }
-    };
-
-    changes.iterChanges((fromA, toA, fromB, toB) => {
-        if (failed) return;
-        const oldChangedStartLine = lineNumberAtPosInclusive(oldDoc, fromA);
-        const oldChangedEndLine = lineNumberAtPosExclusive(oldDoc, fromA, toA);
-        const newChangedStartLine = lineNumberAtPosInclusive(newDoc, fromB);
-        const newChangedEndLine = lineNumberAtPosExclusive(newDoc, fromB, toB);
-
-        copyUnchangedSegment(oldCursorLine, oldChangedStartLine - 1, newCursorLine, newChangedStartLine - 1);
-        if (failed) return;
-
-        parseChangedSegment(newChangedStartLine, newChangedEndLine);
-
-        oldCursorLine = oldChangedEndLine + 1;
-        newCursorLine = newChangedEndLine + 1;
-    });
-
-    if (failed) return null;
-
-    copyUnchangedSegment(oldCursorLine, oldDoc.lines, newCursorLine, newDoc.lines);
-    if (failed) return null;
-
-    for (let line = 1; line <= newDoc.lines; line++) {
-        if (lineMeta[line]) continue;
-        const text = newDoc.line(line).text ?? '';
-        lineMeta[line] = createLineMetaFromText(text, tabSize);
-    }
-
-    return createLineMapFromMeta(newDoc, tabSize, lineMeta);
-}
-
-export function primeLineMapFromTransition(params: {
-    previousDoc: Doc;
-    nextDoc: Doc;
-    changes: LineMapChangeDescLike;
-    tabSize: number;
-}): LineMap {
-    const startedAt = nowMs();
-    const tabSize = params.tabSize;
-    const previousDoc = params.previousDoc as Partial<Doc>;
-    const nextDoc = params.nextDoc as Partial<Doc>;
-    const hasOffsetHelpers =
-        typeof previousDoc.lineAt === 'function' &&
-        typeof previousDoc.length === 'number' &&
-        typeof nextDoc.lineAt === 'function' &&
-        typeof nextDoc.length === 'number';
-    if (!hasOffsetHelpers) {
-        const rebuildStartedAt = nowMs();
-        const rebuilt = buildLineMap(params.nextDoc, { tabSize });
-        recordLineMapPerf('line_map_build', nowMs() - rebuildStartedAt);
-        setCachedLineMapForDoc(params.nextDoc, tabSize, rebuilt);
-        recordLineMapPerf('line_map_get', nowMs() - startedAt);
-        return rebuilt;
-    }
-    const previousCached =
-        getCachedLineMapForDoc(params.previousDoc, tabSize) ?? buildLineMap(params.previousDoc, { tabSize });
-    const fastReuseStartedAt = nowMs();
-    const fastReused = tryReuseUnchangedIndexes(previousCached, params.nextDoc, params.changes, tabSize);
-    if (fastReused) {
-        recordLineMapPerf('line_map_build', nowMs() - fastReuseStartedAt);
-        setCachedLineMapForDoc(params.nextDoc, tabSize, fastReused);
-        recordLineMapPerf('line_map_get', nowMs() - startedAt);
-        return fastReused;
-    }
-    const incrementalStartedAt = nowMs();
-    const incremental = buildLineMapIncremental(previousCached, params.nextDoc, params.changes, tabSize);
-    let result: LineMap;
-    if (incremental) {
-        result = incremental;
-        recordLineMapPerf('line_map_build', nowMs() - incrementalStartedAt);
-    } else {
-        const rebuildStartedAt = nowMs();
-        result = buildLineMap(params.nextDoc, { tabSize });
-        recordLineMapPerf('line_map_build', nowMs() - rebuildStartedAt);
-    }
-    setCachedLineMapForDoc(params.nextDoc, tabSize, result);
-    recordLineMapPerf('line_map_get', nowMs() - startedAt);
-    return result;
-}
-
 export function getLineMap(doc: Doc, options: { tabSize: number }): LineMap {
-    const startedAt = nowMs();
     const tabSize = options.tabSize;
     if (!doc || typeof doc !== 'object') {
-        const buildStartedAt = nowMs();
-        const built = buildLineMap(doc, { tabSize });
-        recordLineMapPerf('line_map_build', nowMs() - buildStartedAt);
-        recordLineMapPerf('line_map_get', nowMs() - startedAt);
-        return built;
-    }
-    if (!doc || typeof doc !== 'object') {
-        const buildStartedAt = nowMs();
-        const built = buildLineMap(doc, { tabSize });
-        recordLineMapPerf('line_map_build', nowMs() - buildStartedAt);
-        recordLineMapPerf('line_map_get', nowMs() - startedAt);
-        return built;
+        return buildLineMap(doc, { tabSize });
     }
     const cached = getCachedLineMapForDoc(doc, tabSize);
     if (cached) {
-        recordLineMapPerf('line_map_get', nowMs() - startedAt);
         return cached;
     }
 
-    const buildStartedAt = nowMs();
     const built = buildLineMap(doc, { tabSize });
-    recordLineMapPerf('line_map_build', nowMs() - buildStartedAt);
     setCachedLineMapForDoc(doc, tabSize, built);
-    recordLineMapPerf('line_map_get', nowMs() - startedAt);
     return built;
 }
 
 export function peekCachedLineMap(doc: Doc, options: { tabSize: number }): LineMap | null {
     const tabSize = options.tabSize;
-    if (!doc || typeof doc !== 'object') return null;
     if (!doc || typeof doc !== 'object') return null;
     return getCachedLineMapForDoc(doc, tabSize);
 }

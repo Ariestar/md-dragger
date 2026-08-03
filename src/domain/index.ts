@@ -5,13 +5,11 @@
 export {
     detectBlock,
     detectBlockType,
-    getHeadingLevel,
-    getHeadingSectionRange,
 } from './block/block-detector';
 export { type ConvertTo, planConvert } from './block/block-type-conversion';
 
 // --- block identity ---
-export { type Block, BlockType, isContainerType } from './block/block-types';
+export { type Block, BlockType } from './block/block-types';
 // --- commands (type only; construct as object literals) ---
 export type { BlockCommand } from './command/block-command';
 // --- drop ---
@@ -40,9 +38,7 @@ export {
     type LineMarker,
     listMarkerText,
     listMarkerType,
-    type ParsedBlock,
     type ParsedLine,
-    parseBlock,
     parseLine,
 } from './parse';
 // --- plan / edit ---

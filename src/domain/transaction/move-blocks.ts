@@ -2,15 +2,14 @@ import type { Block } from '../block/block-types';
 import type { Doc } from '../markdown/document-types';
 import type { LineRange } from '../markdown/line-range-types';
 import type { MovePlan } from '../move/move-plan';
-import { resolveDeleteRange, resolveInsertionChange } from '../mutation/document-change';
-import { insertTextForMove } from '../mutation/text-mutation-policy';
+import { insertTextForMove, resolveDeleteRange, resolveInsertionChange } from '../mutation';
 import { parseLine } from '../parse/parse-line';
 import type { ParsedLine } from '../parse/types';
 import { type Reject, reject } from '../result';
 import { type BlockSelection, selectionLineRanges } from '../selection/block-selection';
 import type { DocEdit, TextChange } from './block-transaction';
 import { renumberAllOrderedLists } from './list-renumber';
-import { applyChanges, stringDoc } from './string-doc';
+import { stringDoc } from './string-doc';
 
 export type MoveSourceSegment = {
     lines: LineRange;
@@ -112,7 +111,6 @@ function compileDocEdit(doc: Doc, geometry: TextChange[], _parse: (line: string)
     // To re-enable: apply geometry → renumberAllOrderedLists on result → full replace.
     void renumberAllOrderedLists;
     void stringDoc;
-    void applyChanges;
     return { doc, changes: sortChanges(geometry) };
 }
 

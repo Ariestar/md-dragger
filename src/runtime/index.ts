@@ -1,6 +1,6 @@
 // DefaultUxConfig is re-exported via dragger-runtime-types.
-export type { Change, DragPipelineOptions } from '../pipeline/drag-pipeline';
-export type { PipelineOutput } from '../pipeline/pipeline-output';
+export type { Change, DragPipelineOptions } from '../pipeline/pipeline-reducer';
+export type { PipelineOutput } from '../pipeline/pipeline-types';
 export {
     DefaultUx,
     type Ux,

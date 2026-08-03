@@ -1,13 +1,17 @@
-import type { Extension } from '@codemirror/state';
-import { EditorState } from '@codemirror/state';
+import { EditorState, type Extension, StateEffect } from '@codemirror/state';
 import { type EditorView, ViewPlugin } from '@codemirror/view';
-import { DraggerRuntime } from '../../runtime';
+import { type Change, DraggerRuntime } from '../../runtime';
 import { applyCommit } from './commit';
 import { type MdDraggerCodeMirrorOptions, resolveConfig, resolveLocateOptions } from './config';
-import { dragTransitionEffect } from './drag-events';
 import { lineAtPoint, lineAtScreenPoint, resolveDropPositionAtPoint, sourceLineFromInput } from './locate';
 import { pointerInput } from './pointer-input';
 import { registerView } from './views';
+
+// Broadcast channel between the runtime plugin and any visual plugin
+// (drop indicator, selection highlight, ...) that wants to derive from
+// the pipeline output stream. dragRuntime dispatches one effect per
+// change; visual plugins read them off update.transactions.
+export const dragTransitionEffect = StateEffect.define<Change>();
 
 // Constructs the headless runtime, wires it to CodeMirror's pointer input,
 // multi-doc hit-test and commit, and rebroadcasts every pipeline transition
