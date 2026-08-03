@@ -81,8 +81,11 @@ export function resolveListIndentWidthPx(
 ): number {
     const raw =
         typeof options.listIndentWidthPx === 'function' ? options.listIndentWidthPx(view) : options.listIndentWidthPx;
-    if (!Number.isFinite(raw) || !(raw > 0)) {
-        throw new Error(`mdDragger: listIndentWidthPx must be a positive finite number, got ${String(raw)}`);
+    // Zero is a valid "no nesting" offset (single-level lists have no step to
+    // measure); only reject negative or non-finite values, which are always
+    // configuration errors.
+    if (!Number.isFinite(raw) || raw < 0) {
+        throw new Error(`mdDragger: listIndentWidthPx must be a finite non-negative number, got ${String(raw)}`);
     }
     return raw;
 }
