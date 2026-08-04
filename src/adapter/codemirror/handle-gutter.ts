@@ -35,6 +35,7 @@ class BlockHandleMarker extends GutterMarker {
 export function dragHandleGutter(options: MdDraggerCodeMirrorOptions): Extension {
     return gutter({
         class: 'md-dragger-gutter',
+        side: options.handle?.side,
         lineMarker: (view, line) => {
             const startLine = blockStartLine(view, line, options);
             if (startLine === null) return null;
