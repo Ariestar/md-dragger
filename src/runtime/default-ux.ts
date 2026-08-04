@@ -12,7 +12,6 @@ import {
 import type { DragCancelReason } from '../pipeline/pipeline-types';
 import type { RuntimeController } from './dragger-runtime';
 import {
-    DEFAULT_GESTURE_CONFIG,
     type Disposable,
     type GestureConfig,
     type InputSource,
@@ -21,14 +20,11 @@ import {
     type Pointer,
     type PressInput,
     type ReleaseInput,
+    samePointer,
     type TimerToken,
+    type Ux,
 } from './dragger-runtime-types';
 import { type DefaultUxModule, type DragUxContext, notifyModules } from './ux-module';
-
-export type Ux = {
-    mount(): void;
-    destroy(): void;
-};
 
 export type UxDeps = {
     input: InputSource;
@@ -78,7 +74,11 @@ export class DefaultUx implements Ux {
             this.disposables.push(input.onCancel((e) => this.handleCancel(e.pointer, e.releaseCapture)));
         }
         if (input.onEscape) {
-            this.disposables.push(input.onEscape(() => this.runtime().clearSelectionOrCancel()));
+            // Escape cancels with a distinct reason so hosts can tell a
+            // keyboard cancel from a short-press release (which opens menus).
+            // Returns whether a gesture was actually cancelled — the input
+            // only claims the keydown when it consumed it.
+            this.disposables.push(input.onEscape(() => this.runtime().clearSelectionOrCancel('keyboard_escape')));
         }
     }
 
@@ -86,6 +86,7 @@ export class DefaultUx implements Ux {
         this.clearTimers();
         this.pressSession?.releaseCapture?.();
         this.pressSession = null;
+        for (const module of this.modules) module.destroy?.();
         for (const dispose of this.disposables) dispose();
         this.disposables.length = 0;
     }
@@ -95,7 +96,8 @@ export class DefaultUx implements Ux {
     }
 
     private cfg(): GestureConfig {
-        return { ...DEFAULT_GESTURE_CONFIG, ...this.deps.gestureConfig() };
+        // gestureConfig() already merged DEFAULT_GESTURE_CONFIG.
+        return this.deps.gestureConfig();
     }
 
     private handlePress(input: PressInput): void {
@@ -143,7 +145,7 @@ export class DefaultUx implements Ux {
                               groupArmMs,
                           )
                         : null;
-                this.pressSession = {
+                this.pressSession = this.makeSession({
                     sessionId,
                     pointer: input.pointer,
                     start: input.point,
@@ -151,20 +153,17 @@ export class DefaultUx implements Ux {
                     selection: existing!,
                     baseSelection: existing!,
                     ready: false,
-                    rangeActive: false,
-                    toggleSweep: false,
                     selectedDragCandidate: true,
                     selectedDragReady: groupArmMs <= 0,
                     armTimer: timer,
                     multiSelectTimer: null,
                     releaseCapture: input.releaseCapture,
-                    dragActive: false,
-                };
+                });
                 return;
             }
 
             // Unselected block while selecting → toggle-sweep from here.
-            this.pressSession = {
+            this.pressSession = this.makeSession({
                 sessionId,
                 pointer: input.pointer,
                 start: input.point,
@@ -172,15 +171,12 @@ export class DefaultUx implements Ux {
                 selection: existing ?? selection,
                 baseSelection: existing ?? { blocks: [] },
                 ready: false,
-                rangeActive: false,
-                toggleSweep: false,
                 selectedDragCandidate: false,
                 selectedDragReady: false,
                 armTimer: null,
                 multiSelectTimer: null,
                 releaseCapture: input.releaseCapture,
-                dragActive: false,
-            };
+            });
             this.startToggleSweep(this.pressSession);
             return;
         }
@@ -199,7 +195,7 @@ export class DefaultUx implements Ux {
                     : null;
             const armTimer =
                 armMs > 0 ? this.deps.scheduler.setTimer(() => this.markReady(sessionId, input.pointer), armMs) : null;
-            this.pressSession = {
+            this.pressSession = this.makeSession({
                 sessionId,
                 pointer: input.pointer,
                 start: input.point,
@@ -207,15 +203,12 @@ export class DefaultUx implements Ux {
                 selection,
                 baseSelection: { blocks: [] },
                 ready: armMs <= 0,
-                rangeActive: false,
-                toggleSweep: false,
                 selectedDragCandidate: false,
                 selectedDragReady: false,
                 armTimer,
                 multiSelectTimer,
                 releaseCapture: input.releaseCapture,
-                dragActive: false,
-            };
+            });
             if (armMs <= 0) this.runtime().markHoldReady(sessionId, input.pointer.type);
             if (multiMs <= 0) this.startRangeSweep(this.pressSession);
             return;
@@ -224,7 +217,7 @@ export class DefaultUx implements Ux {
         const armMs = Math.max(0, cfg.dragArmMs);
         const armTimer =
             armMs > 0 ? this.deps.scheduler.setTimer(() => this.markReady(sessionId, input.pointer), armMs) : null;
-        this.pressSession = {
+        this.pressSession = this.makeSession({
             sessionId,
             pointer: input.pointer,
             start: input.point,
@@ -232,15 +225,12 @@ export class DefaultUx implements Ux {
             selection,
             baseSelection: { blocks: [] },
             ready: armMs <= 0,
-            rangeActive: false,
-            toggleSweep: false,
             selectedDragCandidate: false,
             selectedDragReady: false,
             armTimer,
             multiSelectTimer: null,
             releaseCapture: input.releaseCapture,
-            dragActive: false,
-        };
+        });
         if (armMs <= 0) this.markReady(sessionId, input.pointer);
     }
 
@@ -474,6 +464,31 @@ export class DefaultUx implements Ux {
         this.pressSession = null;
     }
 
+    /** One press-session shape for every branch — only the differing fields
+     * are passed; the shared defaults (no range/toggle sweep yet, not an
+     * active drag) live here. */
+    private makeSession(params: {
+        sessionId: string;
+        pointer: Pointer;
+        start: Point;
+        anchorBlock: Block;
+        selection: BlockSelection;
+        baseSelection: BlockSelection;
+        ready: boolean;
+        selectedDragCandidate: boolean;
+        selectedDragReady: boolean;
+        armTimer: TimerToken | null;
+        multiSelectTimer: TimerToken | null;
+        releaseCapture?: () => void;
+    }): PressSession {
+        return {
+            ...params,
+            rangeActive: false,
+            toggleSweep: false,
+            dragActive: false,
+        };
+    }
+
     private clearTimers(): void {
         const session = this.pressSession;
         if (!session) return;
@@ -506,10 +521,6 @@ type PressSession = {
     releaseCapture?: () => void;
     dragActive: boolean;
 };
-
-function samePointer(a: Pointer, b: Pointer): boolean {
-    return a.id === b.id;
-}
 
 function distanceBetween(a: Point, b: Point): number {
     return Math.hypot(b.x - a.x, b.y - a.y);

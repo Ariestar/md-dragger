@@ -12,6 +12,8 @@ export type RenderHandle = () => HTMLElement;
 
 export type HandleOptions = {
     render?: RenderHandle;
+    /** Gutter side — "before" (left, default) or "after" (right of content). */
+    side?: 'before' | 'after';
 };
 
 // Host-owned locate overrides. Default adapter only arms on the handle;

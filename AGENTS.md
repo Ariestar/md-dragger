@@ -62,6 +62,15 @@ Dependency rules:
 - Fix failures caused by the current change, then rerun.
 - Review the final diff and keep it task-related only.
 
+## Git Workflow
+
+- The pre-push gate must be green before any push to `origin/main` (and before merging any PR):
+  - `pnpm run typecheck`, `pnpm run lint`, `pnpm run format:check`, `pnpm test`, `pnpm run build`
+  - plus `pnpm run lint:pkg` and `pnpm run check:types` for package-affecting changes
+  - plus `bun run build` in `site/` for site changes
+- Never push a branch whose checks fail. Fix the failure, rerun the affected checks, then push.
+- A PR is merged only when its CI (`check` and `site` jobs) is green on the final head commit.
+
 ## Done
 
 - Relevant checks pass, or unrun checks are explained.
