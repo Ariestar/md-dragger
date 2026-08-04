@@ -1,75 +1,73 @@
+import type { Doc } from '../domain/markdown/document-types';
 import type { BlockSelection } from '../domain/selection/block-selection';
 import type {
     DragCancelReason,
     DragDropSnapshot,
     DropResolution,
-    GuardId,
     PipelineEvent,
     PipelineOutput,
     PipelineState,
 } from './pipeline-types';
 import { IDLE_PIPELINE_STATE } from './pipeline-types';
 
-export type Change<TPreview = unknown> = {
-    previous: PipelineState;
-    current: PipelineState;
-    outputs: PipelineOutput<TPreview>[];
-    event: PipelineEvent<TPreview>;
+export type Change = {
+    outputs: PipelineOutput[];
 };
 
-export type DragPipelineOptions<TPreview = unknown> = {
-    onChange?: (output: Change<TPreview>) => void;
+export type DragPipelineOptions = {
+    onChange?: (output: Change) => void;
 };
 
-export class DragPipeline<TPreview = unknown> {
+export class DragPipeline {
     private currentState: PipelineState = IDLE_PIPELINE_STATE;
 
-    constructor(private readonly options: DragPipelineOptions<TPreview> = {}) {}
+    constructor(private readonly options: DragPipelineOptions = {}) {}
 
     get state(): PipelineState {
         return this.currentState;
     }
 
-    enter(event: PipelineEvent<TPreview>): Change<TPreview> {
+    enter(event: PipelineEvent): Change {
         const previous = this.currentState;
         const transition = transitionPipelineState(previous, event);
         this.currentState = transition.state;
-        const output: Change<TPreview> = {
-            previous,
-            current: this.currentState,
+        const output: Change = {
             outputs: this.decorateOutputs(previous, this.currentState, event, transition.outputs),
-            event,
         };
         this.options.onChange?.(output);
         return output;
     }
 
-    clear(): Change<TPreview> {
+    clear(): Change {
         return this.enter({ type: 'destroy' });
     }
 
     private decorateOutputs(
         previous: PipelineState,
         current: PipelineState,
-        event: PipelineEvent<TPreview>,
-        outputs: PipelineOutput<TPreview>[],
-    ): PipelineOutput<TPreview>[] {
+        event: PipelineEvent,
+        outputs: PipelineOutput[],
+    ): PipelineOutput[] {
         const decorated = [...outputs];
         if (shouldClearSelectionVisual(previous, current) && !hasSelectionClearOutput(decorated)) {
             decorated.push({ type: 'selection_changed', selection: null });
         }
         if (previous.type !== 'dragging' && current.type === 'dragging') {
-            decorated.push({ type: 'drag_source_changed', selection: current.drag.selection });
+            decorated.push({
+                type: 'drag_source_changed',
+                selection: current.drag.selection,
+                sourceDoc: current.drag.sourceDoc,
+            });
         }
         // Leaving dragging must re-publish the drag source as cleared,
         // symmetric to the selecting rule — not only on the way back to
         // idle, or an overwrite like dragging → holding would leave the
         // stale source published forever.
         if (previous.type === 'dragging' && current.type !== 'dragging' && current.type !== 'idle') {
-            decorated.push({ type: 'drag_source_changed', selection: null });
+            decorated.push({ type: 'drag_source_changed', selection: null, sourceDoc: null });
         }
         if (previous.type !== 'idle' && current.type === 'idle') {
-            decorated.push({ type: 'drag_source_changed', selection: null });
+            decorated.push({ type: 'drag_source_changed', selection: null, sourceDoc: null });
         }
         const terminalReason = resolveTerminalReason(previous, current, event);
         if (terminalReason) {
@@ -100,22 +98,17 @@ function resolveTerminalReason(
             return 'cancel';
         case 'destroy':
             return 'destroy';
-        case 'guard_unavailable':
-            return 'guard_unavailable';
         default:
             return null;
     }
 }
 
-export type PipelineTransitionResult<TPreview = unknown> = {
+type PipelineTransitionResult = {
     state: PipelineState;
-    outputs: PipelineOutput<TPreview>[];
+    outputs: PipelineOutput[];
 };
 
-export function transitionPipelineState<TPreview>(
-    state: PipelineState,
-    event: PipelineEvent<TPreview>,
-): PipelineTransitionResult<TPreview> {
+function transitionPipelineState(state: PipelineState, event: PipelineEvent): PipelineTransitionResult {
     switch (event.type) {
         case 'hold_start':
             return onHoldStart(state, event);
@@ -133,23 +126,20 @@ export function transitionPipelineState<TPreview>(
             return onDrop(state, event);
         case 'cancel':
             return cancelPipeline(state, event.reason, event.pointerType ?? null);
-        case 'guard_unavailable':
-            return exitForUnavailableGuard(state, event.guardId);
         case 'destroy':
             return destroyPipeline();
     }
 }
 
-function onHoldStart<TPreview>(
+function onHoldStart(
     _state: PipelineState,
-    event: Extract<PipelineEvent<TPreview>, { type: 'hold_start' }>,
-): PipelineTransitionResult<TPreview> {
+    event: Extract<PipelineEvent, { type: 'hold_start' }>,
+): PipelineTransitionResult {
     const next: PipelineState = {
         type: 'holding',
         hold: {
             sessionId: event.sessionId,
             selection: event.selection,
-            guardDeps: withGuardDeps(event.guardDeps),
         },
     };
     return {
@@ -158,10 +148,10 @@ function onHoldStart<TPreview>(
     };
 }
 
-function onHoldReady<TPreview>(
+function onHoldReady(
     state: PipelineState,
-    event: Extract<PipelineEvent<TPreview>, { type: 'hold_ready' }>,
-): PipelineTransitionResult<TPreview> {
+    event: Extract<PipelineEvent, { type: 'hold_ready' }>,
+): PipelineTransitionResult {
     if (state.type !== 'holding' || state.hold.sessionId !== event.sessionId) {
         return { state, outputs: [] };
     }
@@ -175,15 +165,14 @@ function onHoldReady<TPreview>(
     };
 }
 
-function onSelectionSet<TPreview>(
+function onSelectionSet(
     _state: PipelineState,
-    event: Extract<PipelineEvent<TPreview>, { type: 'selection_set' }>,
-): PipelineTransitionResult<TPreview> {
+    event: Extract<PipelineEvent, { type: 'selection_set' }>,
+): PipelineTransitionResult {
     const next: PipelineState = {
         type: 'selecting',
         selection: {
             selection: event.selection,
-            guardDeps: withGuardDeps(event.guardDeps),
         },
     };
     return {
@@ -206,10 +195,10 @@ function dragSourceFrom(state: PipelineState): BlockSelection | null {
     }
 }
 
-function onDragStart<TPreview>(
+function onDragStart(
     state: PipelineState,
-    event: Extract<PipelineEvent<TPreview>, { type: 'drag_start' }>,
-): PipelineTransitionResult<TPreview> {
+    event: Extract<PipelineEvent, { type: 'drag_start' }>,
+): PipelineTransitionResult {
     if (state.type !== 'ready_to_drag' && state.type !== 'selecting') {
         return { state, outputs: [] };
     }
@@ -221,14 +210,13 @@ function onDragStart<TPreview>(
     if (sessionId !== event.sessionId) {
         return { state, outputs: [] };
     }
-    const guardDeps = state.type === 'ready_to_drag' ? state.hold.guardDeps : state.selection.guardDeps;
     const next: PipelineState = {
         type: 'dragging',
         drag: {
             sessionId: event.sessionId,
             selection: source,
             drop: event.drop,
-            guardDeps,
+            sourceDoc: event.sourceDoc,
         },
     };
     return {
@@ -238,16 +226,17 @@ function onDragStart<TPreview>(
             ...dragOver({
                 selection: next.drag.selection,
                 drop: event.drop,
+                sourceDoc: next.drag.sourceDoc,
                 pointerType: event.pointerType ?? null,
             }),
         ],
     };
 }
 
-function onDragOver<TPreview>(
+function onDragOver(
     state: PipelineState,
-    event: Extract<PipelineEvent<TPreview>, { type: 'drag_over' }>,
-): PipelineTransitionResult<TPreview> {
+    event: Extract<PipelineEvent, { type: 'drag_over' }>,
+): PipelineTransitionResult {
     if (state.type !== 'dragging' || state.drag.sessionId !== event.sessionId) {
         return { state, outputs: [] };
     }
@@ -265,16 +254,14 @@ function onDragOver<TPreview>(
             ...dragOver({
                 selection: next.drag.selection,
                 drop: event.drop,
+                sourceDoc: next.drag.sourceDoc,
                 pointerType: event.pointerType ?? null,
             }),
         ],
     };
 }
 
-function onDrop<TPreview>(
-    state: PipelineState,
-    event: Extract<PipelineEvent<TPreview>, { type: 'drop' }>,
-): PipelineTransitionResult<TPreview> {
+function onDrop(state: PipelineState, event: Extract<PipelineEvent, { type: 'drop' }>): PipelineTransitionResult {
     if (state.type !== 'dragging' || state.drag.sessionId !== event.sessionId) {
         return { state, outputs: [] };
     }
@@ -291,52 +278,51 @@ function onDrop<TPreview>(
     };
 }
 
-function dragOver<TPreview>(params: {
+function dragOver(params: {
     selection: BlockSelection;
-    drop: DragDropSnapshot<TPreview>;
+    drop: DragDropSnapshot;
+    sourceDoc: Doc;
     pointerType: string | null;
-}): PipelineOutput<TPreview>[] {
+}): PipelineOutput[] {
     return [
         {
             type: 'drag_over',
             selection: params.selection,
             drop: params.drop,
+            sourceDoc: params.sourceDoc,
             pointerType: params.pointerType,
         },
     ];
 }
 
-function drop<TPreview>(params: {
+function drop(params: {
     selection: BlockSelection;
-    resolution: DropResolution<TPreview>;
+    resolution: DropResolution;
     pointerType: string | null;
-}): PipelineOutput<TPreview>[] {
+}): PipelineOutput[] {
     if (params.resolution.type === 'cancel') {
-        return cancelDrop<TPreview>({
+        return cancelDrop({
             selection: params.selection,
             reason: params.resolution.reason ?? params.resolution.drop.rejectReason ?? 'no_target',
             pointerType: params.pointerType,
         });
     }
 
-    const outputs: PipelineOutput<TPreview>[] = [];
-    if (params.resolution.type === 'command') {
-        outputs.push({ type: 'command_ready', command: params.resolution.command });
-    }
-    outputs.push({
-        type: 'dropped',
-        selection: params.selection,
-        drop: params.resolution.drop,
-        pointerType: params.pointerType,
-    });
-    return outputs;
+    return [
+        {
+            type: 'dropped',
+            selection: params.selection,
+            drop: params.resolution.drop,
+            pointerType: params.pointerType,
+        },
+    ];
 }
 
-function cancelDrop<TPreview>(params: {
+function cancelDrop(params: {
     selection: BlockSelection | null;
     reason: DragCancelReason;
     pointerType: string | null;
-}): PipelineOutput<TPreview>[] {
+}): PipelineOutput[] {
     return [
         {
             type: 'cancelled',
@@ -347,11 +333,11 @@ function cancelDrop<TPreview>(params: {
     ];
 }
 
-function cancelPipeline<TPreview>(
+function cancelPipeline(
     state: PipelineState,
     reason: DragCancelReason,
     pointerType: string | null,
-): PipelineTransitionResult<TPreview> {
+): PipelineTransitionResult {
     if (state.type === 'idle') {
         return { state, outputs: [] };
     }
@@ -367,7 +353,7 @@ function cancelPipeline<TPreview>(
         state: IDLE_PIPELINE_STATE,
         outputs: [
             { type: 'state_changed', state: IDLE_PIPELINE_STATE },
-            ...cancelDrop<TPreview>({
+            ...cancelDrop({
                 selection: source,
                 reason,
                 pointerType,
@@ -376,7 +362,7 @@ function cancelPipeline<TPreview>(
     };
 }
 
-function clearSelection<TPreview>(state: PipelineState): PipelineTransitionResult<TPreview> {
+function clearSelection(state: PipelineState): PipelineTransitionResult {
     if (state.type !== 'selecting') {
         return { state, outputs: [] };
     }
@@ -389,34 +375,9 @@ function clearSelection<TPreview>(state: PipelineState): PipelineTransitionResul
     };
 }
 
-function exitForUnavailableGuard<TPreview>(state: PipelineState, guardId: GuardId): PipelineTransitionResult<TPreview> {
-    if (!dependsOnGuard(state, guardId)) {
-        return { state, outputs: [] };
-    }
-    return cancelPipeline(state, 'guard_unavailable', null);
-}
-
-function destroyPipeline<TPreview>(): PipelineTransitionResult<TPreview> {
+function destroyPipeline(): PipelineTransitionResult {
     return {
         state: IDLE_PIPELINE_STATE,
         outputs: [{ type: 'state_changed', state: IDLE_PIPELINE_STATE }],
     };
-}
-
-function dependsOnGuard(state: PipelineState, guardId: GuardId): boolean {
-    switch (state.type) {
-        case 'holding':
-        case 'ready_to_drag':
-            return state.hold.guardDeps.includes(guardId);
-        case 'selecting':
-            return state.selection.guardDeps.includes(guardId);
-        case 'dragging':
-            return state.drag.guardDeps.includes(guardId);
-        default:
-            return false;
-    }
-}
-
-function withGuardDeps(guardDeps?: GuardId[]): GuardId[] {
-    return [...new Set(guardDeps ?? [])];
 }

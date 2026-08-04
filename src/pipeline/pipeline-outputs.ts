@@ -1,7 +1,6 @@
 import type { Doc, DropPosition } from '../domain';
 import type { BlockSelection } from '../domain/selection/block-selection';
 import type { PipelineOutput } from './pipeline-types';
-
 /**
  * The selected blocks from one engine output batch (null = none).
  * Platform-agnostic consumer of the pipeline output contract, so hosts never
@@ -47,4 +46,24 @@ export function dropSeamState(
         }
     }
     return { position, invalid };
+}
+
+/**
+ * The doc that owns the current drag selection (drag_source_changed /
+ * drag_over carry it). Painters skip a batch whose doc is not their own —
+ * a cross-pane broadcast reaches the target view for the seam, but the
+ * source highlight must stay on the view that owns the drag.
+ */
+export function dragSelectionDoc(outputs: readonly PipelineOutput[]): Doc | null {
+    let doc: Doc | null = null;
+    for (const output of outputs) {
+        if (output.type === 'drag_source_changed') {
+            doc = output.sourceDoc;
+        } else if (output.type === 'drag_over') {
+            doc = output.sourceDoc;
+        } else if (output.type === 'cancelled' || output.type === 'terminal' || output.type === 'dropped') {
+            doc = null;
+        }
+    }
+    return doc;
 }
