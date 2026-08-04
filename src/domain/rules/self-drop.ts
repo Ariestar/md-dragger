@@ -10,8 +10,6 @@ import type { ParsedLine } from '../parse/types';
 import type { RejectReason } from '../result';
 import type { BlockSelection } from '../selection/block-selection';
 import { selectionLineRanges } from '../selection/block-selection';
-import type { InsertionSlotContext } from './insertion-rules';
-import { resolveInsertionRule } from './insertion-rules';
 
 export type SelfDropResult = {
     inSelfRange: boolean;
@@ -43,49 +41,27 @@ function isListSelection(params: {
 }
 
 /**
- * Self-drop: dropping inside the source selection range.
- * Indent intent comes only from DropPosition (dropIndentWidth) — no near-line scan.
+ * Self-drop: dropping inside the source selection range (including the
+ * no-op seam right below it). Indent intent comes only from DropPosition
+ * (dropIndentWidth) — no near-line scan. Container rules never apply here:
+ * hovering over the source block itself is a no-op for every block type,
+ * even when its own body is also a container rejection (fenced block).
  */
 export function selfDrop(params: {
     doc: Doc;
     source: BlockSelection;
     targetLineNumber: number;
     parseLineWithQuote: (line: string) => ParsedLine;
-    slotContext?: InsertionSlotContext;
     lineMap?: LineMap;
     position?: DropPosition;
     tabSize: number;
     indentUnit: number;
 }): SelfDropResult {
-    const {
-        doc,
-        source,
-        targetLineNumber,
-        parseLineWithQuote: parse,
-        slotContext,
-        lineMap,
-        position,
-        tabSize,
-        indentUnit,
-    } = params;
+    const { doc, source, targetLineNumber, parseLineWithQuote: parse, lineMap, position, tabSize, indentUnit } = params;
 
     const sourceBlock = source.blocks[0];
     if (!sourceBlock) {
         return { inSelfRange: false, allowInPlaceIndentChange: false, rejectReason: 'self_range_blocked' };
-    }
-
-    if (typeof slotContext === 'string') {
-        const containerRule = resolveInsertionRule({
-            sourceType: sourceBlock.type,
-            slotContext,
-        });
-        if (!containerRule.allowDrop) {
-            return {
-                inSelfRange: false,
-                allowInPlaceIndentChange: false,
-                rejectReason: containerRule.rejectReason ?? 'container_policy',
-            };
-        }
     }
 
     const sourceRanges = selectionLineRanges(doc.lines, source);

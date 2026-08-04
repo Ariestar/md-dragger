@@ -148,7 +148,10 @@ export function snapDropPosition(input: SnapDropPositionInput): DropPosition {
     }
 
     // Nearest first; equidistant candidates prefer the seam below (larger
-    // line) so the indicator keeps up with a downward drag.
+    // line) so the indicator keeps up with a downward drag. A candidate that
+    // the structure allows, or that is a self/no-op seam of the source block
+    // (its own boundaries), is a valid snap target — a dragged fenced block
+    // snaps back onto its own edges exactly like any other block would.
     const byDistance = [...candidates].sort((a, b) => Math.abs(a - seam) - Math.abs(b - seam) || b - a);
     for (const line of byDistance) {
         const position = locateDropPosition({
@@ -161,7 +164,8 @@ export function snapDropPosition(input: SnapDropPositionInput): DropPosition {
             tabSize,
             indentUnit,
         });
-        if (plan(position).type === 'ok') return position;
+        const planned = plan(position);
+        if (planned.type === 'ok' || NO_SNAP_REASONS.has(planned.reason)) return position;
     }
 
     return raw;

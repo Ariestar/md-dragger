@@ -44,6 +44,10 @@ export function planMove(input: PlanMoveInput): MoveResult {
     };
 
     const lineMap = getLineMap(targetDoc, { tabSize: input.tabSize });
+
+    // Container rules come first — a seam's insertability is structural and
+    // does not depend on who is being dragged. Self-drop only applies to
+    // seams the structure allows (a no-op or an in-place list indent change).
     const slot = canDropAt(targetDoc, captured.block, line, {
         lineMap,
         tabSize: input.tabSize,
@@ -63,7 +67,6 @@ export function planMove(input: PlanMoveInput): MoveResult {
             source: selectOne(captured.block),
             targetLineNumber: line,
             parseLineWithQuote: parse,
-            slotContext: slot.slotContext,
             lineMap,
             position,
             tabSize: input.tabSize,
