@@ -61,6 +61,13 @@ export class DragPipeline<TPreview = unknown> {
         if (previous.type !== 'dragging' && current.type === 'dragging') {
             decorated.push({ type: 'drag_source_changed', selection: current.drag.selection });
         }
+        // Leaving dragging must re-publish the drag source as cleared,
+        // symmetric to the selecting rule — not only on the way back to
+        // idle, or an overwrite like dragging → holding would leave the
+        // stale source published forever.
+        if (previous.type === 'dragging' && current.type !== 'dragging' && current.type !== 'idle') {
+            decorated.push({ type: 'drag_source_changed', selection: null });
+        }
         if (previous.type !== 'idle' && current.type === 'idle') {
             decorated.push({ type: 'drag_source_changed', selection: null });
         }

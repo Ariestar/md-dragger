@@ -102,7 +102,12 @@ export class DefaultUx implements Ux {
         if (input.button !== undefined && input.button !== 0) return;
 
         const lineNumber = this.deps.sourceLineFromInput(input);
-        if (lineNumber === null) return;
+        if (lineNumber === null) {
+            // Press on non-block space ends any pending multi-select, or its
+            // highlight would stay painted forever.
+            this.runtime().clearSelectionOrCancel();
+            return;
+        }
 
         const block = detectBlock(this.deps.getDoc(), lineNumber, { tabSize: this.deps.tabSize });
         if (!block) return;
@@ -110,7 +115,15 @@ export class DefaultUx implements Ux {
         // Do not claim (preventDefault) on press — that kills the browser click,
         // which hosts use for handle menus. Capture moves only; claim when drag starts.
         input.capture?.();
-        this.clearPress();
+        // A new press must terminate an active drag first: the pipeline would
+        // otherwise move dragging → holding without emitting a clear output,
+        // leaving the published drag source stale forever. cancelPress also
+        // notifies modules (auto-scroll) while the drag session is attached.
+        if (this.runtime().isGestureActive()) {
+            this.cancelPress('session_interrupted', input.pointer.type);
+        } else {
+            this.clearPress();
+        }
 
         const cfg = this.cfg();
         const sessionId = this.runtime().createSessionId();
