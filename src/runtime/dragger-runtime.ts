@@ -13,6 +13,7 @@ import {
     type Pointer,
     type ResolvedConfig,
     type RuntimeOptions,
+    samePointer,
     type Ux,
 } from './dragger-runtime-types';
 import type { CommitResult } from './ux-module';
@@ -49,9 +50,9 @@ export type RuntimeController = {
     setSelection(selection: BlockSelection): void;
     clearSelection(): void;
     cancel(reason: DragCancelReason, pointerType: string | null): void;
-    clearSelectionOrCancel(): void;
-    guardUnavailable(guardId: string): void;
-    handleMobileDragAvailabilityChanged(mobileDragAvailable: boolean): void;
+    /** Cancel/clear the active gesture; returns true when it consumed the
+     * trigger (e.g. Escape), false when the pipeline was idle. */
+    clearSelectionOrCancel(reason?: DragCancelReason): boolean;
 };
 
 export class DraggerRuntime implements RuntimeController {
@@ -84,14 +85,6 @@ export class DraggerRuntime implements RuntimeController {
         this.endDragSession();
         this.pipeline.clear();
         this.mounted = false;
-    }
-
-    guardUnavailable(guardId: string): void {
-        this.pipeline.enter({ type: 'guard_unavailable', guardId });
-    }
-
-    handleMobileDragAvailabilityChanged(mobileDragAvailable: boolean): void {
-        if (!mobileDragAvailable) this.clearSelectionOrCancel();
     }
 
     isGestureActive(): boolean {
@@ -132,6 +125,7 @@ export class DraggerRuntime implements RuntimeController {
             type: 'drag_start',
             sessionId,
             drop: this.buildDropSnapshot(selection, position),
+            sourceDoc: this.options.document.getDoc(),
             pointerType,
         });
     }
@@ -172,25 +166,6 @@ export class DraggerRuntime implements RuntimeController {
             return { kind: 'rejected' };
         }
 
-        if (this.commitMode() === 'command') {
-            this.pipeline.enter({
-                type: 'drop',
-                sessionId: drag.sessionId,
-                resolution: {
-                    type: 'command',
-                    command: {
-                        type: 'move',
-                        selection: drag.selection,
-                        position: drag.position,
-                    },
-                    drop: dropSnapshot,
-                },
-                pointerType,
-            });
-            this.endDragSession();
-            return { kind: 'command' };
-        }
-
         const edits = moveTx({ sourceDoc: this.options.document.getDoc(), plan: planned.value });
         if (!Array.isArray(edits)) {
             this.pipeline.enter({
@@ -227,12 +202,14 @@ export class DraggerRuntime implements RuntimeController {
         this.pipeline.enter({ type: 'cancel', reason, pointerType });
     }
 
-    clearSelectionOrCancel(): void {
+    clearSelectionOrCancel(reason: DragCancelReason = 'press_cancelled'): boolean {
         if (!this.isGestureActive() && this.pipeline.state.type === 'selecting') {
             this.clearSelection();
-            return;
+            return true;
         }
-        this.cancel();
+        if (this.pipeline.state.type === 'idle') return false;
+        this.cancel(reason);
+        return true;
     }
 
     private buildUx(): Ux {
@@ -258,10 +235,6 @@ export class DraggerRuntime implements RuntimeController {
     private resolveGestureConfig(uxConfig: DefaultUxConfig) {
         const raw = typeof uxConfig.gesture === 'function' ? uxConfig.gesture() : uxConfig.gesture;
         return { ...DEFAULT_GESTURE_CONFIG, ...raw };
-    }
-
-    private commitMode(): 'apply' | 'command' {
-        return this.options.commit.mode === 'command' ? 'command' : 'apply';
     }
 
     private endDragSession(): void {
@@ -329,10 +302,6 @@ export class DraggerRuntime implements RuntimeController {
         }
         return raw;
     }
-}
-
-function samePointer(a: Pointer, b: Pointer): boolean {
-    return a.id === b.id;
 }
 
 function isDragCancelReason(reason: string): reason is DragCancelReason {

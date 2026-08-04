@@ -102,16 +102,32 @@ export function moveTx(params: { sourceDoc: Doc; plan: MovePlan }): DocEdit[] | 
     return [compileDocEdit(targetDoc, geometry, parse)];
 }
 
-function compileDocEdit(doc: Doc, geometry: TextChange[], _parse: (line: string) => ParsedLine): DocEdit {
+function compileDocEdit(doc: Doc, geometry: TextChange[], parse: (line: string) => ParsedLine): DocEdit {
     if (geometry.length === 0) {
         return { doc, changes: [] };
     }
 
-    // TEMP: renumber disabled for diagnosis — geometry only.
-    // To re-enable: apply geometry → renumberAllOrderedLists on result → full replace.
-    void renumberAllOrderedLists;
-    void stringDoc;
-    return { doc, changes: sortChanges(geometry) };
+    const changes = sortChanges(geometry);
+    const edited = stringDoc(applyChanges(doc, changes));
+    const renumber = renumberAllOrderedLists(edited, parse);
+    if (renumber.length === 0) {
+        return { doc, changes };
+    }
+    // Renumber markers are computed on the post-move doc; emitting both
+    // change sets against the original doc would double-apply the move, so
+    // a whole-document replace carries move + renumber in one edit.
+    return { doc, changes: [{ from: 0, to: doc.length, insert: applyChanges(edited, renumber) }] };
+}
+
+/** Apply non-overlapping TextChanges to a doc and return the resulting text. */
+function applyChanges(doc: Doc, changes: TextChange[]): string {
+    let out = '';
+    let pos = 0;
+    for (const c of [...changes].sort((a, b) => a.from - b.from)) {
+        out += doc.sliceString(pos, c.from) + c.insert;
+        pos = c.to;
+    }
+    return out + doc.sliceString(pos, doc.length);
 }
 
 function geometryInsert(doc: Doc, targetLine: number, insertText: string): TextChange[] {
