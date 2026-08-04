@@ -86,6 +86,7 @@ export class DefaultUx implements Ux {
         this.clearTimers();
         this.pressSession?.releaseCapture?.();
         this.pressSession = null;
+        for (const module of this.modules) module.destroy?.();
         for (const dispose of this.disposables) dispose();
         this.disposables.length = 0;
     }

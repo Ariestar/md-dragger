@@ -20,6 +20,8 @@ export type DefaultUxModule = {
     onDragMove?(ctx: DragUxContext): void;
     onDragEnd?(ctx: DragUxContext, result: CommitResult): void;
     onCancel?(ctx: DragUxContext): void;
+    /** Tear down module-owned resources (timers) when the runtime is destroyed. */
+    destroy?(): void;
 };
 
 export function notifyModules(
