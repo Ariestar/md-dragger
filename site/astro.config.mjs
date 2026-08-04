@@ -9,6 +9,11 @@ const fromSiteRoot = (path) => fileURLToPath(new URL(path, import.meta.url));
 
 // https://astro.build/config
 export default defineConfig({
+  // GitHub Pages project site: https://ariestar.github.io/md-dragger/
+  site: 'https://ariestar.github.io',
+  base: '/md-dragger',
+  trailingSlash: 'always',
+
   integrations: [react()],
 
   vite: {

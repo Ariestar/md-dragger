@@ -13,7 +13,7 @@ import '@/styles/global.css';
     <div class="h-full flex flex-col">
         <header class="flex items-center justify-between px-4 py-2 bg-card">
             <div class="flex items-center gap-3">
-                <a href="/" class="text-sm text-muted-foreground hover:text-foreground transition-colors">← Back</a>
+                <a href={`${import.meta.env.BASE_URL}`} class="text-sm text-muted-foreground hover:text-foreground transition-colors">← Back</a>
                 <span class="text-sm font-medium">Dragger Playground</span>
             </div>
             <span class="text-xs text-muted-foreground">Handle drag · click handle = convert · hold 700ms = multi-select</span>

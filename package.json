@@ -83,8 +83,10 @@
     "prepare": "husky"
   },
   "lint-staged": {
-    "*.{ts,mjs}": "biome check --write",
-    "*.json": "biome format --write"
+    "{src,scripts}/**/*.{ts,mjs}": "biome check --write",
+    "./*.mjs": "biome check --write",
+    "./*.json": "biome format --write",
+    ".vscode/*.json": "biome format --write"
   },
   "peerDependencies": {
     "@codemirror/state": "^6.0.0",
