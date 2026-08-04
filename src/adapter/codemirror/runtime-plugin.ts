@@ -1,7 +1,6 @@
 import { EditorState, type Extension, StateEffect } from '@codemirror/state';
 import { type EditorView, ViewPlugin } from '@codemirror/view';
-import type { Doc } from '../../domain';
-import { type Change, DraggerRuntime, type PipelineOutput } from '../../runtime';
+import { type Change, DraggerRuntime } from '../../runtime';
 import { applyCommit } from './commit';
 import { type MdDraggerCodeMirrorOptions, resolveConfig, resolveLocateOptions } from './config';
 import { lineAtPoint, lineAtScreenPoint, resolveDropPositionAtPoint, sourceLineFromInput } from './locate';
@@ -50,16 +49,26 @@ export function dragRuntime(options: MdDraggerCodeMirrorOptions): Extension {
                         apply: (edits) => applyCommit(edits),
                     },
                     onChange: (output) => {
-                        // Reach the view under the pointer: dispatch to the
-                        // source view (its highlight) plus any view holding the
-                        // drop target doc (its seam). Each painter filters by
-                        // doc identity, so no cross-pane leakage.
-                        const targetDoc = dropTargetDoc(output.outputs);
-                        broadcastToLiveViews((v) => {
-                            if (v === view || (targetDoc !== null && v.state.doc === targetDoc)) {
-                                v.dispatch({ effects: dragTransitionEffect.of(output) });
-                            }
-                        });
+                        // Drag-lifecycle batches reach every live view; each
+                        // painter filters by doc identity (dropSeamState /
+                        // dragSelectionDoc), so the pane under the pointer
+                        // shows the seam and a pane that stops being the
+                        // target clears itself on the next batch. Selection-
+                        // only batches stay on the source view — multi-select
+                        // is single-view by nature and its outputs carry no doc.
+                        const hasDragOutput = output.outputs.some(
+                            (o) =>
+                                o.type === 'drag_source_changed' ||
+                                o.type === 'drag_over' ||
+                                o.type === 'dropped' ||
+                                o.type === 'cancelled' ||
+                                o.type === 'terminal',
+                        );
+                        if (hasDragOutput) {
+                            broadcastToLiveViews((v) => v.dispatch({ effects: dragTransitionEffect.of(output) }));
+                        } else {
+                            view.dispatch({ effects: dragTransitionEffect.of(output) });
+                        }
                         options.onChange?.(output);
                     },
                     config: () => {
@@ -80,15 +89,4 @@ export function dragRuntime(options: MdDraggerCodeMirrorOptions): Extension {
             }
         },
     );
-}
-
-/** The doc under the current drop target, if any output carries a position. */
-function dropTargetDoc(outputs: readonly PipelineOutput[]): Doc | null {
-    for (let i = outputs.length - 1; i >= 0; i--) {
-        const output = outputs[i];
-        if ((output.type === 'drag_over' || output.type === 'dropped') && output.drop.position) {
-            return output.drop.position.doc;
-        }
-    }
-    return null;
 }
