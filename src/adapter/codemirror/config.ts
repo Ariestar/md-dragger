@@ -44,6 +44,12 @@ export type MdDraggerCodeMirrorOptions = {
     onChange?: (result: PipelineResult) => void;
     // DefaultUx settings (gesture knobs + optional modules). Forwarded to Runtime.
     ux?: DefaultUxConfig;
+    // Views where the dragger must stay dormant (no handles, no drags) — e.g.
+    // Obsidian's nested table-cell editor. Called with the live view; hosts
+    // should keep the predicate cheap and DOM-based, and the adapter re-checks
+    // it per render/press because such editors are mounted detached and only
+    // become identifiable once attached.
+    enabled?: (view: EditorView) => boolean;
 };
 
 // Geometry needs only the structural config plus the rendered indent step.
@@ -67,6 +73,10 @@ export function resolveLocateOptions(
 ): LocateOptions | undefined {
     if (!locate) return undefined;
     return typeof locate === 'function' ? locate(view) : locate;
+}
+
+export function isDraggerEnabled(options: Pick<MdDraggerCodeMirrorOptions, 'enabled'>, view: EditorView): boolean {
+    return options.enabled ? options.enabled(view) : true;
 }
 
 export function resolveTabSize(options: Pick<MdDraggerCodeMirrorOptions, 'config'>): number {

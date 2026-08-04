@@ -1,8 +1,8 @@
 import { EditorState, type Extension, StateEffect } from '@codemirror/state';
 import { type EditorView, ViewPlugin } from '@codemirror/view';
-import { type Change, DraggerRuntime } from '../../runtime';
+import { type Change, DraggerRuntime, type InputSource } from '../../runtime';
 import { applyCommit } from './commit';
-import { type MdDraggerCodeMirrorOptions, resolveConfig, resolveLocateOptions } from './config';
+import { isDraggerEnabled, type MdDraggerCodeMirrorOptions, resolveConfig, resolveLocateOptions } from './config';
 import { lineAtPoint, lineAtScreenPoint, resolveDropPositionAtPoint, sourceLineFromInput } from './locate';
 import { pointerInput } from './pointer-input';
 import { broadcastToLiveViews, registerView } from './views';
@@ -23,14 +23,29 @@ export const dragTransitionEffect = StateEffect.define<Change>();
 export function dragRuntime(options: MdDraggerCodeMirrorOptions): Extension {
     return ViewPlugin.fromClass(
         class {
-            private readonly runtime: DraggerRuntime;
-            private readonly unregisterView: () => void;
+            private readonly runtime: DraggerRuntime | null = null;
+            private readonly unregisterView: (() => void) | null = null;
 
             constructor(private readonly view: EditorView) {
+                // Views the host marks disabled (e.g. Obsidian's nested
+                // table-cell editor) get no runtime at all: no pointer
+                // handlers, no live-view registration, no drag effects.
+                if (!isDraggerEnabled(options, view)) return;
                 this.unregisterView = registerView(view);
                 const locateOverride = resolveLocateOptions(options.locate, view);
+                // The predicate is re-checked per press as well: such editors
+                // are mounted detached and only become identifiable once
+                // Obsidian attaches them into the table widget.
+                const rawInput = pointerInput(view);
+                const input: InputSource = {
+                    ...rawInput,
+                    onPress: (handler) =>
+                        rawInput.onPress((press) => {
+                            if (isDraggerEnabled(options, view)) handler(press);
+                        }),
+                };
                 this.runtime = new DraggerRuntime({
-                    input: pointerInput(view),
+                    input,
                     document: {
                         getDoc: () => view.state.doc,
                     },
@@ -84,8 +99,8 @@ export function dragRuntime(options: MdDraggerCodeMirrorOptions): Extension {
             }
 
             destroy(): void {
-                this.runtime.destroy();
-                this.unregisterView();
+                this.runtime?.destroy();
+                this.unregisterView?.();
             }
         },
     );

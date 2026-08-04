@@ -1,7 +1,13 @@
 import type { Extension } from '@codemirror/state';
 import { type EditorView, GutterMarker, gutter, type BlockInfo as ViewBlockInfo } from '@codemirror/view';
 import { detectBlock } from '../../domain';
-import { HANDLE_CLASS, type MdDraggerCodeMirrorOptions, type RenderHandle, resolveTabSize } from './config';
+import {
+    HANDLE_CLASS,
+    isDraggerEnabled,
+    type MdDraggerCodeMirrorOptions,
+    type RenderHandle,
+    resolveTabSize,
+} from './config';
 
 function createDefaultHandle(): HTMLElement {
     const handle = document.createElement('button');
@@ -37,6 +43,7 @@ export function dragHandleGutter(options: MdDraggerCodeMirrorOptions): Extension
         class: 'md-dragger-gutter',
         side: options.handle?.side,
         lineMarker: (view, line) => {
+            if (!isDraggerEnabled(options, view)) return null;
             const startLine = blockStartLine(view, line, options);
             if (startLine === null) return null;
             return new BlockHandleMarker(startLine, options.handle?.render);
