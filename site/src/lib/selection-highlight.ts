@@ -5,7 +5,7 @@ import {
   type CodeMirrorGeometryOptions,
 } from 'md-dragger/adapter/codemirror';
 import type { BlockSelection } from 'md-dragger/domain';
-import type { PipelineResult } from 'md-dragger/runtime';
+import { selectionFromOutputs, type PipelineResult } from 'md-dragger/runtime';
 
 // Demo selection paint: fixed overlay boxes from the absolute lineBand rect —
 // same coordinate system as the drop indicator. No per-line CSS inset.
@@ -46,9 +46,9 @@ export function selectionHighlight(options: CodeMirrorGeometryOptions): Extensio
     }
 
     consume(outputs: PipelineResult['outputs']): void {
-      const next = selectionFromOutputs(outputs);
-      if (next === undefined) return;
-      this.selection = next;
+      // Engine helper: carries the selection through drag_over-only batches
+      // and clears it on cancel/terminal/drop — the host never re-derives it.
+      this.selection = selectionFromOutputs(outputs);
       this.paint();
     }
 
@@ -97,16 +97,4 @@ export function selectionHighlight(options: CodeMirrorGeometryOptions): Extensio
       return rects;
     }
   });
-}
-
-function selectionFromOutputs(outputs: PipelineResult['outputs']): BlockSelection | null | undefined {
-  let found: BlockSelection | null | undefined;
-  for (const output of outputs) {
-    if (output.type === 'selection_changed' || output.type === 'drag_source_changed') {
-      found = output.selection;
-    } else if (output.type === 'cancelled' || output.type === 'terminal' || output.type === 'dropped') {
-      found = null;
-    }
-  }
-  return found;
 }
