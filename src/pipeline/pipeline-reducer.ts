@@ -103,12 +103,12 @@ function resolveTerminalReason(
     }
 }
 
-export type PipelineTransitionResult = {
+type PipelineTransitionResult = {
     state: PipelineState;
     outputs: PipelineOutput[];
 };
 
-export function transitionPipelineState(state: PipelineState, event: PipelineEvent): PipelineTransitionResult {
+function transitionPipelineState(state: PipelineState, event: PipelineEvent): PipelineTransitionResult {
     switch (event.type) {
         case 'hold_start':
             return onHoldStart(state, event);

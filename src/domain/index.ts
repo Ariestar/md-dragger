@@ -2,10 +2,7 @@
 // Public surface: host-facing types and plan/edit/parse APIs only.
 // Internals (line-map, guards, capture details) stay unexported.
 
-export {
-    detectBlock,
-    detectBlockType,
-} from './block/block-detector';
+export { detectBlock } from './block/block-detector';
 export { type ConvertTo, planConvert } from './block/block-type-conversion';
 
 // --- block identity ---

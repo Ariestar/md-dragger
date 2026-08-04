@@ -12,7 +12,6 @@ import {
 import type { DragCancelReason } from '../pipeline/pipeline-types';
 import type { RuntimeController } from './dragger-runtime';
 import {
-    DEFAULT_GESTURE_CONFIG,
     type Disposable,
     type GestureConfig,
     type InputSource,
@@ -23,13 +22,9 @@ import {
     type ReleaseInput,
     samePointer,
     type TimerToken,
+    type Ux,
 } from './dragger-runtime-types';
 import { type DefaultUxModule, type DragUxContext, notifyModules } from './ux-module';
-
-export type Ux = {
-    mount(): void;
-    destroy(): void;
-};
 
 export type UxDeps = {
     input: InputSource;
@@ -100,7 +95,8 @@ export class DefaultUx implements Ux {
     }
 
     private cfg(): GestureConfig {
-        return { ...DEFAULT_GESTURE_CONFIG, ...this.deps.gestureConfig() };
+        // gestureConfig() already merged DEFAULT_GESTURE_CONFIG.
+        return this.deps.gestureConfig();
     }
 
     private handlePress(input: PressInput): void {
