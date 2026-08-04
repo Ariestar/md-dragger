@@ -82,9 +82,13 @@ export function pointerInput(view: EditorView): InputSource {
         onEscape: (handler) => {
             const listener = (event: KeyboardEvent) => {
                 if (event.key !== 'Escape') return;
-                handler();
-                event.preventDefault();
-                event.stopPropagation();
+                // Only claim the key when a gesture was actually active —
+                // an idle editor must not swallow Obsidian's own Escape
+                // (close modals, menus, command palette).
+                if (handler()) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                }
             };
             window.addEventListener('keydown', listener, true);
             return () => window.removeEventListener('keydown', listener, true);

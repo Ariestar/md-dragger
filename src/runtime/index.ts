@@ -1,6 +1,6 @@
 // DefaultUxConfig is re-exported via dragger-runtime-types.
 
-export { dropSeamState, selectionFromOutputs } from '../pipeline/pipeline-outputs';
+export { dragSelectionDoc, dropSeamState, selectionFromOutputs } from '../pipeline/pipeline-outputs';
 export type { Change, DragPipelineOptions } from '../pipeline/pipeline-reducer';
 export type { PipelineOutput } from '../pipeline/pipeline-types';
 export {

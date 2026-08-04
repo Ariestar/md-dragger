@@ -12,7 +12,7 @@ export type DragUxContext = {
     pointer: Pointer;
 };
 
-export type CommitResult = { kind: 'applied'; edits: DocEdit[] } | { kind: 'command' } | { kind: 'rejected' };
+export type CommitResult = { kind: 'applied'; edits: DocEdit[] } | { kind: 'rejected' };
 
 export type DefaultUxModule = {
     name: string;

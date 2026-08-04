@@ -10,8 +10,6 @@ export { type ConvertTo, planConvert } from './block/block-type-conversion';
 
 // --- block identity ---
 export { type Block, BlockType } from './block/block-types';
-// --- commands (type only; construct as object literals) ---
-export type { BlockCommand } from './command/block-command';
 // --- drop ---
 export type { DropPosition } from './command/drop-position';
 // --- document ---
