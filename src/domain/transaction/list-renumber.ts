@@ -54,36 +54,21 @@ export function renumberList(doc: Doc, parse: (line: string) => ParsedLine, line
 }
 
 /**
- * Renumber every ordered-list run in `doc`.
- * No anchors / no special cases — full-document normalize step.
+ * Renumber every ordered-list run touched by a move, identified by anchor
+ * rows around its insertion/deletion boundaries. Runs elsewhere in the
+ * document are left alone — a move must not rewrite unrelated numbering.
+ * Identical changes (the same run seen from two anchors) are emitted once.
  */
-export function renumberAllOrderedLists(doc: Doc, parse: (line: string) => ParsedLine): TextChange[] {
+export function renumberRunsNear(doc: Doc, parse: (line: string) => ParsedLine, anchors: number[]): TextChange[] {
     const changes: TextChange[] = [];
-    const doneRunStart = new Set<number>();
-
-    for (let i = 1; i <= doc.lines; i++) {
-        const p = parse(doc.line(i).text);
-        if (!isListLine(p) || listMarkerType(p) !== 'ordered') continue;
-
-        let start = i;
-        const indent = p.indent.width;
-        const quote = p.quote.depth;
-        while (start > 1) {
-            const prev = parse(doc.line(start - 1).text);
-            if (
-                !isListLine(prev) ||
-                listMarkerType(prev) !== 'ordered' ||
-                prev.indent.width !== indent ||
-                prev.quote.depth !== quote
-            ) {
-                break;
-            }
-            start -= 1;
+    const seen = new Set<string>();
+    for (const anchor of anchors) {
+        for (const c of renumberList(doc, parse, anchor)) {
+            const key = `${c.from}:${c.to}:${c.insert}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            changes.push(c);
         }
-        if (doneRunStart.has(start)) continue;
-        doneRunStart.add(start);
-        changes.push(...renumberList(doc, parse, start));
     }
-
     return changes;
 }
