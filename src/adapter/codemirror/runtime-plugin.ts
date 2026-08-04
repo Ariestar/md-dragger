@@ -1,11 +1,12 @@
 import { EditorState, type Extension, StateEffect } from '@codemirror/state';
 import { type EditorView, ViewPlugin } from '@codemirror/view';
-import { type Change, DraggerRuntime } from '../../runtime';
+import type { Doc } from '../../domain';
+import { type Change, DraggerRuntime, type PipelineOutput } from '../../runtime';
 import { applyCommit } from './commit';
 import { type MdDraggerCodeMirrorOptions, resolveConfig, resolveLocateOptions } from './config';
 import { lineAtPoint, lineAtScreenPoint, resolveDropPositionAtPoint, sourceLineFromInput } from './locate';
 import { pointerInput } from './pointer-input';
-import { registerView } from './views';
+import { broadcastToLiveViews, registerView } from './views';
 
 // Broadcast channel between the runtime plugin and any visual plugin
 // (drop indicator, selection highlight, ...) that wants to derive from
@@ -49,7 +50,16 @@ export function dragRuntime(options: MdDraggerCodeMirrorOptions): Extension {
                         apply: (edits) => applyCommit(edits),
                     },
                     onChange: (output) => {
-                        view.dispatch({ effects: dragTransitionEffect.of(output) });
+                        // Reach the view under the pointer: dispatch to the
+                        // source view (its highlight) plus any view holding the
+                        // drop target doc (its seam). Each painter filters by
+                        // doc identity, so no cross-pane leakage.
+                        const targetDoc = dropTargetDoc(output.outputs);
+                        broadcastToLiveViews((v) => {
+                            if (v === view || (targetDoc !== null && v.state.doc === targetDoc)) {
+                                v.dispatch({ effects: dragTransitionEffect.of(output) });
+                            }
+                        });
                         options.onChange?.(output);
                     },
                     config: () => {
@@ -70,4 +80,15 @@ export function dragRuntime(options: MdDraggerCodeMirrorOptions): Extension {
             }
         },
     );
+}
+
+/** The doc under the current drop target, if any output carries a position. */
+function dropTargetDoc(outputs: readonly PipelineOutput[]): Doc | null {
+    for (let i = outputs.length - 1; i >= 0; i--) {
+        const output = outputs[i];
+        if ((output.type === 'drag_over' || output.type === 'dropped') && output.drop.position) {
+            return output.drop.position.doc;
+        }
+    }
+    return null;
 }
