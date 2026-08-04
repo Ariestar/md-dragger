@@ -1,7 +1,7 @@
 import { EditorState, Facet, type Range } from '@codemirror/state';
 import { Decoration, type DecorationSet, type EditorView } from '@codemirror/view';
 import { type DropPosition, parseLine, selectionLineRanges } from '../../domain';
-import { dropSeamState, type PipelineOutput, selectionFromOutputs } from '../../runtime';
+import { dragSelectionDoc, dropSeamState, type PipelineOutput, selectionFromOutputs } from '../../runtime';
 import type { CodeMirrorGeometryOptions } from './config';
 import { dropSeam } from './geometry';
 
@@ -34,6 +34,13 @@ export function sourceListLevel(lineText: string, tabSize: number, indentUnit: n
 export function sourceHighlightDecoration(outputs: readonly PipelineOutput[], state: EditorState): DecorationSet {
     const selection = selectionFromOutputs(outputs);
     if (selection === null) return Decoration.none;
+    // Only the view that owns the drag paints the source highlight: a
+    // cross-pane broadcast reaches the target view for the seam, but its doc
+    // differs from the drag's source doc, so it must not highlight. Batches
+    // without drag info (multi-select selection_changed) carry no doc and
+    // only ever reach their own view — paint them.
+    const sourceDoc = dragSelectionDoc(outputs);
+    if (sourceDoc !== null && sourceDoc !== state.doc) return Decoration.none;
     const tabSize = state.facet(EditorState.tabSize);
     const indentUnit = state.facet(listIndentUnitFacet);
     // The facet is the single source of the nesting step; an unregistered
