@@ -12,7 +12,7 @@ export type DragUxContext = {
     pointer: Pointer;
 };
 
-export type CommitResult = { kind: 'applied'; edits: DocEdit[] } | { kind: 'command' } | { kind: 'rejected' };
+export type CommitResult = { kind: 'applied'; edits: DocEdit[] } | { kind: 'rejected' };
 
 export type DefaultUxModule = {
     name: string;
@@ -20,6 +20,8 @@ export type DefaultUxModule = {
     onDragMove?(ctx: DragUxContext): void;
     onDragEnd?(ctx: DragUxContext, result: CommitResult): void;
     onCancel?(ctx: DragUxContext): void;
+    /** Tear down module-owned resources (timers) when the runtime is destroyed. */
+    destroy?(): void;
 };
 
 export function notifyModules(
