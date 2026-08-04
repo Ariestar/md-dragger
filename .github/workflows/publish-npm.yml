@@ -68,4 +68,6 @@ jobs:
         run: pnpm run check:types
 
       - name: Publish to npm
-        run: pnpm publish --registry=https://registry.npmjs.org --provenance --access public
+        # --no-git-checks: the tag-push checkout is detached HEAD, which fails
+        # pnpm's default publish-branch (master|main) git check.
+        run: pnpm publish --registry=https://registry.npmjs.org --provenance --access public --no-git-checks
