@@ -8,7 +8,7 @@ import { type Block, BlockType } from './block-types';
 /**
  * Detect block type from one line of text (uses parseLine — single classification path).
  */
-export function detectBlockType(lineText: string, tabSize: number): BlockType {
+function detectBlockType(lineText: string, tabSize: number): BlockType {
     const p = parseLine(lineText, tabSize);
     if (p.marker?.kind === 'heading') return BlockType.Heading;
     if (p.marker?.kind === 'hr') return BlockType.HorizontalRule;

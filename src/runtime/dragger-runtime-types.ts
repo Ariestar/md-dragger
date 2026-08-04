@@ -64,7 +64,9 @@ export type InputSource = {
     onMove: (handler: (input: MoveInput) => void) => Disposable;
     onRelease: (handler: (input: ReleaseInput) => void) => Disposable;
     onCancel?: (handler: (input: CancelInput) => void) => Disposable;
-    onEscape?: (handler: () => void) => Disposable;
+    /** Escape keydown; the handler reports whether it consumed the key, so the
+     * host only claims the event while a gesture is actually active. */
+    onEscape?: (handler: () => boolean) => Disposable;
 };
 
 export type DocumentHost = {
@@ -81,9 +83,13 @@ export type LocateHost = {
 export type { DocEdit } from '../domain/transaction/block-transaction';
 
 export type CommitHost = {
-    mode?: 'apply' | 'command';
     apply?(edits: DocEdit[]): void;
 };
+
+/** Pointer identity — a gesture belongs to one pointer id. */
+export function samePointer(a: Pointer, b: Pointer): boolean {
+    return a.id === b.id;
+}
 
 export type ResolvedConfig = {
     tabSize: number;

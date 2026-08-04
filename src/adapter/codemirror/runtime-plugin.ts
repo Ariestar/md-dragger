@@ -5,7 +5,7 @@ import { applyCommit } from './commit';
 import { type MdDraggerCodeMirrorOptions, resolveConfig, resolveLocateOptions } from './config';
 import { lineAtPoint, lineAtScreenPoint, resolveDropPositionAtPoint, sourceLineFromInput } from './locate';
 import { pointerInput } from './pointer-input';
-import { registerView } from './views';
+import { broadcastToLiveViews, registerView } from './views';
 
 // Broadcast channel between the runtime plugin and any visual plugin
 // (drop indicator, selection highlight, ...) that wants to derive from
@@ -49,7 +49,26 @@ export function dragRuntime(options: MdDraggerCodeMirrorOptions): Extension {
                         apply: (edits) => applyCommit(edits),
                     },
                     onChange: (output) => {
-                        view.dispatch({ effects: dragTransitionEffect.of(output) });
+                        // Drag-lifecycle batches reach every live view; each
+                        // painter filters by doc identity (dropSeamState /
+                        // dragSelectionDoc), so the pane under the pointer
+                        // shows the seam and a pane that stops being the
+                        // target clears itself on the next batch. Selection-
+                        // only batches stay on the source view — multi-select
+                        // is single-view by nature and its outputs carry no doc.
+                        const hasDragOutput = output.outputs.some(
+                            (o) =>
+                                o.type === 'drag_source_changed' ||
+                                o.type === 'drag_over' ||
+                                o.type === 'dropped' ||
+                                o.type === 'cancelled' ||
+                                o.type === 'terminal',
+                        );
+                        if (hasDragOutput) {
+                            broadcastToLiveViews((v) => v.dispatch({ effects: dragTransitionEffect.of(output) }));
+                        } else {
+                            view.dispatch({ effects: dragTransitionEffect.of(output) });
+                        }
                         options.onChange?.(output);
                     },
                     config: () => {
