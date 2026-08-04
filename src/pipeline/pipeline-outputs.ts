@@ -5,12 +5,18 @@ import type { PipelineOutput } from './pipeline-types';
 /**
  * The selected blocks from one engine output batch (null = none).
  * Platform-agnostic consumer of the pipeline output contract, so hosts never
- * re-derive which output types set or clear the selection.
+ * re-derive which output types set or clear the selection. drag_over also
+ * carries the drag source: during a drag every move batch is drag_over-only,
+ * and the selection must survive it.
  */
 export function selectionFromOutputs(outputs: readonly PipelineOutput[]): BlockSelection | null {
     let selection: BlockSelection | null = null;
     for (const output of outputs) {
-        if (output.type === 'selection_changed' || output.type === 'drag_source_changed') {
+        if (
+            output.type === 'selection_changed' ||
+            output.type === 'drag_source_changed' ||
+            output.type === 'drag_over'
+        ) {
             selection = output.selection;
         } else if (output.type === 'cancelled' || output.type === 'terminal' || output.type === 'dropped') {
             selection = null;
