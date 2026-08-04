@@ -16,7 +16,5 @@
     "src/pipeline/**/*.ts",
     "src/runtime/**/*.ts"
   ],
-  "exclude": [
-    "src/**/*.spec.ts"
-  ]
+  "exclude": ["src/**/*.spec.ts"]
 }
