@@ -20,7 +20,11 @@ import { dragRuntime } from './runtime-plugin';
 export { applyCommit } from './commit';
 export {
     type CodeMirrorGeometryOptions,
+    type CommitOptionInput,
+    type CommitOptions,
     EDITOR_CLASS,
+    type ExternalTargetOptionInput,
+    type ExternalTargetOptions,
     HANDLE_CLASS,
     type HandleOptions,
     type ListIndentWidthPx,
@@ -28,11 +32,15 @@ export {
     type LocateOptions,
     type MdDraggerCodeMirrorOptions,
     type RenderHandle,
+    resolveCommitOptions,
     resolveConfig,
+    resolveExternalTargetOptions,
     resolveListIndentUnit,
     resolveListIndentWidthPx,
     resolveLocateOptions,
     resolveTabSize,
+    resolveUxOptions,
+    type UxOptionInput,
 } from './config';
 export type { DropSeam, LineBand } from './geometry';
 export { dropSeam, lineBand } from './geometry';

@@ -16,7 +16,7 @@ import {
     samePointer,
     type Ux,
 } from './dragger-runtime-types';
-import type { CommitResult } from './ux-module';
+import type { CommitOutcome, CommitResult } from './ux-module';
 
 type ActiveDragSession = {
     sessionId: string;
@@ -33,6 +33,7 @@ type ActiveDragSession = {
 export type RuntimeController = {
     readonly state: PipelineState;
     isGestureActive(): boolean;
+    isCommitPending(): boolean;
     createSessionId(): string;
     beginHold(sessionId: string, selection: BlockSelection, pointerType: string | null): void;
     markHoldReady(sessionId: string, pointerType: string | null): void;
@@ -45,7 +46,12 @@ export type RuntimeController = {
         releaseCapture?: () => void,
     ): void;
     moveDrag(sessionId: string, point: Point, pointer: Pointer, pointerType: string | null): void;
-    commitDrop(sessionId: string, point: Point, pointer: Pointer, pointerType: string | null): CommitResult | undefined;
+    commitDrop(
+        sessionId: string,
+        point: Point,
+        pointer: Pointer,
+        pointerType: string | null,
+    ): CommitOutcome | undefined;
     /** Replace the persistent multi-select result. */
     setSelection(selection: BlockSelection): void;
     clearSelection(): void;
@@ -61,6 +67,7 @@ export class DraggerRuntime implements RuntimeController {
     private mounted = false;
     private nextSessionNumber = 1;
     private ux: Ux | null = null;
+    private pendingCommitSessionId: string | null = null;
 
     constructor(private readonly options: RuntimeOptions) {
         this.pipeline = new DragPipeline({
@@ -82,6 +89,7 @@ export class DraggerRuntime implements RuntimeController {
     destroy(): void {
         this.ux?.destroy();
         this.ux = null;
+        this.pendingCommitSessionId = null;
         this.endDragSession();
         this.pipeline.clear();
         this.mounted = false;
@@ -94,6 +102,10 @@ export class DraggerRuntime implements RuntimeController {
         return this.pipeline.state.type === 'dragging';
     }
 
+    isCommitPending(): boolean {
+        return this.pendingCommitSessionId !== null;
+    }
+
     createSessionId(): string {
         const sessionId = `runtime-${this.nextSessionNumber}`;
         this.nextSessionNumber += 1;
@@ -101,6 +113,7 @@ export class DraggerRuntime implements RuntimeController {
     }
 
     beginHold(sessionId: string, selection: BlockSelection, pointerType: string | null): void {
+        if (this.isCommitPending()) return;
         this.pipeline.enter({ type: 'hold_start', sessionId, selection, pointerType });
     }
 
@@ -118,6 +131,7 @@ export class DraggerRuntime implements RuntimeController {
         pointerType: string | null,
         releaseCapture?: () => void,
     ): void {
+        if (this.isCommitPending()) return;
         this.endDragSession();
         const position = this.resolvePosition(point, selection);
         this.activeDragSession = { sessionId, pointer, selection, position, releaseCapture };
@@ -147,7 +161,7 @@ export class DraggerRuntime implements RuntimeController {
         point: Point,
         pointer: Pointer,
         pointerType: string | null,
-    ): CommitResult | undefined {
+    ): CommitOutcome | undefined {
         const drag = this.activeDragSession;
         if (!drag || drag.sessionId !== sessionId || !samePointer(drag.pointer, pointer)) return;
 
@@ -178,15 +192,22 @@ export class DraggerRuntime implements RuntimeController {
             return { kind: 'rejected' };
         }
 
-        this.pipeline.enter({
-            type: 'drop',
-            sessionId: drag.sessionId,
-            resolution: { type: 'platform_commit', drop: dropSnapshot },
-            pointerType,
-        });
-        this.endDragSession();
-        this.options.commit.apply?.(edits as DocEdit[]);
-        return { kind: 'applied', edits: edits as DocEdit[] };
+        const plannedEdits = edits as DocEdit[];
+        try {
+            const application = this.options.commit.apply?.(plannedEdits);
+            if (isPromiseLike(application)) {
+                this.pendingCommitSessionId = drag.sessionId;
+                drag.releaseCapture?.();
+                drag.releaseCapture = undefined;
+                return application.then(
+                    () => this.finishAppliedDrop(drag.sessionId, dropSnapshot, plannedEdits, pointerType),
+                    () => this.finishRejectedDrop(drag.sessionId, dropSnapshot, pointerType),
+                );
+            }
+            return this.finishAppliedDrop(drag.sessionId, dropSnapshot, plannedEdits, pointerType);
+        } catch {
+            return this.finishRejectedDrop(drag.sessionId, dropSnapshot, pointerType);
+        }
     }
 
     setSelection(selection: BlockSelection): void {
@@ -198,11 +219,13 @@ export class DraggerRuntime implements RuntimeController {
     }
 
     cancel(reason: DragCancelReason = 'press_cancelled', pointerType: string | null = null): void {
+        if (this.isCommitPending()) return;
         this.endDragSession();
         this.pipeline.enter({ type: 'cancel', reason, pointerType });
     }
 
     clearSelectionOrCancel(reason: DragCancelReason = 'press_cancelled'): boolean {
+        if (this.isCommitPending()) return true;
         if (!this.isGestureActive() && this.pipeline.state.type === 'selecting') {
             this.clearSelection();
             return true;
@@ -227,9 +250,41 @@ export class DraggerRuntime implements RuntimeController {
             lineFromPoint: (point) => this.options.locate.lineFromPoint?.(point) ?? null,
             tabSize: this.config().tabSize,
             gestureConfig: () => this.resolveGestureConfig(uxConfig),
+            selectionFromInput: uxConfig.selectionFromInput,
             scheduler,
             modules: uxConfig.modules ?? [],
         });
+    }
+
+    private finishAppliedDrop(
+        sessionId: string,
+        drop: DragDropSnapshot,
+        edits: DocEdit[],
+        pointerType: string | null,
+    ): CommitResult {
+        if (this.activeDragSession?.sessionId !== sessionId) return { kind: 'rejected' };
+        this.pendingCommitSessionId = null;
+        this.pipeline.enter({
+            type: 'drop',
+            sessionId,
+            resolution: { type: 'platform_commit', drop },
+            pointerType,
+        });
+        this.endDragSession();
+        return { kind: 'applied', edits };
+    }
+
+    private finishRejectedDrop(sessionId: string, drop: DragDropSnapshot, pointerType: string | null): CommitResult {
+        if (this.activeDragSession?.sessionId !== sessionId) return { kind: 'rejected' };
+        this.pendingCommitSessionId = null;
+        this.pipeline.enter({
+            type: 'drop',
+            sessionId,
+            resolution: this.cancelDrop(drop, 'commit_failed'),
+            pointerType,
+        });
+        this.endDragSession();
+        return { kind: 'rejected' };
     }
 
     private resolveGestureConfig(uxConfig: DefaultUxConfig) {
@@ -302,6 +357,10 @@ export class DraggerRuntime implements RuntimeController {
         }
         return raw;
     }
+}
+
+function isPromiseLike(value: void | Promise<void>): value is Promise<void> {
+    return value !== undefined && typeof value.then === 'function';
 }
 
 function isDragCancelReason(reason: string): reason is DragCancelReason {

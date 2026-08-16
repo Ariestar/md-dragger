@@ -18,7 +18,8 @@ export type DragCancelReason =
     | 'quote_boundary'
     | 'callout_after'
     | 'table_before'
-    | 'hr_before';
+    | 'hr_before'
+    | 'commit_failed';
 
 export type DragDropSnapshot = {
     position: DropPosition | null;

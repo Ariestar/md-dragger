@@ -34,6 +34,7 @@ export type UxDeps = {
     lineFromPoint: (point: Point) => number | null;
     tabSize: number;
     gestureConfig: () => GestureConfig;
+    selectionFromInput?: (input: PressInput, anchorBlock: Block) => BlockSelection | null;
     scheduler: {
         setTimer(callback: () => void, delayMs: number): TimerToken;
         clearTimer(token: TimerToken): void;
@@ -102,6 +103,7 @@ export class DefaultUx implements Ux {
 
     private handlePress(input: PressInput): void {
         if (input.button !== undefined && input.button !== 0) return;
+        if (this.runtime().isCommitPending()) return;
 
         const lineNumber = this.deps.sourceLineFromInput(input);
         if (lineNumber === null) {
@@ -129,9 +131,12 @@ export class DefaultUx implements Ux {
 
         const cfg = this.cfg();
         const sessionId = this.runtime().createSessionId();
-        const selection = selectOne(block);
+        const suppliedSelection = this.deps.selectionFromInput?.(input, block) ?? null;
+        const usesSuppliedSelection = suppliedSelection !== null && suppliedSelection.blocks.length > 0;
+        const selection = usesSuppliedSelection ? suppliedSelection : selectOne(block);
         const existing = this.currentSelection();
-        const inSelecting = cfg.multiSelectEnabled && this.runtime().state.type === 'selecting';
+        const inSelecting =
+            !usesSuppliedSelection && cfg.multiSelectEnabled && this.runtime().state.type === 'selecting';
         const selectedDragCandidate = inSelecting && existing !== null && hasBlock(existing, block);
 
         if (inSelecting) {
@@ -182,6 +187,28 @@ export class DefaultUx implements Ux {
         }
 
         this.runtime().beginHold(sessionId, selection, input.pointer.type);
+
+        if (usesSuppliedSelection) {
+            const armMs = Math.max(0, cfg.dragArmMs);
+            const armTimer =
+                armMs > 0 ? this.deps.scheduler.setTimer(() => this.markReady(sessionId, input.pointer), armMs) : null;
+            this.pressSession = this.makeSession({
+                sessionId,
+                pointer: input.pointer,
+                start: input.point,
+                anchorBlock: block,
+                selection,
+                baseSelection: { blocks: [] },
+                ready: armMs <= 0,
+                selectedDragCandidate: false,
+                selectedDragReady: false,
+                armTimer,
+                multiSelectTimer: null,
+                releaseCapture: input.releaseCapture,
+            });
+            if (armMs <= 0) this.markReady(sessionId, input.pointer);
+            return;
+        }
 
         if (cfg.multiSelectEnabled) {
             const multiMs = Math.max(0, cfg.multiSelectMs);
@@ -292,7 +319,13 @@ export class DefaultUx implements Ux {
         const session = this.pressSession;
         if (this.runtime().isGestureActive() && session && samePointer(session.pointer, input.pointer)) {
             const result = this.runtime().commitDrop(session.sessionId, input.point, input.pointer, input.pointer.type);
-            this.emitModule('onDragEnd', session, input.point, input.pointer, result ?? { kind: 'rejected' });
+            if (isPromiseLike(result)) {
+                void result.then((resolved) =>
+                    this.emitModule('onDragEnd', session, input.point, input.pointer, resolved),
+                );
+            } else {
+                this.emitModule('onDragEnd', session, input.point, input.pointer, result ?? { kind: 'rejected' });
+            }
             this.pressSession = null;
             return;
         }
@@ -501,6 +534,10 @@ export class DefaultUx implements Ux {
             session.multiSelectTimer = null;
         }
     }
+}
+
+function isPromiseLike<T>(value: T | Promise<T> | undefined): value is Promise<T> {
+    return value !== undefined && typeof (value as Promise<T>).then === 'function';
 }
 
 type PressSession = {

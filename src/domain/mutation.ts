@@ -5,6 +5,7 @@ import type { Doc } from './markdown/document-types';
 import { dropIndentWidth } from './markdown/drop-locate';
 import { formatIndent, isListLine, parseLine } from './parse/parse-line';
 import type { ParsedLine } from './parse/types';
+import type { TextChange } from './transaction/block-transaction';
 
 export function resolveInsertionChange(
     doc: Doc,
@@ -32,6 +33,19 @@ export function resolveInsertionChange(
         pos: doc.length,
         text: `\n${normalized}`,
     };
+}
+
+/** Rebase an end-of-document insertion planned against a stale snapshot. */
+export function rebaseAppendChange(
+    snapshotDoc: Doc,
+    change: TextChange,
+    currentDoc: Doc,
+): { pos: number; text: string } | null {
+    if (change.from !== snapshotDoc.length || change.to !== snapshotDoc.length || !change.insert.length) {
+        return null;
+    }
+    const payload = snapshotDoc.length > 0 && change.insert.startsWith('\n') ? change.insert.slice(1) : change.insert;
+    return resolveInsertionChange(currentDoc, currentDoc.lines + 1, payload);
 }
 
 export function resolveDeleteRange(doc: Doc, sourceFrom: number, sourceTo: number): { from: number; to: number } {

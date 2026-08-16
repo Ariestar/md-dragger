@@ -1,8 +1,17 @@
 import { EditorState, type Extension, StateEffect } from '@codemirror/state';
 import { type EditorView, ViewPlugin } from '@codemirror/view';
-import { type Change, DraggerRuntime, type InputSource } from '../../runtime';
+import type { BlockSelection, DropPosition } from '../../domain';
+import { type Change, DraggerRuntime, type InputSource, type Point } from '../../runtime';
 import { applyCommit } from './commit';
-import { isDraggerEnabled, type MdDraggerCodeMirrorOptions, resolveConfig, resolveLocateOptions } from './config';
+import {
+    isDraggerEnabled,
+    type MdDraggerCodeMirrorOptions,
+    resolveCommitOptions,
+    resolveConfig,
+    resolveExternalTargetOptions,
+    resolveLocateOptions,
+    resolveUxOptions,
+} from './config';
 import { lineAtPoint, lineAtScreenPoint, resolveDropPositionAtPoint, sourceLineFromInput } from './locate';
 import { pointerInput } from './pointer-input';
 import { broadcastToLiveViews, registerView } from './views';
@@ -33,6 +42,9 @@ export function dragRuntime(options: MdDraggerCodeMirrorOptions): Extension {
                 if (!isDraggerEnabled(options, view)) return;
                 this.unregisterView = registerView(view);
                 const locateOverride = resolveLocateOptions(options.locate, view);
+                const externalTarget = resolveExternalTargetOptions(options.externalTarget, view);
+                const ux = resolveUxOptions(options.ux, view);
+                const commit = resolveCommitOptions(options.commit, view) ?? { apply: applyCommit };
                 // The predicate is re-checked per press as well: such editors
                 // are mounted detached and only become identifiable once
                 // Obsidian attaches them into the table widget.
@@ -53,16 +65,20 @@ export function dragRuntime(options: MdDraggerCodeMirrorOptions): Extension {
                         sourceLineFromInput: (input) =>
                             locateOverride?.sourceLineFromInput?.(input) ?? sourceLineFromInput(view, input),
                         resolveDropPosition: (point, context) =>
-                            locateOverride?.resolveDropPosition?.(point, context) ??
-                            resolveDropPositionAtPoint(view, point, context.selection, options),
+                            resolveDropPositionWithExternalTarget(
+                                externalTarget?.resolveDropPosition,
+                                (fallbackPoint, fallbackContext) =>
+                                    locateOverride?.resolveDropPosition?.(fallbackPoint, fallbackContext) ??
+                                    resolveDropPositionAtPoint(view, fallbackPoint, fallbackContext.selection, options),
+                                point,
+                                context,
+                            ),
                         lineFromPoint: (point) =>
                             locateOverride?.lineFromPoint?.(point) ??
                             lineAtScreenPoint(point) ??
                             lineAtPoint(view, point),
                     },
-                    commit: {
-                        apply: (edits) => applyCommit(edits),
-                    },
+                    commit,
                     onChange: (output) => {
                         // Drag-lifecycle batches reach every live view; each
                         // painter filters by doc identity (dropSeamState /
@@ -93,7 +109,7 @@ export function dragRuntime(options: MdDraggerCodeMirrorOptions): Extension {
                             listIndentUnit: raw.listIndentUnit,
                         });
                     },
-                    ux: options.ux,
+                    ux,
                 });
                 this.runtime.mount();
             }
@@ -104,4 +120,16 @@ export function dragRuntime(options: MdDraggerCodeMirrorOptions): Extension {
             }
         },
     );
+}
+
+export function resolveDropPositionWithExternalTarget(
+    resolveExternal:
+        | ((point: Point, context: { selection: BlockSelection }) => DropPosition | null | undefined)
+        | undefined,
+    resolveFallback: (point: Point, context: { selection: BlockSelection }) => DropPosition | null,
+    point: Point,
+    context: { selection: BlockSelection },
+): DropPosition | null {
+    const external = resolveExternal?.(point, context);
+    return external === undefined ? resolveFallback(point, context) : external;
 }

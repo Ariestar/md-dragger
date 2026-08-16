@@ -1,4 +1,6 @@
+import { detectBlock } from '../block/block-detector';
 import type { Block } from '../block/block-types';
+import type { Doc } from '../markdown/document-types';
 import { mergeLineRanges } from '../markdown/line-range';
 import type { LineRange } from '../markdown/line-range-types';
 
@@ -44,6 +46,43 @@ export function removeBlocks(selection: BlockSelection, blocks: Block[]): BlockS
 export function hasBlock(selection: BlockSelection, block: Block): boolean {
     const key = blockKey(block);
     return selection.blocks.some((b) => blockKey(b) === key);
+}
+
+/** Convert editor line ranges to complete semantic blocks. */
+export function selectBlocksInLineRanges(
+    doc: Doc,
+    ranges: readonly LineRange[],
+    options: { tabSize: number },
+): BlockSelection {
+    const blocks: Block[] = [];
+    for (const range of normalizeLineRanges(ranges, doc.lines)) {
+        for (let line = range.startLine; line <= range.endLine; line += 1) {
+            const block = detectBlock(doc, line, options);
+            if (block && !hasBlock({ blocks }, block)) blocks.push(block);
+        }
+    }
+    return selectBlocks(blocks);
+}
+
+function normalizeLineRanges(ranges: readonly LineRange[], docLines: number): LineRange[] {
+    const sorted = ranges
+        .filter((range) => range.startLine <= range.endLine)
+        .map((range) => ({
+            startLine: Math.max(1, Math.min(docLines, range.startLine)),
+            endLine: Math.max(1, Math.min(docLines, range.endLine)),
+        }))
+        .sort((a, b) => a.startLine - b.startLine || a.endLine - b.endLine);
+
+    const normalized: LineRange[] = [];
+    for (const range of sorted) {
+        const previous = normalized[normalized.length - 1];
+        if (previous && range.startLine <= previous.endLine) {
+            previous.endLine = Math.max(previous.endLine, range.endLine);
+        } else {
+            normalized.push(range);
+        }
+    }
+    return normalized;
 }
 
 /** Line ranges of the selection; adjacent/overlapping blocks are merged. */

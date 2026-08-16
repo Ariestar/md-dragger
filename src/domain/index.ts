@@ -25,6 +25,7 @@ export {
     type PlanMoveInput,
     planMove,
 } from './move/move-plan';
+export { rebaseAppendChange, resolveInsertionChange } from './mutation';
 // --- structure parse (not DocLine / not Block) ---
 export {
     formatIndent,
@@ -45,6 +46,7 @@ export {
     hasBlock,
     removeBlocks,
     selectBlocks,
+    selectBlocksInLineRanges,
     selectionLineRanges,
     selectOne,
 } from './selection/block-selection';

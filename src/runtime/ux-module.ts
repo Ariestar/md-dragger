@@ -13,6 +13,7 @@ export type DragUxContext = {
 };
 
 export type CommitResult = { kind: 'applied'; edits: DocEdit[] } | { kind: 'rejected' };
+export type CommitOutcome = CommitResult | Promise<CommitResult>;
 
 export type DefaultUxModule = {
     name: string;
