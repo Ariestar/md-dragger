@@ -45,6 +45,9 @@ export function rebaseAppendChange(
         return null;
     }
     const payload = snapshotDoc.length > 0 && change.insert.startsWith('\n') ? change.insert.slice(1) : change.insert;
+    if (currentDoc.length > 0 && currentDoc.sliceString(currentDoc.length - 1, currentDoc.length) === '\n') {
+        return { pos: currentDoc.length, text: payload };
+    }
     return resolveInsertionChange(currentDoc, currentDoc.lines + 1, payload);
 }
 

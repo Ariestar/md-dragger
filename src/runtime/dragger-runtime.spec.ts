@@ -90,4 +90,19 @@ describe('DraggerRuntime host commit', () => {
         await expect(result).resolves.toMatchObject({ kind: 'applied' });
         expect(harness.outputs.map((output) => output.type)).toContain('dropped');
     });
+
+    it('does not apply the same drop twice while an asynchronous host commit is pending', async () => {
+        const gate = deferred<void>();
+        const apply = vi.fn(() => gate.promise);
+        const harness = createRuntime({ apply });
+
+        const first = harness.commit();
+        const second = harness.commit();
+
+        expect(second).toBeUndefined();
+        expect(apply).toHaveBeenCalledOnce();
+
+        gate.resolve();
+        await expect(first).resolves.toMatchObject({ kind: 'applied' });
+    });
 });

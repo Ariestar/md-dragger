@@ -162,6 +162,7 @@ export class DraggerRuntime implements RuntimeController {
         pointer: Pointer,
         pointerType: string | null,
     ): CommitOutcome | undefined {
+        if (this.isCommitPending()) return;
         const drag = this.activeDragSession;
         if (!drag || drag.sessionId !== sessionId || !samePointer(drag.pointer, pointer)) return;
 

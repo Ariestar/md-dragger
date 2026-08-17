@@ -22,6 +22,15 @@ describe('rebaseAppendChange', () => {
         });
     });
 
+    it('does not add a separator when the current document already ends with a newline', () => {
+        const snapshot = stringDoc('target');
+        const current = stringDoc('newer\n');
+
+        expect(
+            rebaseAppendChange(snapshot, { from: snapshot.length, to: snapshot.length, insert: '\nsource' }, current),
+        ).toEqual({ pos: current.length, text: 'source' });
+    });
+
     it('rejects changes that are not a pure end-of-document insertion', () => {
         const snapshot = stringDoc('target');
         const current = stringDoc('current');
