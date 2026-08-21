@@ -25,8 +25,12 @@ jobs:
       - name: Enable auto-merge for Dependabot PRs
         # Major version bumps stay manual: breaking changes need review, and
         # coordinated majors (e.g. Pages artifact/deploy pairs) must land together.
+        # Auto-merge cannot be armed once the PR is already mergeable ("clean
+        # status"), so fall back to a direct squash merge in that case.
         if: steps.metadata.outputs.update-type != 'version-update:semver-major'
-        run: gh pr merge --auto --merge "$PR_URL"
+        run: |
+          gh pr merge --auto --squash "$PR_URL" \
+            || gh pr merge --squash "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
