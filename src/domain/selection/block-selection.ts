@@ -55,13 +55,17 @@ export function selectBlocksInLineRanges(
     options: { tabSize: number },
 ): BlockSelection {
     const blocks: Block[] = [];
+    const seen = new Set<string>();
     for (const range of ranges) {
         if (range.startLine > range.endLine) continue;
         const start = Math.max(1, Math.min(doc.lines, range.startLine));
         const end = Math.max(1, Math.min(doc.lines, range.endLine));
         for (let line = start; line <= end; line += 1) {
             const block = detectBlock(doc, line, options);
-            if (block && !hasBlock({ blocks }, block)) blocks.push(block);
+            if (block && !seen.has(blockKey(block))) {
+                seen.add(blockKey(block));
+                blocks.push(block);
+            }
         }
     }
     return selectBlocks(blocks);

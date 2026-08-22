@@ -61,6 +61,7 @@ export type UxDeps = {
 export class DefaultUx implements Ux {
     private readonly disposables: Disposable[] = [];
     private pressSession: PressSession | null = null;
+    private destroyed = false;
     private readonly modules: readonly DefaultUxModule[];
 
     constructor(private readonly deps: UxDeps) {
@@ -85,6 +86,7 @@ export class DefaultUx implements Ux {
     }
 
     destroy(): void {
+        this.destroyed = true;
         this.clearTimers();
         this.pressSession?.releaseCapture?.();
         this.pressSession = null;
@@ -299,9 +301,10 @@ export class DefaultUx implements Ux {
         if (this.runtime().isGestureActive() && session && samePointer(session.pointer, input.pointer)) {
             const result = this.runtime().commitDrop(session.sessionId, input.point, input.pointer, input.pointer.type);
             if (isPromiseLike(result)) {
-                void result.then((resolved) =>
-                    this.emitModule('onDragEnd', session, input.point, input.pointer, resolved),
-                );
+                void result.then((resolved) => {
+                    if (this.destroyed) return;
+                    this.emitModule('onDragEnd', session, input.point, input.pointer, resolved);
+                });
             } else {
                 this.emitModule('onDragEnd', session, input.point, input.pointer, result ?? { kind: 'rejected' });
             }
