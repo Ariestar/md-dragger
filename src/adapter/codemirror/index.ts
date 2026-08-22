@@ -32,14 +32,11 @@ export {
     type LocateOptions,
     type MdDraggerCodeMirrorOptions,
     type RenderHandle,
-    resolveCommitOptions,
     resolveConfig,
-    resolveExternalTargetOptions,
     resolveListIndentUnit,
     resolveListIndentWidthPx,
     resolveLocateOptions,
     resolveTabSize,
-    resolveUxOptions,
     type UxOptionInput,
 } from './config';
 export type { DropSeam, LineBand } from './geometry';

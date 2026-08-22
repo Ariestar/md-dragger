@@ -2,31 +2,21 @@ import type { EditorView } from '@codemirror/view';
 import { describe, expect, it, vi } from 'vitest';
 import type { DropPosition } from '../../domain/command/drop-position';
 import { stringDoc } from '../../domain/transaction/string-doc';
-import { resolveCommitOptions, resolveExternalTargetOptions, resolveUxOptions } from './config';
+import { resolvePerView } from './config';
 import { resolveDropPositionWithExternalTarget } from './runtime-plugin';
 
 describe('CodeMirror host option resolution', () => {
-    it('resolves UX and external-target factories against the live view', () => {
+    it('resolves a static value or a per-view factory against the live view', () => {
         const view = {} as EditorView;
-        const uxFactory = vi.fn(() => ({ selectionFromInput: () => null }));
-        const targetFactory = vi.fn(() => ({ resolveDropPosition: () => undefined }));
+        const factory = vi.fn(() => ({ apply: async () => undefined }));
 
-        expect(resolveUxOptions(uxFactory, view)).toBe(uxFactory.mock.results[0]?.value);
-        expect(resolveExternalTargetOptions(targetFactory, view)).toBe(targetFactory.mock.results[0]?.value);
-        expect(uxFactory).toHaveBeenCalledOnce();
-        expect(targetFactory).toHaveBeenCalledOnce();
-        expect(uxFactory).toHaveBeenCalledWith(view);
-        expect(targetFactory).toHaveBeenCalledWith(view);
-    });
-
-    it('resolves a custom commit factory against the live view', () => {
-        const view = {} as EditorView;
-        const apply = vi.fn(async () => undefined);
-        const commitFactory = vi.fn(() => ({ apply }));
-
-        expect(resolveCommitOptions(commitFactory, view)?.apply).toBe(apply);
-        expect(commitFactory).toHaveBeenCalledWith(view);
-        expect(resolveCommitOptions(undefined, view)).toBeUndefined();
+        expect(resolvePerView(factory, view)?.apply).toBeDefined();
+        expect(factory).toHaveBeenCalledOnce();
+        expect(factory).toHaveBeenCalledWith(view);
+        expect(resolvePerView(undefined, view)).toBeUndefined();
+        expect(resolvePerView({ selectionFromInput: () => null }, view)).toEqual({
+            selectionFromInput: expect.any(Function),
+        });
     });
 });
 

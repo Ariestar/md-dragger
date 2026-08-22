@@ -97,25 +97,12 @@ export function resolveLocateOptions(
     return typeof locate === 'function' ? locate(view) : locate;
 }
 
-export function resolveExternalTargetOptions(
-    externalTarget: ExternalTargetOptionInput | undefined,
-    view: EditorView,
-): ExternalTargetOptions | undefined {
-    if (!externalTarget) return undefined;
-    return typeof externalTarget === 'function' ? externalTarget(view) : externalTarget;
-}
-
-export function resolveUxOptions(ux: UxOptionInput | undefined, view: EditorView): DefaultUxConfig | undefined {
-    if (!ux) return undefined;
-    return typeof ux === 'function' ? ux(view) : ux;
-}
-
-export function resolveCommitOptions(
-    commit: CommitOptionInput | undefined,
-    view: EditorView,
-): CommitOptions | undefined {
-    if (!commit) return undefined;
-    return typeof commit === 'function' ? commit(view) : commit;
+/** Resolve a static option value or a per-view factory against the live view. */
+export function resolvePerView<T>(option: T | ((view: EditorView) => T) | undefined, view: EditorView): T | undefined {
+    if (option === undefined) return undefined;
+    // TS cannot call a narrowed generic union; the function branch is the
+    // factory by construction.
+    return typeof option === 'function' ? (option as (view: EditorView) => T)(view) : option;
 }
 
 export function isDraggerEnabled(options: Pick<MdDraggerCodeMirrorOptions, 'enabled'>, view: EditorView): boolean {

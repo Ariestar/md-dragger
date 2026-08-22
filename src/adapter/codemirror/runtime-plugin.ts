@@ -6,11 +6,9 @@ import { applyCommit } from './commit';
 import {
     isDraggerEnabled,
     type MdDraggerCodeMirrorOptions,
-    resolveCommitOptions,
     resolveConfig,
-    resolveExternalTargetOptions,
     resolveLocateOptions,
-    resolveUxOptions,
+    resolvePerView,
 } from './config';
 import { lineAtPoint, lineAtScreenPoint, resolveDropPositionAtPoint, sourceLineFromInput } from './locate';
 import { pointerInput } from './pointer-input';
@@ -42,9 +40,9 @@ export function dragRuntime(options: MdDraggerCodeMirrorOptions): Extension {
                 if (!isDraggerEnabled(options, view)) return;
                 this.unregisterView = registerView(view);
                 const locateOverride = resolveLocateOptions(options.locate, view);
-                const externalTarget = resolveExternalTargetOptions(options.externalTarget, view);
-                const ux = resolveUxOptions(options.ux, view);
-                const commit = resolveCommitOptions(options.commit, view) ?? { apply: applyCommit };
+                const externalTarget = resolvePerView(options.externalTarget, view);
+                const ux = resolvePerView(options.ux, view);
+                const commit = resolvePerView(options.commit, view) ?? { apply: applyCommit };
                 // The predicate is re-checked per press as well: such editors
                 // are mounted detached and only become identifiable once
                 // Obsidian attaches them into the table widget.

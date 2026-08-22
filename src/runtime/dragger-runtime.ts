@@ -9,6 +9,7 @@ import { DefaultUx } from './default-ux';
 import {
     DEFAULT_GESTURE_CONFIG,
     type DefaultUxConfig,
+    isPromiseLike,
     type Point,
     type Pointer,
     type ResolvedConfig,
@@ -201,13 +202,17 @@ export class DraggerRuntime implements RuntimeController {
                 drag.releaseCapture?.();
                 drag.releaseCapture = undefined;
                 return application.then(
-                    () => this.finishAppliedDrop(drag.sessionId, dropSnapshot, plannedEdits, pointerType),
-                    () => this.finishRejectedDrop(drag.sessionId, dropSnapshot, pointerType),
+                    () =>
+                        this.finishDrop(drag.sessionId, dropSnapshot, pointerType, {
+                            kind: 'applied',
+                            edits: plannedEdits,
+                        }),
+                    () => this.finishDrop(drag.sessionId, dropSnapshot, pointerType, { kind: 'rejected' }),
                 );
             }
-            return this.finishAppliedDrop(drag.sessionId, dropSnapshot, plannedEdits, pointerType);
+            return this.finishDrop(drag.sessionId, dropSnapshot, pointerType, { kind: 'applied', edits: plannedEdits });
         } catch {
-            return this.finishRejectedDrop(drag.sessionId, dropSnapshot, pointerType);
+            return this.finishDrop(drag.sessionId, dropSnapshot, pointerType, { kind: 'rejected' });
         }
     }
 
@@ -257,35 +262,23 @@ export class DraggerRuntime implements RuntimeController {
         });
     }
 
-    private finishAppliedDrop(
+    private finishDrop(
         sessionId: string,
         drop: DragDropSnapshot,
-        edits: DocEdit[],
         pointerType: string | null,
+        result: CommitResult,
     ): CommitResult {
         if (this.activeDragSession?.sessionId !== sessionId) return { kind: 'rejected' };
         this.pendingCommitSessionId = null;
         this.pipeline.enter({
             type: 'drop',
             sessionId,
-            resolution: { type: 'platform_commit', drop },
+            resolution:
+                result.kind === 'applied' ? { type: 'platform_commit', drop } : this.cancelDrop(drop, 'commit_failed'),
             pointerType,
         });
         this.endDragSession();
-        return { kind: 'applied', edits };
-    }
-
-    private finishRejectedDrop(sessionId: string, drop: DragDropSnapshot, pointerType: string | null): CommitResult {
-        if (this.activeDragSession?.sessionId !== sessionId) return { kind: 'rejected' };
-        this.pendingCommitSessionId = null;
-        this.pipeline.enter({
-            type: 'drop',
-            sessionId,
-            resolution: this.cancelDrop(drop, 'commit_failed'),
-            pointerType,
-        });
-        this.endDragSession();
-        return { kind: 'rejected' };
+        return result;
     }
 
     private resolveGestureConfig(uxConfig: DefaultUxConfig) {
@@ -358,10 +351,6 @@ export class DraggerRuntime implements RuntimeController {
         }
         return raw;
     }
-}
-
-function isPromiseLike(value: void | Promise<void>): value is Promise<void> {
-    return value !== undefined && typeof value.then === 'function';
 }
 
 function isDragCancelReason(reason: string): reason is DragCancelReason {

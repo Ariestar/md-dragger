@@ -92,6 +92,11 @@ export function samePointer(a: Pointer, b: Pointer): boolean {
     return a.id === b.id;
 }
 
+/** True for thenables — host commits may resolve asynchronously. */
+export function isPromiseLike<T>(value: T | Promise<T> | undefined): value is Promise<T> {
+    return value !== undefined && typeof (value as Promise<T>).then === 'function';
+}
+
 export type ResolvedConfig = {
     tabSize: number;
     listIndentUnit: number;

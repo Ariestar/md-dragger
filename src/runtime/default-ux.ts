@@ -15,6 +15,7 @@ import {
     type Disposable,
     type GestureConfig,
     type InputSource,
+    isPromiseLike,
     type MoveInput,
     type Point,
     type Pointer,
@@ -188,29 +189,7 @@ export class DefaultUx implements Ux {
 
         this.runtime().beginHold(sessionId, selection, input.pointer.type);
 
-        if (usesSuppliedSelection) {
-            const armMs = Math.max(0, cfg.dragArmMs);
-            const armTimer =
-                armMs > 0 ? this.deps.scheduler.setTimer(() => this.markReady(sessionId, input.pointer), armMs) : null;
-            this.pressSession = this.makeSession({
-                sessionId,
-                pointer: input.pointer,
-                start: input.point,
-                anchorBlock: block,
-                selection,
-                baseSelection: { blocks: [] },
-                ready: armMs <= 0,
-                selectedDragCandidate: false,
-                selectedDragReady: false,
-                armTimer,
-                multiSelectTimer: null,
-                releaseCapture: input.releaseCapture,
-            });
-            if (armMs <= 0) this.markReady(sessionId, input.pointer);
-            return;
-        }
-
-        if (cfg.multiSelectEnabled) {
+        if (cfg.multiSelectEnabled && !usesSuppliedSelection) {
             const multiMs = Math.max(0, cfg.multiSelectMs);
             const armMs = Math.max(0, cfg.dragArmMs);
             const multiSelectTimer =
@@ -534,10 +513,6 @@ export class DefaultUx implements Ux {
             session.multiSelectTimer = null;
         }
     }
-}
-
-function isPromiseLike<T>(value: T | Promise<T> | undefined): value is Promise<T> {
-    return value !== undefined && typeof (value as Promise<T>).then === 'function';
 }
 
 type PressSession = {
