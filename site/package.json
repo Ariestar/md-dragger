@@ -12,7 +12,7 @@
     "astro": "astro"
   },
   "dependencies": {
-    "@astrojs/react": "^6.0.2",
+    "@astrojs/react": "^6.0.4",
     "@base-ui/react": "^1.7.0",
     "@codemirror/language": "^6.12.4",
     "@codemirror/state": "^6.6.0",
