@@ -1,3 +1,4 @@
+import type { Block } from '../domain/block/block-types';
 import type { DropPosition } from '../domain/command/drop-position';
 import type { Doc } from '../domain/markdown/document-types';
 import type { BlockSelection } from '../domain/selection/block-selection';
@@ -83,12 +84,17 @@ export type LocateHost = {
 export type { DocEdit } from '../domain/transaction/block-transaction';
 
 export type CommitHost = {
-    apply?(edits: DocEdit[]): void;
+    apply?(edits: DocEdit[]): void | Promise<void>;
 };
 
 /** Pointer identity — a gesture belongs to one pointer id. */
 export function samePointer(a: Pointer, b: Pointer): boolean {
     return a.id === b.id;
+}
+
+/** True for thenables — host commits may resolve asynchronously. */
+export function isPromiseLike<T>(value: T | Promise<T> | undefined): value is Promise<T> {
+    return value !== undefined && typeof (value as Promise<T>).then === 'function';
 }
 
 export type ResolvedConfig = {
@@ -129,6 +135,7 @@ export type Ux = {
 export type DefaultUxConfig = {
     gesture?: Partial<GestureConfig> | (() => Partial<GestureConfig>);
     modules?: readonly import('./ux-module').DefaultUxModule[];
+    selectionFromInput?: (input: PressInput, anchorBlock: Block) => BlockSelection | null;
 };
 
 export type PipelineResult = Change;

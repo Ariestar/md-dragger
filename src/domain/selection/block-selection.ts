@@ -1,4 +1,6 @@
+import { detectBlock } from '../block/block-detector';
 import type { Block } from '../block/block-types';
+import type { Doc } from '../markdown/document-types';
 import { mergeLineRanges } from '../markdown/line-range';
 import type { LineRange } from '../markdown/line-range-types';
 
@@ -44,6 +46,29 @@ export function removeBlocks(selection: BlockSelection, blocks: Block[]): BlockS
 export function hasBlock(selection: BlockSelection, block: Block): boolean {
     const key = blockKey(block);
     return selection.blocks.some((b) => blockKey(b) === key);
+}
+
+/** Convert editor line ranges to complete semantic blocks. */
+export function selectBlocksInLineRanges(
+    doc: Doc,
+    ranges: readonly LineRange[],
+    options: { tabSize: number },
+): BlockSelection {
+    const blocks: Block[] = [];
+    const seen = new Set<string>();
+    for (const range of ranges) {
+        if (range.startLine > range.endLine) continue;
+        const start = Math.max(1, Math.min(doc.lines, range.startLine));
+        const end = Math.max(1, Math.min(doc.lines, range.endLine));
+        for (let line = start; line <= end; line += 1) {
+            const block = detectBlock(doc, line, options);
+            if (block && !seen.has(blockKey(block))) {
+                seen.add(blockKey(block));
+                blocks.push(block);
+            }
+        }
+    }
+    return selectBlocks(blocks);
 }
 
 /** Line ranges of the selection; adjacent/overlapping blocks are merged. */

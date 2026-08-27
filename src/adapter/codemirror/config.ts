@@ -1,5 +1,14 @@
 import type { EditorView } from '@codemirror/view';
-import type { Config, DefaultUxConfig, LocateHost, PipelineResult, ResolvedConfig } from '../../runtime';
+import type { BlockSelection, DropPosition } from '../../domain';
+import type {
+    CommitHost,
+    Config,
+    DefaultUxConfig,
+    LocateHost,
+    PipelineResult,
+    Point,
+    ResolvedConfig,
+} from '../../runtime';
 
 export const HANDLE_CLASS = 'md-dragger-handle';
 export const EDITOR_CLASS = 'md-dragger-editor';
@@ -29,6 +38,17 @@ export type LocateOptions = {
 // (needed for row-as-handle, custom hit-testing, …).
 export type LocateOptionInput = LocateOptions | ((view: EditorView) => LocateOptions);
 
+export type ExternalTargetOptions = {
+    resolveDropPosition(point: Point, context: { selection: BlockSelection }): DropPosition | null | undefined;
+};
+
+export type ExternalTargetOptionInput = ExternalTargetOptions | ((view: EditorView) => ExternalTargetOptions);
+
+export type UxOptionInput = DefaultUxConfig | ((view: EditorView) => DefaultUxConfig);
+
+export type CommitOptions = CommitHost;
+export type CommitOptionInput = CommitOptions | ((view: EditorView) => CommitOptions);
+
 // Rendered pixel width of one list nesting level. Host-owned rendering
 // knowledge (theme CSS): ink-mde 2rem, Obsidian --list-indent, …
 export type ListIndentWidthPx = number | ((view: EditorView) => number);
@@ -40,10 +60,12 @@ export type MdDraggerCodeMirrorOptions = {
     listIndentWidthPx: ListIndentWidthPx;
     handle?: HandleOptions;
     locate?: LocateOptionInput;
+    externalTarget?: ExternalTargetOptionInput;
+    commit?: CommitOptionInput;
     // Extra host observer for pipeline output (in addition to dragTransitionEffect).
     onChange?: (result: PipelineResult) => void;
     // DefaultUx settings (gesture knobs + optional modules). Forwarded to Runtime.
-    ux?: DefaultUxConfig;
+    ux?: UxOptionInput;
     // Views where the dragger must stay dormant (no handles, no drags) — e.g.
     // Obsidian's nested table-cell editor. Called with the live view; hosts
     // should keep the predicate cheap and DOM-based, and the adapter re-checks
@@ -73,6 +95,14 @@ export function resolveLocateOptions(
 ): LocateOptions | undefined {
     if (!locate) return undefined;
     return typeof locate === 'function' ? locate(view) : locate;
+}
+
+/** Resolve a static option value or a per-view factory against the live view. */
+export function resolvePerView<T>(option: T | ((view: EditorView) => T) | undefined, view: EditorView): T | undefined {
+    if (option === undefined) return undefined;
+    // TS cannot call a narrowed generic union; the function branch is the
+    // factory by construction.
+    return typeof option === 'function' ? (option as (view: EditorView) => T)(view) : option;
 }
 
 export function isDraggerEnabled(options: Pick<MdDraggerCodeMirrorOptions, 'enabled'>, view: EditorView): boolean {
