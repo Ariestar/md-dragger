@@ -28,7 +28,7 @@
     "clsx": "^2.1.1",
     "ink-mde": "^0.34.0",
     "katex": "^0.18.7",
-    "lucide-react": "^1.41.0",
+    "lucide-react": "^1.45.0",
     "md-dragger": "link:..",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
