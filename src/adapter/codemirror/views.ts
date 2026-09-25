@@ -29,11 +29,15 @@ export function viewForDoc(doc: Doc): EditorView | null {
     return null;
 }
 
-/** Prefer the view that owns the topmost DOM node under the point. */
-export function viewAtPoint(x: number, y: number): EditorView | null {
+/**
+ * Prefer the view that owns the topmost DOM node under the point. Point
+ * coordinates are only meaningful within one document (a canvas card's iframe
+ * has its own), so the hit test runs in `doc` and only editors in it count.
+ */
+export function viewAtPoint(x: number, y: number, doc: Document): EditorView | null {
     if (liveViews.size === 0) return null;
 
-    const hit = typeof document !== 'undefined' ? document.elementFromPoint(x, y) : null;
+    const hit = doc.elementFromPoint(x, y);
     if (hit) {
         for (const view of liveViews) {
             if (view.dom.contains(hit)) return view;
@@ -41,6 +45,7 @@ export function viewAtPoint(x: number, y: number): EditorView | null {
     }
 
     for (const view of liveViews) {
+        if (view.dom.ownerDocument !== doc) continue;
         const rect = view.dom.getBoundingClientRect();
         if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
             return view;

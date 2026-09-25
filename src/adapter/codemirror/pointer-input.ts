@@ -1,10 +1,64 @@
 import type { EditorView } from '@codemirror/view';
 import type { InputSource } from '../../runtime';
 
+type WindowBinding = {
+    /** Picks the event target from the owner window: the window itself or its document. */
+    on: (win: Window) => EventTarget;
+    type: string;
+    listener: EventListener;
+    options: boolean | AddEventListenerOptions;
+};
+
+const theWindow = (win: Window): EventTarget => win;
+const itsDocument = (win: Window): EventTarget => win.document;
+
 export function pointerInput(view: EditorView): InputSource {
+    // Window-level listeners follow the window that currently owns the editor.
+    // A host may build the editor in one document and move it into another
+    // after this input exists (Obsidian moves a canvas card's editor into the
+    // card's iframe), so the owner is re-resolved on every press and the
+    // listeners move over to it.
+    const bindings = new Set<WindowBinding>();
+    let boundWindow: Window | null = null;
+    const ownerWindow = (): Window => {
+        const win = view.dom.ownerDocument.defaultView;
+        if (!win) throw new Error('md-dragger: editor document has no window');
+        return win;
+    };
+    // Removal takes { capture } as an object: some EventTarget implementations
+    // (Node 24) ignore a bare boolean there.
+    const capture = (options: boolean | AddEventListenerOptions): EventListenerOptions => ({
+        capture: typeof options === 'boolean' ? options : options.capture === true,
+    });
+    const followOwnerWindow = () => {
+        const win = ownerWindow();
+        if (win === boundWindow) return;
+        for (const { on, type, listener, options } of bindings) {
+            if (boundWindow) on(boundWindow).removeEventListener(type, listener, capture(options));
+            on(win).addEventListener(type, listener, options);
+        }
+        boundWindow = win;
+    };
+    const listen = <E extends Event>(
+        on: WindowBinding['on'],
+        type: string,
+        handler: (event: E) => void,
+        options: boolean | AddEventListenerOptions,
+    ): (() => void) => {
+        boundWindow ??= ownerWindow();
+        const binding: WindowBinding = { on, type, listener: handler as EventListener, options };
+        bindings.add(binding);
+        on(boundWindow).addEventListener(type, binding.listener, options);
+        return () => {
+            if (boundWindow) on(boundWindow).removeEventListener(type, binding.listener, capture(options));
+            bindings.delete(binding);
+        };
+    };
+
     return {
         onPress: (handler) => {
             const listener = (event: PointerEvent) => {
+                followOwnerWindow();
                 handler({
                     point: { x: event.clientX, y: event.clientY },
                     pointer: { id: event.pointerId, type: event.pointerType },
@@ -33,8 +87,7 @@ export function pointerInput(view: EditorView): InputSource {
                     claim: () => claimPointerEvent(event),
                 });
             };
-            window.addEventListener('pointermove', listener, { capture: true, passive: false });
-            return () => window.removeEventListener('pointermove', listener, true);
+            return listen(theWindow, 'pointermove', listener, { capture: true, passive: false });
         },
         onRelease: (handler) => {
             const listener = (event: PointerEvent) => {
@@ -46,8 +99,7 @@ export function pointerInput(view: EditorView): InputSource {
                     releaseCapture: () => releasePointerCapture(view.dom, event.pointerId),
                 });
             };
-            window.addEventListener('pointerup', listener, { capture: true, passive: false });
-            return () => window.removeEventListener('pointerup', listener, true);
+            return listen(theWindow, 'pointerup', listener, { capture: true, passive: false });
         },
         onCancel: (handler) => {
             const pointerCancelListener = (event: PointerEvent) => {
@@ -58,7 +110,6 @@ export function pointerInput(view: EditorView): InputSource {
                     releaseCapture: () => releasePointerCapture(view.dom, event.pointerId),
                 });
             };
-            window.addEventListener('pointercancel', pointerCancelListener, { capture: true, passive: false });
             // A drag can lose its pointer stream entirely — window blur or tab
             // hidden — with no pointerup/pointercancel ever firing, leaving the
             // drag state and the host's grabbing cursor stuck. Force-cancel then.
@@ -69,14 +120,15 @@ export function pointerInput(view: EditorView): InputSource {
                 });
             const onWindowBlur = () => cancelFallback();
             const onVisibilityChange = () => {
-                if (document.visibilityState === 'hidden') cancelFallback();
+                if (view.dom.ownerDocument.visibilityState === 'hidden') cancelFallback();
             };
-            window.addEventListener('blur', onWindowBlur);
-            document.addEventListener('visibilitychange', onVisibilityChange);
+            const unlisten = [
+                listen(theWindow, 'pointercancel', pointerCancelListener, { capture: true, passive: false }),
+                listen(theWindow, 'blur', onWindowBlur, false),
+                listen(itsDocument, 'visibilitychange', onVisibilityChange, false),
+            ];
             return () => {
-                window.removeEventListener('pointercancel', pointerCancelListener, true);
-                window.removeEventListener('blur', onWindowBlur);
-                document.removeEventListener('visibilitychange', onVisibilityChange);
+                for (const off of unlisten) off();
             };
         },
         onEscape: (handler) => {
@@ -90,14 +142,23 @@ export function pointerInput(view: EditorView): InputSource {
                     event.stopPropagation();
                 }
             };
-            window.addEventListener('keydown', listener, true);
-            return () => window.removeEventListener('keydown', listener, true);
+            return listen(theWindow, 'keydown', listener, true);
         },
     };
 }
 
+// Cross-window safe checks: events and elements from an iframe or a pop-out
+// window are instances of that window's classes, so `instanceof` rejects them.
 export function nativePointerEvent(value: unknown): PointerEvent | null {
-    return value instanceof PointerEvent ? value : null;
+    return typeof value === 'object' && value !== null && typeof (value as PointerEvent).pointerId === 'number'
+        ? (value as PointerEvent)
+        : null;
+}
+
+export function elementTarget(event: Event | null): Element | null {
+    const target = event?.target;
+    // 1 is Node.ELEMENT_NODE.
+    return target && (target as Node).nodeType === 1 ? (target as Element) : null;
 }
 
 function claimPointerEvent(event: PointerEvent): void {
