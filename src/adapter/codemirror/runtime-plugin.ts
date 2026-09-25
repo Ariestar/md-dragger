@@ -73,7 +73,7 @@ export function dragRuntime(options: MdDraggerCodeMirrorOptions): Extension {
                             ),
                         lineFromPoint: (point) =>
                             locateOverride?.lineFromPoint?.(point) ??
-                            lineAtScreenPoint(point) ??
+                            lineAtScreenPoint(point, view.dom.ownerDocument) ??
                             lineAtPoint(view, point),
                     },
                     commit,
