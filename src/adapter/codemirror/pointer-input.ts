@@ -25,8 +25,11 @@ export function pointerInput(view: EditorView): InputSource {
         if (!win) throw new Error('md-dragger: editor document has no window');
         return win;
     };
-    const capture = (options: boolean | AddEventListenerOptions) =>
-        typeof options === 'boolean' ? options : options.capture === true;
+    // Removal takes { capture } as an object: some EventTarget implementations
+    // (Node 24) ignore a bare boolean there.
+    const capture = (options: boolean | AddEventListenerOptions): EventListenerOptions => ({
+        capture: typeof options === 'boolean' ? options : options.capture === true,
+    });
     const followOwnerWindow = () => {
         const win = ownerWindow();
         if (win === boundWindow) return;
