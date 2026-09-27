@@ -19,7 +19,7 @@ import {
     resolveListIndentWidthPx,
 } from './config';
 import { lineBand } from './geometry';
-import { nativePointerEvent } from './pointer-input';
+import { elementTarget, nativePointerEvent } from './pointer-input';
 import { viewAtPoint } from './views';
 
 /**
@@ -29,8 +29,7 @@ import { viewAtPoint } from './views';
  * pointer Y can sit over later visual rows.
  */
 export function sourceLineFromInput(view: EditorView, input: PressInput): number | null {
-    const event = nativePointerEvent(input.native);
-    const target = event?.target instanceof Element ? event.target : null;
+    const target = elementTarget(nativePointerEvent(input.native));
     const handle = target?.closest(`.${HANDLE_CLASS}`) ?? null;
     if (!handle || !view.dom.contains(handle)) return null;
 
@@ -205,7 +204,7 @@ export function resolveDropPositionAtPoint(
         targetIndentWidth += horizontalSteps * indentUnit;
     }
 
-    const target = viewAtPoint(point.x, point.y);
+    const target = viewAtPoint(point.x, point.y, sourceView.dom.ownerDocument);
     if (!target) return null;
     const position = resolveDropPosition(target, point, selection, sourceIndentWidth, targetIndentWidth, options);
     if (position === null) return null;
@@ -220,9 +219,9 @@ export function resolveDropPositionAtPoint(
     });
 }
 
-/** Line under point on whatever live view owns that screen position. */
-export function lineAtScreenPoint(point: Point): number | null {
-    const target = viewAtPoint(point.x, point.y);
+/** Line under point on whatever live view in `doc` owns that position. */
+export function lineAtScreenPoint(point: Point, doc: Document): number | null {
+    const target = viewAtPoint(point.x, point.y, doc);
     if (!target) return null;
     return lineAtPoint(target, point);
 }

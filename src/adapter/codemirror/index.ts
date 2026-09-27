@@ -57,7 +57,7 @@ export {
 //
 // Multi-doc is default: every dragRuntime mount registers its view; commit
 // routes by DocEdit.doc; drop locate hit-tests live views.
-export { pointerInput } from './pointer-input';
+export { elementTarget, pointerInput } from './pointer-input';
 export { dragRuntime, dragTransitionEffect } from './runtime-plugin';
 export { scrollPort } from './scroll-port';
 // Render protocol + decoration builders shared by hosts: the class names and
