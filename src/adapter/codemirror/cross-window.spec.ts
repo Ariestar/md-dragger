@@ -1,7 +1,7 @@
 import type { EditorView } from '@codemirror/view';
 import { afterEach, describe, expect, it } from 'vitest';
 import { nativePointerEvent, pointerInput } from './pointer-input';
-import { locateEditor, registerView, viewAtPoint } from './views';
+import { locateEditor, pointerDocument, registerView, viewAtPoint } from './views';
 
 // Hosts can move an editor into another document after building it: Obsidian
 // builds a canvas card's editor in the main window, then moves it into the
@@ -101,6 +101,70 @@ describe('adapter/codemirror pointerInput across windows', () => {
         view.dom.ownerDocument.defaultView?.dispatchEvent(Object.assign(pointer('pointermove'), { buttons: 0 }));
 
         expect(seen).toEqual(['press', '0']);
+    });
+
+    it('reports a move that left the press window in the pop-out viewport', () => {
+        const main = fakeWindow();
+        Object.assign(main, { screenX: 0, screenY: 0, innerWidth: 800, innerHeight: 600 });
+        const popout = fakeWindow();
+        Object.assign(popout, { screenX: 900, screenY: 50, innerWidth: 800, innerHeight: 600 });
+        const { view } = editorIn(main);
+        const unregister = registerView({
+            dom: { ownerDocument: popout.document },
+        } as unknown as EditorView);
+        const input = pointerInput(view);
+        const seen: string[] = [];
+        input.onPress(() => {});
+        input.onMove((event) => {
+            seen.push(`${event.point.x},${event.point.y}`);
+            seen.push(pointerDocument() === popout.document ? 'popout' : 'other');
+        });
+
+        view.dom.dispatchEvent(pointer('pointerdown'));
+        main.dispatchEvent(
+            Object.assign(pointer('pointermove'), {
+                view: main,
+                clientX: 1100,
+                clientY: 90,
+                screenX: 1100,
+                screenY: 90,
+                buttons: 1,
+            }),
+        );
+        unregister();
+
+        expect(seen).toEqual(['200,40', 'popout']);
+    });
+
+    it('keeps a move that is still inside the press window in that window', () => {
+        const main = fakeWindow();
+        Object.assign(main, { screenX: 0, screenY: 0, innerWidth: 800, innerHeight: 600 });
+        const popout = fakeWindow();
+        Object.assign(popout, { screenX: 0, screenY: 0, innerWidth: 800, innerHeight: 600 });
+        const { view } = editorIn(main);
+        const unregister = registerView({
+            dom: { ownerDocument: popout.document },
+        } as unknown as EditorView);
+        const input = pointerInput(view);
+        const seen: string[] = [];
+        input.onMove((event) => {
+            seen.push(`${event.point.x},${event.point.y}`);
+            seen.push(pointerDocument() === main.document ? 'main' : 'other');
+        });
+
+        main.dispatchEvent(
+            Object.assign(pointer('pointermove'), {
+                view: main,
+                clientX: 12,
+                clientY: 8,
+                screenX: 12,
+                screenY: 8,
+                buttons: 1,
+            }),
+        );
+        unregister();
+
+        expect(seen).toEqual(['12,8', 'main']);
     });
 
     it('hears a move in another editor window', () => {

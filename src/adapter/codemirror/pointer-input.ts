@@ -1,4 +1,5 @@
 import type { EditorView } from '@codemirror/view';
+import { pointInViewport, type Viewport } from '../../domain/viewport';
 import type { InputSource } from '../../runtime';
 import { liveViewWindows, withPointerDocument } from './views';
 
@@ -84,6 +85,26 @@ export function pointerInput(view: EditorView): InputSource {
         const win = (event as Event & { view?: Window | null }).view;
         withPointerDocument(win?.document ?? null, run);
     };
+    // The press window keeps delivering the pointer after it has left, so the
+    // screen position is what pointInViewport uses to pick a viewport.
+    const measure = (win: Window): Viewport<Window> => ({
+        id: win,
+        left: win.screenX,
+        top: win.screenY,
+        width: win.innerWidth,
+        height: win.innerHeight,
+    });
+    const deliverPointer = (event: PointerEvent, run: (point: { x: number; y: number }) => void) => {
+        const originWin = event.view ?? null;
+        const viewports = liveViewWindows().map(measure);
+        const origin = originWin
+            ? (viewports.find((viewport) => viewport.id === originWin) ?? measure(originWin))
+            : null;
+        const space = pointInViewport(origin, event.clientX, event.clientY, event.screenX, event.screenY, viewports);
+        const doc = space?.viewport.id.document ?? originWin?.document ?? null;
+        const point = space ? { x: space.x, y: space.y } : { x: event.clientX, y: event.clientY };
+        withPointerDocument(doc, () => run(point));
+    };
 
     return {
         onPress: (handler) => {
@@ -114,9 +135,9 @@ export function pointerInput(view: EditorView): InputSource {
         onMove: (handler) => {
             const listener = (event: PointerEvent) => {
                 if (event.buttons === 0) pointerDown = false;
-                deliver(event, () =>
+                deliverPointer(event, (point) =>
                     handler({
-                        point: { x: event.clientX, y: event.clientY },
+                        point,
                         pointer: { id: event.pointerId, type: event.pointerType },
                         buttons: event.buttons,
                         native: event,
@@ -129,9 +150,9 @@ export function pointerInput(view: EditorView): InputSource {
         onRelease: (handler) => {
             const listener = (event: PointerEvent) => {
                 pointerDown = false;
-                deliver(event, () =>
+                deliverPointer(event, (point) =>
                     handler({
-                        point: { x: event.clientX, y: event.clientY },
+                        point,
                         pointer: { id: event.pointerId, type: event.pointerType },
                         native: event,
                         claim: () => claimPointerEvent(event),
