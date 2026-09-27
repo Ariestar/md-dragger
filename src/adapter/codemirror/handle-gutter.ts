@@ -9,8 +9,8 @@ import {
     resolveTabSize,
 } from './config';
 
-function createDefaultHandle(): HTMLElement {
-    const handle = document.createElement('button');
+function createDefaultHandle(doc: Document): HTMLElement {
+    const handle = doc.createElement('button');
     handle.type = 'button';
     handle.className = HANDLE_CLASS;
     handle.setAttribute('aria-label', 'Drag markdown block');
@@ -31,8 +31,9 @@ class BlockHandleMarker extends GutterMarker {
         return other instanceof BlockHandleMarker && other.startLine === this.startLine && other.render === this.render;
     }
 
-    toDOM(): HTMLElement {
-        const handle = this.render?.() ?? createDefaultHandle();
+    toDOM(view: EditorView): HTMLElement {
+        const doc = view.dom.ownerDocument;
+        const handle = this.render?.(doc) ?? createDefaultHandle(doc);
         handle.setAttribute('data-block-start', String(this.startLine));
         return handle;
     }

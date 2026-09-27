@@ -13,11 +13,11 @@ import type {
 export const HANDLE_CLASS = 'md-dragger-handle';
 export const EDITOR_CLASS = 'md-dragger-editor';
 
-// Custom handle element factory. Returns the DOM element used for every
-// draggable block's handle. The same element shape is reused across blocks;
-// per-block state (e.g. data attributes) is the consumer's to set elsewhere.
-// The default is a plain ⋮⋮ button.
-export type RenderHandle = () => HTMLElement;
+// Custom handle element factory. Called with the editor's document — a canvas
+// card's iframe or a pop-out window, not the main document. The same element
+// shape is reused across blocks; per-block state (data attributes) is set by
+// the gutter. The default is a plain ⋮⋮ button.
+export type RenderHandle = (doc: Document) => HTMLElement;
 
 export type HandleOptions = {
     render?: RenderHandle;

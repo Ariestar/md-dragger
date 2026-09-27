@@ -155,10 +155,13 @@ export function nativePointerEvent(value: unknown): PointerEvent | null {
         : null;
 }
 
-export function elementTarget(event: Event | null): Element | null {
-    const target = event?.target;
-    // 1 is Node.ELEMENT_NODE.
-    return target && (target as Node).nodeType === 1 ? (target as Element) : null;
+export function elementTarget(event: unknown): Element | null {
+    if (typeof event !== 'object' || event === null || !('target' in event)) return null;
+    const target = (event as { target?: unknown }).target;
+    // 1 is Node.ELEMENT_NODE. Cross-window events fail `instanceof Element`.
+    return typeof target === 'object' && target !== null && (target as Node).nodeType === 1
+        ? (target as Element)
+        : null;
 }
 
 function claimPointerEvent(event: PointerEvent): void {
