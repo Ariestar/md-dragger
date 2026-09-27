@@ -120,8 +120,10 @@ export class DefaultUx implements Ux {
         if (!block) return;
 
         // Do not claim (preventDefault) on press — that kills the browser click,
-        // which hosts use for handle menus. Capture moves only; claim when drag starts.
-        input.capture?.();
+        // which hosts use for handle menus. Do not capture either: capture pins
+        // the pointer to this frame, and leaving a canvas card or a pop-out
+        // then fires pointercancel and ends the gesture. Moves are heard on
+        // every editor window instead.
         // A new press must terminate an active drag first: the pipeline would
         // otherwise move dragging → holding without emitting a clear output,
         // leaving the published drag source stale forever. cancelPress also

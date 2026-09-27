@@ -60,6 +60,7 @@ export {
 export { elementTarget, pointerInput } from './pointer-input';
 export { dragRuntime, dragTransitionEffect } from './runtime-plugin';
 export { scrollPort } from './scroll-port';
+export { pointerDocument, pointInTopDocument } from './views';
 // Render protocol + decoration builders shared by hosts: the class names and
 // the --d-source-level CSS variable are adapter-owned contracts — hosts style
 // them in their stylesheet, the adapter never re-derives them per host.
