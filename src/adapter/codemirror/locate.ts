@@ -20,7 +20,7 @@ import {
 } from './config';
 import { lineBand } from './geometry';
 import { elementTarget, nativePointerEvent } from './pointer-input';
-import { viewAtPoint } from './views';
+import { locateEditor, pointerDocument } from './views';
 
 /**
  * Source line for a press on a drag handle.
@@ -199,14 +199,27 @@ export function resolveDropPositionAtPoint(
     // Only list items nest on the x-axis; the rendered step is measured from
     // list lines, so it is resolved lazily and never for paragraph sources.
     let targetIndentWidth = sourceIndentWidth;
-    if (source.type === BlockType.ListItem) {
-        const horizontalSteps = Math.round((point.x - originBand.left) / resolveListIndentWidthPx(options, sourceView));
+
+    const space = pointerDocument() ?? sourceView.dom.ownerDocument;
+    const targetHit = locateEditor(point.x, point.y, space);
+    if (!targetHit) return null;
+    const targetPoint = { x: targetHit.x, y: targetHit.y };
+    // Horizontal indent steps are a distance in one viewport. A point measured
+    // in another window is not comparable to the source band.
+    if (source.type === BlockType.ListItem && targetHit.view.dom.ownerDocument === sourceView.dom.ownerDocument) {
+        const horizontalSteps = Math.round(
+            (targetPoint.x - originBand.left) / resolveListIndentWidthPx(options, sourceView),
+        );
         targetIndentWidth += horizontalSteps * indentUnit;
     }
-
-    const target = viewAtPoint(point.x, point.y, sourceView.dom.ownerDocument);
-    if (!target) return null;
-    const position = resolveDropPosition(target, point, selection, sourceIndentWidth, targetIndentWidth, options);
+    const position = resolveDropPosition(
+        targetHit.view,
+        targetPoint,
+        selection,
+        sourceIndentWidth,
+        targetIndentWidth,
+        options,
+    );
     if (position === null) return null;
     return snapDropPosition({
         raw: position,
@@ -214,16 +227,16 @@ export function resolveDropPositionAtPoint(
         selection,
         sourceIndentWidth,
         targetIndentWidth,
-        tabSize: target.state.facet(EditorState.tabSize),
+        tabSize: targetHit.view.state.facet(EditorState.tabSize),
         indentUnit,
     });
 }
 
-/** Line under point on whatever live view in `doc` owns that position. */
+/** Line under point on whichever live editor the pointer is over, including one in another window or a card iframe. */
 export function lineAtScreenPoint(point: Point, doc: Document): number | null {
-    const target = viewAtPoint(point.x, point.y, doc);
-    if (!target) return null;
-    return lineAtPoint(target, point);
+    const hit = locateEditor(point.x, point.y, pointerDocument() ?? doc);
+    if (!hit) return null;
+    return lineAtPoint(hit.view, { x: hit.x, y: hit.y });
 }
 
 function belowMid(view: EditorView, line: number, y: number): boolean {

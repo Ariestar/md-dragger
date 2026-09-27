@@ -1,5 +1,7 @@
 import type { EditorView } from '@codemirror/view';
+import { pointInViewport, type Viewport } from '../../domain/viewport';
 import type { InputSource } from '../../runtime';
+import { liveViewWindows, withPointerDocument } from './views';
 
 type WindowBinding = {
     /** Picks the event target from the owner window: the window itself or its document. */
@@ -7,6 +9,8 @@ type WindowBinding = {
     type: string;
     listener: EventListener;
     options: boolean | AddEventListenerOptions;
+    /** Windows this binding is currently attached to. */
+    windows: Set<Window>;
 };
 
 const theWindow = (win: Window): EventTarget => win;
@@ -19,7 +23,9 @@ export function pointerInput(view: EditorView): InputSource {
     // card's iframe), so the owner is re-resolved on every press and the
     // listeners move over to it.
     const bindings = new Set<WindowBinding>();
-    let boundWindow: Window | null = null;
+    // Held from press until release. Entering a pop-out blurs the source window
+    // without ending the gesture, so blur must not cancel while the pointer is down.
+    let pointerDown = false;
     const ownerWindow = (): Window => {
         const win = view.dom.ownerDocument.defaultView;
         if (!win) throw new Error('md-dragger: editor document has no window');
@@ -30,14 +36,27 @@ export function pointerInput(view: EditorView): InputSource {
     const capture = (options: boolean | AddEventListenerOptions): EventListenerOptions => ({
         capture: typeof options === 'boolean' ? options : options.capture === true,
     });
-    const followOwnerWindow = () => {
-        const win = ownerWindow();
-        if (win === boundWindow) return;
-        for (const { on, type, listener, options } of bindings) {
-            if (boundWindow) on(boundWindow).removeEventListener(type, listener, capture(options));
-            on(win).addEventListener(type, listener, options);
+    // The drag source's window plus every window that currently hosts an editor
+    // (pop-out, card iframe). A pointer event's coordinates belong to the window
+    // that received it.
+    // Every binding is on the same set of windows: the editor's window and any
+    // other window that currently hosts an editor. A newly registered binding
+    // joins that set immediately — a window already being listened to must not
+    // skip it, or pointerup never arrives and the drag stays held.
+    const syncWindows = () => {
+        const next = new Set<Window>([ownerWindow(), ...liveViewWindows()]);
+        for (const binding of bindings) {
+            for (const win of binding.windows) {
+                if (next.has(win)) continue;
+                binding.on(win).removeEventListener(binding.type, binding.listener, capture(binding.options));
+                binding.windows.delete(win);
+            }
+            for (const win of next) {
+                if (binding.windows.has(win)) continue;
+                binding.on(win).addEventListener(binding.type, binding.listener, binding.options);
+                binding.windows.add(win);
+            }
         }
-        boundWindow = win;
     };
     const listen = <E extends Event>(
         on: WindowBinding['on'],
@@ -45,64 +64,116 @@ export function pointerInput(view: EditorView): InputSource {
         handler: (event: E) => void,
         options: boolean | AddEventListenerOptions,
     ): (() => void) => {
-        boundWindow ??= ownerWindow();
-        const binding: WindowBinding = { on, type, listener: handler as EventListener, options };
-        bindings.add(binding);
-        on(boundWindow).addEventListener(type, binding.listener, options);
-        return () => {
-            if (boundWindow) on(boundWindow).removeEventListener(type, binding.listener, capture(options));
-            bindings.delete(binding);
+        const binding: WindowBinding = {
+            on,
+            type,
+            listener: handler as EventListener,
+            options,
+            windows: new Set(),
         };
+        bindings.add(binding);
+        syncWindows();
+        return () => {
+            bindings.delete(binding);
+            for (const win of binding.windows) {
+                binding.on(win).removeEventListener(binding.type, binding.listener, capture(binding.options));
+            }
+            binding.windows.clear();
+        };
+    };
+    const deliver = (event: Event, run: () => void) => {
+        const win = (event as Event & { view?: Window | null }).view;
+        withPointerDocument(win?.document ?? null, run);
+    };
+    // The press window keeps delivering the pointer after it has left, so the
+    // screen position is what pointInViewport uses to pick a viewport.
+    const measure = (win: Window): Viewport<Window> => ({
+        id: win,
+        left: win.screenX,
+        top: win.screenY,
+        width: win.innerWidth,
+        height: win.innerHeight,
+    });
+    const deliverPointer = (event: PointerEvent, run: (point: { x: number; y: number }) => void) => {
+        const originWin = event.view ?? null;
+        const viewports = liveViewWindows().map(measure);
+        const origin = originWin
+            ? (viewports.find((viewport) => viewport.id === originWin) ?? measure(originWin))
+            : null;
+        const space = pointInViewport(origin, event.clientX, event.clientY, event.screenX, event.screenY, viewports);
+        const doc = space?.viewport.id.document ?? originWin?.document ?? null;
+        const point = space ? { x: space.x, y: space.y } : { x: event.clientX, y: event.clientY };
+        withPointerDocument(doc, () => run(point));
     };
 
     return {
         onPress: (handler) => {
             const listener = (event: PointerEvent) => {
-                followOwnerWindow();
-                handler({
-                    point: { x: event.clientX, y: event.clientY },
-                    pointer: { id: event.pointerId, type: event.pointerType },
-                    button: event.button,
-                    modifiers: {
-                        altKey: event.altKey,
-                        ctrlKey: event.ctrlKey,
-                        metaKey: event.metaKey,
-                        shiftKey: event.shiftKey,
-                    },
-                    native: event,
-                    claim: () => claimPointerEvent(event),
-                    capture: () => capturePointer(view.dom, event.pointerId),
-                    releaseCapture: () => releasePointerCapture(view.dom, event.pointerId),
-                });
+                pointerDown = true;
+                syncWindows();
+                deliver(event, () =>
+                    handler({
+                        point: { x: event.clientX, y: event.clientY },
+                        pointer: { id: event.pointerId, type: event.pointerType },
+                        button: event.button,
+                        modifiers: {
+                            altKey: event.altKey,
+                            ctrlKey: event.ctrlKey,
+                            metaKey: event.metaKey,
+                            shiftKey: event.shiftKey,
+                        },
+                        native: event,
+                        claim: () => claimPointerEvent(event),
+                        capture: () => capturePointer(view.dom, event.pointerId),
+                        releaseCapture: () => releasePointerCapture(view.dom, event.pointerId),
+                    }),
+                );
             };
             view.dom.addEventListener('pointerdown', listener, true);
             return () => view.dom.removeEventListener('pointerdown', listener, true);
         },
         onMove: (handler) => {
             const listener = (event: PointerEvent) => {
-                handler({
-                    point: { x: event.clientX, y: event.clientY },
-                    pointer: { id: event.pointerId, type: event.pointerType },
-                    native: event,
-                    claim: () => claimPointerEvent(event),
-                });
+                if (event.buttons === 0) pointerDown = false;
+                deliverPointer(event, (point) =>
+                    handler({
+                        point,
+                        pointer: { id: event.pointerId, type: event.pointerType },
+                        buttons: event.buttons,
+                        native: event,
+                        claim: () => claimPointerEvent(event),
+                    }),
+                );
             };
             return listen(theWindow, 'pointermove', listener, { capture: true, passive: false });
         },
         onRelease: (handler) => {
             const listener = (event: PointerEvent) => {
-                handler({
-                    point: { x: event.clientX, y: event.clientY },
-                    pointer: { id: event.pointerId, type: event.pointerType },
-                    native: event,
-                    claim: () => claimPointerEvent(event),
-                    releaseCapture: () => releasePointerCapture(view.dom, event.pointerId),
-                });
+                pointerDown = false;
+                deliverPointer(event, (point) =>
+                    handler({
+                        point,
+                        pointer: { id: event.pointerId, type: event.pointerType },
+                        native: event,
+                        claim: () => claimPointerEvent(event),
+                        releaseCapture: () => releasePointerCapture(view.dom, event.pointerId),
+                    }),
+                );
             };
             return listen(theWindow, 'pointerup', listener, { capture: true, passive: false });
         },
         onCancel: (handler) => {
             const pointerCancelListener = (event: PointerEvent) => {
+                releasePointerCapture(view.dom, event.pointerId);
+                // Crossing into another editor window or out of a card iframe
+                // cancels the captured pointer. The gesture continues on the
+                // window that receives the next move. A cancel with nowhere
+                // else to go still ends it.
+                const win = event.view;
+                const retarget =
+                    pointerDown && (!!win?.frameElement || liveViewWindows().some((other) => other !== win));
+                if (retarget) return;
+                pointerDown = false;
                 handler({
                     pointer: { id: event.pointerId, type: event.pointerType },
                     reason: 'pointer_cancelled',
@@ -113,12 +184,17 @@ export function pointerInput(view: EditorView): InputSource {
             // A drag can lose its pointer stream entirely — window blur or tab
             // hidden — with no pointerup/pointercancel ever firing, leaving the
             // drag state and the host's grabbing cursor stuck. Force-cancel then.
-            const cancelFallback = () =>
+            const cancelFallback = () => {
+                pointerDown = false;
                 handler({
                     pointer: { id: -1, type: null },
                     reason: 'pointer_cancelled',
                 });
-            const onWindowBlur = () => cancelFallback();
+            };
+            const onWindowBlur = () => {
+                if (pointerDown) return;
+                cancelFallback();
+            };
             const onVisibilityChange = () => {
                 if (view.dom.ownerDocument.visibilityState === 'hidden') cancelFallback();
             };

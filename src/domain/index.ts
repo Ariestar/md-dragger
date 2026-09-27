@@ -53,3 +53,4 @@ export {
 export type { DocEdit, TextChange } from './transaction/block-transaction';
 export { planDelete } from './transaction/delete-blocks';
 export { moveTx } from './transaction/move-blocks';
+export { pointInViewport, type Viewport } from './viewport';

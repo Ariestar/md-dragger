@@ -57,8 +57,8 @@ function createHarness(
         press(line: number) {
             pressHandler({ point: { x: 0, y: 0 }, pointer, native: { line } });
         },
-        move() {
-            moveHandler({ point: { x: 5, y: 0 }, pointer });
+        move(buttons?: number) {
+            moveHandler({ point: { x: 5, y: 0 }, pointer, buttons });
         },
         release() {
             releaseHandler({ point: { x: 5, y: 0 }, pointer });
@@ -94,6 +94,19 @@ describe('DefaultUx host press selection', () => {
             blockAt(harness.doc, 1),
         );
         expect(harness.dragSelection()).toEqual(supplied);
+    });
+
+    it('cancels the gesture when a move reports the button is up', () => {
+        const harness = createHarness(() => null);
+
+        harness.press(1);
+        harness.move(1);
+        harness.move(0);
+
+        const cancelled = harness.changes
+            .flatMap((change) => change.outputs)
+            .filter((item) => item.type === 'cancelled');
+        expect(cancelled.at(-1)).toMatchObject({ type: 'cancelled', reason: 'pointer_cancelled' });
     });
 
     it('retains single-block behavior when the host returns null', () => {

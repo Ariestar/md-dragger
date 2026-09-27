@@ -41,6 +41,8 @@ export type PressInput = {
 export type MoveInput = {
     point: Point;
     pointer: Pointer;
+    /** Buttons held during the move. 0 means the press already ended. */
+    buttons?: number;
     native?: unknown;
     claim?: () => void;
 };
