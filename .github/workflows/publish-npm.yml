@@ -75,3 +75,24 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: pnpm publish --registry=https://registry.npmjs.org --provenance --access public --no-git-checks
+
+  notify-host:
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Ask obsidian-dragger to bump
+        env:
+          HOST_REPO_TOKEN: ${{ secrets.HOST_REPO_TOKEN }}
+        run: |
+          if [ -z "$HOST_REPO_TOKEN" ]; then
+            echo "::error::Set HOST_REPO_TOKEN on Ariestar/md-dragger. It needs contents:write on Ariestar/obsidian-dragger so this job can send repository_dispatch."
+            exit 1
+          fi
+          VERSION="$(node -p "require('./package.json').version")"
+          GH_TOKEN="$HOST_REPO_TOKEN" gh api repos/Ariestar/obsidian-dragger/dispatches \
+            -f event_type=md-dragger-published \
+            -f "client_payload[version]=${VERSION}"
