@@ -89,6 +89,20 @@ describe('adapter/codemirror pointerInput across windows', () => {
         expect(seen).toEqual(['release']);
     });
 
+    it('cancels a held gesture when a move reports no buttons', () => {
+        const { view } = editorIn(fakeWindow());
+        const input = pointerInput(view);
+        const seen: string[] = [];
+        input.onPress(() => seen.push('press'));
+        input.onMove(() => seen.push('move'));
+        input.onCancel((event) => seen.push(event.reason));
+
+        view.dom.dispatchEvent(pointer('pointerdown'));
+        view.dom.ownerDocument.defaultView?.dispatchEvent(Object.assign(pointer('pointermove'), { buttons: 0 }));
+
+        expect(seen).toEqual(['press', 'pointer_cancelled']);
+    });
+
     it('hears a move in another editor window', () => {
         const main = fakeWindow();
         const popout = fakeWindow();
