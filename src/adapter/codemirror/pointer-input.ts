@@ -25,9 +25,6 @@ export function pointerInput(view: EditorView): InputSource {
     // Held from press until release. Entering a pop-out blurs the source window
     // without ending the gesture, so blur must not cancel while the pointer is down.
     let pointerDown = false;
-    // Set when onCancel is subscribed. A move with no buttons means pointerup
-    // was missed (released outside every window we listen on).
-    let reportLostPointer: ((event: PointerEvent) => void) | null = null;
     const ownerWindow = (): Window => {
         const win = view.dom.ownerDocument.defaultView;
         if (!win) throw new Error('md-dragger: editor document has no window');
@@ -116,15 +113,12 @@ export function pointerInput(view: EditorView): InputSource {
         },
         onMove: (handler) => {
             const listener = (event: PointerEvent) => {
-                if (pointerDown && event.buttons === 0) {
-                    pointerDown = false;
-                    reportLostPointer?.(event);
-                    return;
-                }
+                if (event.buttons === 0) pointerDown = false;
                 deliver(event, () =>
                     handler({
                         point: { x: event.clientX, y: event.clientY },
                         pointer: { id: event.pointerId, type: event.pointerType },
+                        buttons: event.buttons,
                         native: event,
                         claim: () => claimPointerEvent(event),
                     }),
@@ -148,15 +142,6 @@ export function pointerInput(view: EditorView): InputSource {
             return listen(theWindow, 'pointerup', listener, { capture: true, passive: false });
         },
         onCancel: (handler) => {
-            reportLostPointer = (event) => {
-                pointerDown = false;
-                handler({
-                    pointer: { id: event.pointerId, type: event.pointerType },
-                    reason: 'pointer_cancelled',
-                    native: event,
-                    releaseCapture: () => releasePointerCapture(view.dom, event.pointerId),
-                });
-            };
             const pointerCancelListener = (event: PointerEvent) => {
                 releasePointerCapture(view.dom, event.pointerId);
                 // Crossing into another editor window or out of a card iframe

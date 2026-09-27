@@ -247,6 +247,12 @@ export class DefaultUx implements Ux {
     private handleMove(input: MoveInput): void {
         const session = this.pressSession;
         if (!session || !samePointer(session.pointer, input.pointer)) return;
+        // pointerup can land outside every editor window. The next move then
+        // reports no buttons; that is the same press ending.
+        if (input.buttons === 0) {
+            this.handleCancel(input.pointer);
+            return;
+        }
 
         if (this.runtime().isGestureActive()) {
             this.runtime().moveDrag(session.sessionId, input.point, input.pointer, input.pointer.type);
