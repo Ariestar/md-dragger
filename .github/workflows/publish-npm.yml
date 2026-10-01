@@ -2,20 +2,22 @@ name: Publish npm
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
+    paths:
+      - package.json
   workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: read
+      contents: write
       id-token: write
     steps:
       - name: Checkout repository
@@ -33,45 +35,94 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Check tag matches package version
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Check release version
+        id: release
         run: |
-          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          if [ "$PACKAGE_VERSION" != "$TAG_VERSION" ]; then
-            echo "Tag $GITHUB_REF_NAME does not match package.json version $PACKAGE_VERSION"
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$GITHUB_REF" != refs/heads/main ]]; then
+            echo "Manual releases must run from main." >&2
             exit 1
           fi
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          LATEST_VERSION="$(npm view md-dragger dist-tags.latest --registry=https://registry.npmjs.org)"
+          RELEASE_TAG="$(git ls-remote --tags origin "refs/tags/v$PACKAGE_VERSION")"
+          node - "$PACKAGE_VERSION" "$LATEST_VERSION" <<'NODE'
+          const [version, latest] = process.argv.slice(2);
+          const parse = (value) => {
+            if (!/^\d+\.\d+\.\d+$/.test(value)) throw new Error(`Expected a stable semver version, got ${value}`);
+            return value.split('.').map(Number);
+          };
+          const compare = (left, right) => {
+            for (let i = 0; i < 3; i++) {
+              if (left[i] !== right[i]) return left[i] - right[i];
+            }
+            return 0;
+          };
+          const order = compare(parse(version), parse(latest));
+          if (order < 0) throw new Error(`package.json version ${version} is older than npm latest ${latest}`);
+          console.log(`::notice::md-dragger ${version}; npm latest ${latest}`);
+          NODE
+          if [[ "$PACKAGE_VERSION" == "$LATEST_VERSION" ]]; then
+            if [[ -z "$RELEASE_TAG" ]]; then
+              echo "Version $PACKAGE_VERSION is published without its release tag; verify npm provenance before tagging." >&2
+              exit 1
+            fi
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "create_tag=false" >> "$GITHUB_OUTPUT"
+          elif npm view "md-dragger@$PACKAGE_VERSION" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+            echo "Version $PACKAGE_VERSION already exists on npm but is not latest." >&2
+            exit 1
+          else
+            if [[ -n "$RELEASE_TAG" ]]; then
+              echo "Tag v$PACKAGE_VERSION already exists but the npm version does not." >&2
+              exit 1
+            fi
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "create_tag=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        if: steps.release.outputs.publish == 'true'
+        run: pnpm install --frozen-lockfile
 
       - name: Type check
+        if: steps.release.outputs.publish == 'true'
         run: pnpm run typecheck
 
       - name: Lint
+        if: steps.release.outputs.publish == 'true'
         run: pnpm run lint
 
       - name: Format check
+        if: steps.release.outputs.publish == 'true'
         run: pnpm run format:check
 
       - name: Run tests
+        if: steps.release.outputs.publish == 'true'
         run: pnpm test
 
       - name: Build
+        if: steps.release.outputs.publish == 'true'
         run: pnpm run build
 
       - name: Validate package (publint)
+        if: steps.release.outputs.publish == 'true'
         run: pnpm run lint:pkg
 
       - name: Validate types (attw)
+        if: steps.release.outputs.publish == 'true'
         run: pnpm run check:types
 
       - name: Publish to npm
-        # --no-git-checks: the tag-push checkout is detached HEAD, which fails
-        # pnpm's default publish-branch (master|main) git check.
-        # NODE_AUTH_TOKEN is injected explicitly because setup-node's automatic
-        # injection is unreliable here.
+        if: steps.release.outputs.publish == 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: pnpm publish --registry=https://registry.npmjs.org --provenance --access public --no-git-checks
+
+      - name: Tag release
+        if: steps.release.outputs.create_tag == 'true'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          git tag "v$VERSION"
+          git push origin "v$VERSION"
