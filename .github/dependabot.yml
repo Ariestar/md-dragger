@@ -5,11 +5,25 @@ updates:
     schedule:
       interval: weekly
     versioning-strategy: increase
+    groups:
+      codemirror:
+        patterns:
+          - "@codemirror/*"
   - package-ecosystem: npm
     directory: /site
     schedule:
       interval: weekly
     versioning-strategy: increase
+    groups:
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
+      codemirror:
+        patterns:
+          - "@codemirror/*"
   - package-ecosystem: github-actions
     directory: /
     schedule:
