@@ -14,6 +14,7 @@ import { isLineNumberInRanges } from './line-range';
  */
 export type DropLocateInput = {
     doc: Doc;
+    sourceDoc?: Doc;
     selection: BlockSelection;
     hitLine: number;
     belowMid: boolean;
@@ -50,9 +51,10 @@ export function locateDropPosition(input: DropLocateInput): DropPosition {
     }
 
     // Child indent `want` needs parent indent `want - unit`.
-    // Walk up until indent ≤ desired; skip self-selection.
+    // Walk up until indent ≤ desired; skip self-selection in the same document.
     const desiredParentIndent = want - indentUnit;
-    const sourceLines = selectionLineRanges(doc.lines, selection);
+    const sameDoc = input.sourceDoc === undefined || input.sourceDoc === doc;
+    const sourceLines = sameDoc ? selectionLineRanges(doc.lines, selection) : [];
 
     while (parentLine > 0) {
         const meta = getLineMetaAt(lineMap, parentLine);
@@ -60,7 +62,7 @@ export function locateDropPosition(input: DropLocateInput): DropPosition {
             parentLine = 0;
             break;
         }
-        if (isLineNumberInRanges(parentLine, sourceLines)) {
+        if (sameDoc && isLineNumberInRanges(parentLine, sourceLines)) {
             parentLine = lineMap.listParentLine[parentLine] ?? 0;
             continue;
         }
