@@ -62,12 +62,12 @@ jobs:
           console.log(`::notice::md-dragger ${version}; npm latest ${latest}`);
           NODE
           if [[ "$PACKAGE_VERSION" == "$LATEST_VERSION" ]]; then
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-            if [[ -n "$RELEASE_TAG" ]]; then
-              echo "create_tag=false" >> "$GITHUB_OUTPUT"
-            else
-              echo "create_tag=true" >> "$GITHUB_OUTPUT"
+            if [[ -z "$RELEASE_TAG" ]]; then
+              echo "Version $PACKAGE_VERSION is published without its release tag; verify npm provenance before tagging." >&2
+              exit 1
             fi
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "create_tag=false" >> "$GITHUB_OUTPUT"
           elif npm view "md-dragger@$PACKAGE_VERSION" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
             echo "Version $PACKAGE_VERSION already exists on npm but is not latest." >&2
             exit 1
