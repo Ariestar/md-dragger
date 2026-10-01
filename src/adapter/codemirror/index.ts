@@ -35,7 +35,6 @@ export {
     resolveConfig,
     resolveListIndentUnit,
     resolveListIndentWidthPx,
-    resolveLocateOptions,
     resolveTabSize,
     type UxOptionInput,
 } from './config';

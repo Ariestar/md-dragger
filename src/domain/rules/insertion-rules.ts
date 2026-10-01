@@ -23,47 +23,32 @@ export interface InsertionRuleDecision {
     rejectReason: RejectReason | null;
 }
 
-type RuleKey = `${BlockType}|${InsertionSlotContext}`;
-
-const ALL_TYPES = Object.values(BlockType) as BlockType[];
-
-function rejectEntries(
-    types: BlockType[],
-    slot: InsertionSlotContext,
-    reason: RejectReason,
-): [RuleKey, RejectReason][] {
-    return types.map((t): [RuleKey, RejectReason] => [`${t}|${slot}`, reason]);
-}
-
-const REJECT_RULES: ReadonlyMap<RuleKey, RejectReason> = new Map<RuleKey, RejectReason>([
-    ...rejectEntries(ALL_TYPES, 'inside_code_block', 'inside_code_block'),
-    ...rejectEntries(ALL_TYPES, 'inside_math_block', 'inside_math_block'),
-    ...rejectEntries(
-        ALL_TYPES.filter((t) => t !== BlockType.ListItem),
-        'inside_list',
-        'inside_list',
-    ),
-    ...rejectEntries(
-        ALL_TYPES.filter((t) => t !== BlockType.Blockquote),
-        'inside_quote_run',
-        'inside_quote_run',
-    ),
-    ...rejectEntries([BlockType.Callout], 'quote_before', 'quote_boundary'),
-    ...rejectEntries(
-        ALL_TYPES.filter((t) => t !== BlockType.Blockquote),
-        'quote_after',
-        'quote_boundary',
-    ),
-    ...rejectEntries(ALL_TYPES, 'callout_after', 'callout_after'),
-    ...rejectEntries(ALL_TYPES, 'table_before', 'table_before'),
-    ...rejectEntries(ALL_TYPES, 'hr_before', 'hr_before'),
-]);
-
 export function resolveInsertionRule(input: InsertionRuleInput): InsertionRuleDecision {
-    const key: RuleKey = `${input.sourceType}|${input.slotContext}`;
-    const rejectReason = REJECT_RULES.get(key) ?? null;
-    return {
-        allowDrop: rejectReason === null,
-        rejectReason,
-    };
+    const { sourceType, slotContext } = input;
+    switch (slotContext) {
+        case 'inside_code_block':
+        case 'inside_math_block':
+        case 'callout_after':
+        case 'table_before':
+        case 'hr_before':
+            return { allowDrop: false, rejectReason: slotContext };
+        case 'inside_list':
+            return sourceType === BlockType.ListItem
+                ? { allowDrop: true, rejectReason: null }
+                : { allowDrop: false, rejectReason: 'inside_list' };
+        case 'inside_quote_run':
+            return sourceType === BlockType.Blockquote
+                ? { allowDrop: true, rejectReason: null }
+                : { allowDrop: false, rejectReason: 'inside_quote_run' };
+        case 'quote_before':
+            return sourceType === BlockType.Callout
+                ? { allowDrop: false, rejectReason: 'quote_boundary' }
+                : { allowDrop: true, rejectReason: null };
+        case 'quote_after':
+            return sourceType === BlockType.Blockquote
+                ? { allowDrop: true, rejectReason: null }
+                : { allowDrop: false, rejectReason: 'quote_boundary' };
+        default:
+            return { allowDrop: true, rejectReason: null };
+    }
 }

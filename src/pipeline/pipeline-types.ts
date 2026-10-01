@@ -1,24 +1,15 @@
 import type { DropPosition } from '../domain/command/drop-position';
 import type { Doc } from '../domain/markdown/document-types';
+import type { RejectReason } from '../domain/result';
 import type { BlockSelection } from '../domain/selection/block-selection';
 
 export type DragCancelReason =
+    | RejectReason
     | 'press_cancelled'
     | 'pointer_cancelled'
     | 'session_interrupted'
     | 'selection_invalid'
     | 'keyboard_escape'
-    | 'no_target'
-    | 'table_cell'
-    | 'self_range_blocked'
-    | 'self_embedding'
-    | 'container_policy'
-    | 'inside_list'
-    | 'inside_quote_run'
-    | 'quote_boundary'
-    | 'callout_after'
-    | 'table_before'
-    | 'hr_before'
     | 'commit_failed';
 
 export type DragDropSnapshot = {
