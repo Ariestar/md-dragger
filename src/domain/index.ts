@@ -3,7 +3,7 @@
 // Internals (line-map, guards, capture details) stay unexported.
 
 export { detectBlock } from './block/block-detector';
-export { type ConvertTo, planConvert } from './block/block-type-conversion';
+export { type BlockTemplate, type ConvertTo, planConvert, resolveBlockTemplate } from './block/block-type-conversion';
 
 // --- block identity ---
 export { type Block, BlockType } from './block/block-types';

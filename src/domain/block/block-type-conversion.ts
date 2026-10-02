@@ -5,6 +5,16 @@ import { isCodeFenceLine, isMathFenceLine } from './block-guards';
 import type { Block } from './block-types';
 import { BlockType } from './block-types';
 
+/** Unified template definition for any block style. */
+export type BlockTemplate = {
+    /** Outer template containing ${content}. E.g. "# ${content}", "```${lang}\n${content}\n```" */
+    template: string;
+    /** Prefix applied to each line of content (e.g. "> " for quotes/callouts, "${ordinal}. " for numbered lists) */
+    linePrefix?: string;
+    /** Key-value variables for ${key} interpolation in template */
+    variables?: Record<string, string>;
+};
+
 /** Target shape for block-type conversion (handle menu, commands). */
 export type ConvertTo =
     | { type: BlockType.Paragraph }
@@ -12,7 +22,8 @@ export type ConvertTo =
     | { type: BlockType.ListItem; markerType: MarkerType }
     | { type: BlockType.Blockquote }
     | { type: BlockType.CodeBlock }
-    | { type: BlockType.MathBlock };
+    | { type: BlockType.MathBlock }
+    | BlockTemplate;
 
 /**
  * Plan character edits that change a block's markdown type.
@@ -26,34 +37,59 @@ export function planConvert(params: { doc: Doc; block?: Block; lines?: LineRange
     return planConvertLines(params.doc, span.startLine, span.endLine, params.to);
 }
 
-type FenceTarget = Extract<ConvertTo, { type: BlockType.CodeBlock | BlockType.MathBlock }>;
-type NonFenceTarget = Exclude<ConvertTo, FenceTarget>;
+export function resolveBlockTemplate(to: ConvertTo): BlockTemplate {
+    if ('template' in to) return to;
+    switch (to.type) {
+        case BlockType.Paragraph:
+            return { template: '${content}' };
+        case BlockType.Heading:
+            return { template: `${'#'.repeat(to.level)} \${content}` };
+        case BlockType.ListItem:
+            return {
+                template: '${content}',
+                linePrefix: to.markerType === 'ordered' ? '${ordinal}. ' : to.markerType === 'task' ? '- [ ] ' : '- ',
+            };
+        case BlockType.Blockquote:
+            return { template: '${content}', linePrefix: '> ' };
+        case BlockType.CodeBlock:
+            return { template: '```\n${content}\n```' };
+        case BlockType.MathBlock:
+            return { template: '$$\n${content}\n$$' };
+    }
+}
 
 function planConvertLines(doc: Doc, startLine: number, endLine: number, to: ConvertTo): TextChange[] {
     const fenced = readFencedContent(doc, startLine, endLine);
-
-    if (isFenceTarget(to)) {
-        if (fenced?.type === to.type) return [];
-        return wrapAsFence(doc, startLine, endLine, to, fenced?.contentLines ?? null);
+    if (!('template' in to)) {
+        if (to.type === BlockType.CodeBlock && fenced?.type === BlockType.CodeBlock) return [];
+        if (to.type === BlockType.MathBlock && fenced?.type === BlockType.MathBlock) return [];
     }
 
-    if (fenced) {
-        return unwrapFence(doc, startLine, endLine, fenced.contentLines, to);
-    }
+    const contentLines: Array<{ indentRaw: string; body: string }> = fenced
+        ? fenced.contentLines.map(splitIndent)
+        : Array.from({ length: endLine - startLine + 1 }, (_, i) => stripPrefix(doc.line(startLine + i).text));
 
-    const changes: TextChange[] = [];
-    for (let n = startLine; n <= endLine; n++) {
-        const line = doc.line(n);
-        const next = convertLine(line.text, to, n - startLine + 1);
-        if (next !== line.text) {
-            changes.push({ from: line.from, to: line.to, insert: next });
-        }
-    }
-    return changes;
+    const target = resolveBlockTemplate(to);
+    const from = doc.line(startLine).from;
+    const toPos = doc.line(endLine).to;
+    const formatted = formatBlockContent(contentLines, target);
+
+    if (formatted === doc.sliceString(from, toPos)) return [];
+    return [{ from, to: toPos, insert: formatted }];
 }
 
-function isFenceTarget(to: ConvertTo): to is FenceTarget {
-    return to.type === BlockType.CodeBlock || to.type === BlockType.MathBlock;
+function formatBlockContent(contentLines: Array<{ indentRaw: string; body: string }>, target: BlockTemplate): string {
+    const formattedLines = contentLines.map((line, index) => {
+        if (!target.linePrefix) return `${line.indentRaw}${line.body}`;
+        const prefix = target.linePrefix.replace('${ordinal}', String(index + 1));
+        return `${line.indentRaw}${prefix}${line.body}`;
+    });
+
+    const content = formattedLines.join('\n');
+    const vars = target.variables ?? {};
+    let result = target.template.replace('${content}', content);
+    result = result.replace(/\$\{([a-zA-Z0-9_-]+)\}/g, (_, key) => vars[key] ?? '');
+    return result;
 }
 
 function readFencedContent(
@@ -94,78 +130,14 @@ function singleLineMathBody(text: string): string | null {
     return trimmed.slice(2, -2).trim();
 }
 
-function unwrapFence(
-    doc: Doc,
-    startLine: number,
-    endLine: number,
-    contentLines: string[],
-    to: NonFenceTarget,
-): TextChange[] {
-    const from = doc.line(startLine).from;
-    const toPos = doc.line(endLine).to;
-    const insert = contentLines
-        .map((line, i) => {
-            const { indentRaw, body } = splitIndent(line);
-            return formatBody(indentRaw, body, to, i + 1);
-        })
-        .join('\n');
-    return [{ from, to: toPos, insert }];
-}
-
-function wrapAsFence(
-    doc: Doc,
-    startLine: number,
-    endLine: number,
-    to: FenceTarget,
-    existingContent: string[] | null,
-): TextChange[] {
-    const from = doc.line(startLine).from;
-    const toPos = doc.line(endLine).to;
-    const content = existingContent
-        ? existingContent.join('\n')
-        : Array.from(
-              { length: endLine - startLine + 1 },
-              (_, i) => stripPrefix(doc.line(startLine + i).text).body,
-          ).join('\n');
-    const fence = to.type === BlockType.CodeBlock ? '```' : '$$';
-    return [{ from, to: toPos, insert: `${fence}\n${content}\n${fence}` }];
-}
-
-function convertLine(text: string, to: NonFenceTarget, ordinal: number): string {
-    const { indentRaw, body } = stripPrefix(text);
-    return formatBody(indentRaw, body, to, ordinal);
-}
-
-function formatBody(indentRaw: string, body: string, to: NonFenceTarget, ordinal: number): string {
-    switch (to.type) {
-        case BlockType.Paragraph:
-            return `${indentRaw}${body}`;
-        case BlockType.Heading:
-            return `${indentRaw}${'#'.repeat(to.level)} ${body}`;
-        case BlockType.ListItem:
-            return `${indentRaw}${listMarker(to.markerType, ordinal)}${body}`;
-        case BlockType.Blockquote:
-            return `> ${indentRaw}${body}`;
-    }
-}
-
-function listMarker(markerType: MarkerType, ordinal: number): string {
-    switch (markerType) {
-        case 'ordered':
-            return `${ordinal}. `;
-        case 'task':
-            return '- [ ] ';
-        case 'unordered':
-            return '- ';
-    }
-}
-
-/** Strip quote / heading / list markers; keep indent. */
+/** Strip quote, callout, heading, list markers; keep indent. */
 function stripPrefix(text: string): { indentRaw: string; body: string } {
     const quoteMatch = text.match(/^(\s*>\s?)*/);
     const withoutQuote = text.slice(quoteMatch?.[0].length ?? 0);
     const { indentRaw, body } = splitIndent(withoutQuote);
     let rest = body.replace(/^#{1,6}\s+/, '');
+    const calloutMatch = rest.match(/^\[![^\]]+\]\s*/);
+    if (calloutMatch) rest = rest.slice(calloutMatch[0].length);
     const listMatch = rest.match(/^((?:[-*+]\s\[[ xX]\]\s+)|(?:[-*+]\s+)|(?:\d+[.)]\s+))/);
     if (listMatch) rest = rest.slice(listMatch[0].length);
     return { indentRaw, body: rest };
