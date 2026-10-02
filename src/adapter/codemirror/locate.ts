@@ -5,11 +5,9 @@ import {
     BlockType,
     type Doc,
     type DropPosition,
-    detectBlock,
     locateDropPosition,
     parseLine,
-    planMove,
-    type RejectReason,
+    snapDrop,
 } from '../../domain';
 import type { Point, PressInput } from '../../runtime';
 import {
@@ -85,92 +83,7 @@ export function resolveDropPosition(
     });
 }
 
-/** Rejections that mean the pointer is over the source block itself. The
- * in-place seam stays grey (an explicit no-op) instead of snapping — snapping
- * would silently turn the no-op into a real move. Everything else is a
- * container/seam-location rejection that snapping can resolve. */
-const NO_SNAP_REASONS: ReadonlySet<RejectReason> = new Set(['self_range_blocked', 'self_embedding']);
-
-/** How far the linear walk searches for a valid seam beyond container edges. */
-const SNAP_RADIUS = 4;
-
-export type SnapDropPositionInput = {
-    /** The rejected seam from locateDropPosition (parent already derived). */
-    raw: DropPosition;
-    sourceDoc: Doc;
-    selection: BlockSelection;
-    sourceIndentWidth: number;
-    targetIndentWidth: number;
-    tabSize: number;
-    indentUnit: number;
-};
-
-/**
- * Snap a rejected drop seam to the nearest insertable seam.
- *
- * Invalid seams are container/seam-location rejections (inside a fenced code
- * or math block, inside a list for non-list sources, table/hr adjacency, …).
- * Instead of painting a dead grey indicator, search outward:
- *   1. container edges — the block under the seam and the block ending right
- *      above it each contribute their boundaries (fence lines, list bounds);
- *   2. a short linear walk (±SNAP_RADIUS) for forbidden spans the edges do
- *      not cover (short quote runs, single-line callout-after seams).
- * Candidates are tried nearest-first; each re-derives its parent from the
- * seam line so the indent intent stays consistent with the paint geometry.
- * Self-range rejections and an exhausted search keep the original grey seam.
- */
-export function snapDropPosition(input: SnapDropPositionInput): DropPosition {
-    const { raw, sourceDoc, selection, sourceIndentWidth, targetIndentWidth, tabSize, indentUnit } = input;
-    const doc = raw.doc;
-    const seam = raw.line;
-    const maxLine = doc.lines + 1;
-
-    const plan = (position: DropPosition) => planMove({ sourceDoc, selection, position, tabSize, indentUnit });
-    const rawPlan = plan(raw);
-    if (rawPlan.type === 'ok' || NO_SNAP_REASONS.has(rawPlan.reason)) return raw;
-
-    const candidates: number[] = [];
-    const push = (line: number): void => {
-        if (line < 1 || line > maxLine || candidates.includes(line)) return;
-        candidates.push(line);
-    };
-
-    for (const probe of [seam, seam - 1]) {
-        const block = detectBlock(doc, probe, { tabSize });
-        if (!block) continue;
-        push(block.lines.startLine);
-        push(block.lines.endLine + 1);
-    }
-
-    for (let d = 1; d <= SNAP_RADIUS; d++) {
-        push(seam - d);
-        push(seam + d);
-    }
-
-    // Nearest first; equidistant candidates prefer the seam below (larger
-    // line) so the indicator keeps up with a downward drag. A candidate that
-    // the structure allows, or that is a self/no-op seam of the source block
-    // (its own boundaries), is a valid snap target — a dragged fenced block
-    // snaps back onto its own edges exactly like any other block would.
-    const byDistance = [...candidates].sort((a, b) => Math.abs(a - seam) - Math.abs(b - seam) || b - a);
-    for (const line of byDistance) {
-        const position = locateDropPosition({
-            doc,
-            sourceDoc,
-            selection,
-            hitLine: line,
-            belowMid: false,
-            sourceIndentWidth,
-            targetIndentWidth,
-            tabSize,
-            indentUnit,
-        });
-        const planned = plan(position);
-        if (planned.type === 'ok' || NO_SNAP_REASONS.has(planned.reason)) return position;
-    }
-
-    return raw;
-}
+export { type SnapDropInput, snapDrop } from '../../domain';
 
 /**
  * Default multi-doc drop locate — two independent axes:
@@ -220,7 +133,7 @@ export function resolveDropPositionAtPoint(
         sourceDoc,
     );
     if (position === null) return null;
-    return snapDropPosition({
+    return snapDrop({
         raw: position,
         sourceDoc,
         selection,

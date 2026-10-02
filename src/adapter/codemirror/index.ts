@@ -9,10 +9,10 @@ import {
     dropSeamDecoration,
     INVALID_CLASS,
     listIndentUnitFacet,
+    listLevel,
     SOURCE_LEVEL_STYLE_VAR,
     seamOffset,
     sourceHighlightDecoration,
-    sourceListLevel,
 } from './decoration';
 import { dragHandleGutter } from './handle-gutter';
 import { dragRuntime } from './runtime-plugin';
@@ -74,10 +74,10 @@ export {
     dropSeamDecoration,
     INVALID_CLASS,
     listIndentUnitFacet,
+    listLevel,
     SOURCE_LEVEL_STYLE_VAR,
     seamOffset,
     sourceHighlightDecoration,
-    sourceListLevel,
 };
 
 const editorAttributes = EditorView.editorAttributes.of({ class: EDITOR_CLASS });

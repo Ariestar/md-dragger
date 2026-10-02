@@ -1,9 +1,11 @@
 import { EditorState, Facet, type Range } from '@codemirror/state';
 import { Decoration, type DecorationSet, type EditorView } from '@codemirror/view';
-import { type DropPosition, parseLine, selectionLineRanges } from '../../domain';
+import { type DropPosition, listLevel, selectionLineRanges } from '../../domain';
 import { dragSelectionDoc, dropSeamState, type PipelineOutput, selectionFromOutputs } from '../../runtime';
 import type { CodeMirrorGeometryOptions } from './config';
 import { dropSeam } from './geometry';
+
+export { listLevel } from '../../domain';
 
 // Render protocol between the adapter and hosts: hosts style these classes /
 // CSS variables in their stylesheet; the adapter owns the names so the
@@ -20,13 +22,6 @@ export const SOURCE_LEVEL_STYLE_VAR = '--d-source-level';
 export const listIndentUnitFacet = Facet.define<number, number>({
     combine: (values) => values[values.length - 1],
 });
-
-/** Nesting level of a list line (engine parseLine); non-list rows have none. */
-export function sourceListLevel(lineText: string, tabSize: number, indentUnit: number): number {
-    const parsed = parseLine(lineText, tabSize);
-    if (parsed.marker?.kind !== 'list' || parsed.quote.prefix.length > 0) return 0;
-    return Math.round(parsed.indent.width / indentUnit);
-}
 
 /** Source-highlight line decorations derived from one engine output batch:
  * the selected rows, each carrying its nesting level so the host can leave
@@ -59,7 +54,7 @@ export function sourceHighlightDecoration(outputs: readonly PipelineOutput[], st
                 Decoration.line({
                     class: DRAG_SOURCE_LINE_CLASS,
                     attributes: {
-                        style: `${SOURCE_LEVEL_STYLE_VAR}: ${sourceListLevel(state.doc.line(line).text, tabSize, indentUnit)}`,
+                        style: `${SOURCE_LEVEL_STYLE_VAR}: ${listLevel(state.doc.line(line).text, tabSize, indentUnit)}`,
                     },
                 }).range(state.doc.line(line).from),
             );
