@@ -65,6 +65,17 @@
         "types": "./dist/npm/types/adapter/codemirror/index.d.cts",
         "default": "./dist/npm/adapter/codemirror.cjs"
       }
+    },
+    "./adapter/monaco": {
+      "source": "./src/adapter/monaco/index.ts",
+      "import": {
+        "types": "./dist/npm/types/adapter/monaco/index.d.mts",
+        "default": "./dist/npm/adapter/monaco.mjs"
+      },
+      "require": {
+        "types": "./dist/npm/types/adapter/monaco/index.d.cts",
+        "default": "./dist/npm/adapter/monaco.cjs"
+      }
     }
   },
   "files": [
@@ -90,7 +101,19 @@
   },
   "peerDependencies": {
     "@codemirror/state": "^6.0.0",
-    "@codemirror/view": "^6.0.0"
+    "@codemirror/view": "^6.0.0",
+    "monaco-editor": ">=0.45.0"
+  },
+  "peerDependenciesMeta": {
+    "@codemirror/state": {
+      "optional": true
+    },
+    "@codemirror/view": {
+      "optional": true
+    },
+    "monaco-editor": {
+      "optional": true
+    }
   },
   "keywords": [
     "markdown",
@@ -113,6 +136,7 @@
     "esbuild": "^0.28.2",
     "husky": "^9.1.7",
     "lint-staged": "^17.6.0",
+    "monaco-editor": "^0.57.0",
     "publint": "^0.3.24",
     "tslib": "^2.4.0",
     "typescript": "^7.0.2",
