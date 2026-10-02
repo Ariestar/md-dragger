@@ -36,9 +36,10 @@ export function sourceLineFromInput(editor: editor.ICodeEditor, input: PressInpu
             if (model && Number.isInteger(fromAttr) && fromAttr >= 1 && fromAttr <= model.getLineCount()) {
                 return fromAttr;
             }
+            return lineAtPoint(editor, input.point);
         }
     }
-    return lineAtPoint(editor, input.point);
+    return null;
 }
 
 /**

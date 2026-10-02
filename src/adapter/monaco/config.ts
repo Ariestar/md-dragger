@@ -1,5 +1,5 @@
 import type { editor } from 'monaco-editor';
-import type { Config, DefaultUxConfig, ResolvedConfig } from '../../runtime';
+import type { Config, DefaultUxConfig, LocateHost, ResolvedConfig } from '../../runtime';
 
 export const HANDLE_CLASS = 'md-dragger-handle';
 export const DRAG_SOURCE_LINE_CLASS = 'md-dragger-drag-source';
@@ -8,11 +8,19 @@ export const INVALID_CLASS = 'is-invalid';
 
 export type ListIndentWidthPx = number | ((editor: editor.ICodeEditor) => number);
 
+export type LocateOptions = {
+    sourceLineFromInput?: LocateHost['sourceLineFromInput'];
+    resolveDropPosition?: LocateHost['resolveDropPosition'];
+    lineFromPoint?: LocateHost['lineFromPoint'];
+};
+
 export type MdDraggerMonacoOptions = {
     /** Tab size and list indent unit (in characters/spaces). */
     config: Config;
     /** Rendered pixel width of one list indentation step. */
     listIndentWidthPx: ListIndentWidthPx;
+    /** Host-owned locate overrides. */
+    locate?: LocateOptions;
     /** UX / gesture configuration. */
     ux?: DefaultUxConfig | ((editor: editor.ICodeEditor) => DefaultUxConfig);
     /** Enable/disable predicate. */

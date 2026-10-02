@@ -15,6 +15,7 @@ export {
     HANDLE_CLASS,
     INVALID_CLASS,
     type ListIndentWidthPx,
+    type LocateOptions,
     type MdDraggerMonacoOptions,
     resolveConfig,
     resolveListIndentUnit,
@@ -55,9 +56,16 @@ export function mdDraggerMonaco(editor: editor.ICodeEditor, options: MdDraggerMo
             },
         },
         locate: {
-            sourceLineFromInput: (press) => sourceLineFromInput(editor, press),
-            resolveDropPosition: (point, context) => resolveDropPosition(editor, point, context.selection, options),
-            lineFromPoint: (point) => lineAtPoint(editor, point),
+            sourceLineFromInput: (press) =>
+                options.locate?.sourceLineFromInput
+                    ? options.locate.sourceLineFromInput(press)
+                    : sourceLineFromInput(editor, press),
+            resolveDropPosition: (point, context) =>
+                options.locate?.resolveDropPosition
+                    ? options.locate.resolveDropPosition(point, context)
+                    : resolveDropPosition(editor, point, context.selection, options),
+            lineFromPoint: (point) =>
+                options.locate?.lineFromPoint ? options.locate.lineFromPoint(point) : lineAtPoint(editor, point),
         },
         commit: {
             apply: (edits) => applyCommit(editor, edits),
