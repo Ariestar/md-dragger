@@ -2,6 +2,23 @@
 
 All notable changes to md-dragger are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [2.2.0] — 2026-10-03
+
+### Added
+
+- Unified block template conversion through `BlockTemplate` and `planConvert`, including content variables and per-line prefixes.
+- `md-dragger/adapter/monaco`: native Monaco pointer input, model snapshots, undoable commits, locating, overlays, and disjoint selection highlights. Monaco is an optional peer dependency.
+- Shared `snapDrop`, `SnapDropInput`, and `listLevel` exports in `md-dragger/domain` for editor adapters.
+
+### Fixed
+
+- Nested list drops across editor windows preserve the source document identity and use the destination content edge for indentation.
+- List indentation rejects non-finite or non-positive units explicitly.
+
+### Deprecated
+
+- CodeMirror's `sourceListLevel` remains a direct alias of `listLevel` for compatibility. Import `listLevel` from `md-dragger/domain`; the alias is scheduled for removal in the next major release.
+
 ## [2.0.1] — 2026-08-05
 
 ### Added
