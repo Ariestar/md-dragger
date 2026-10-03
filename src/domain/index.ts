@@ -14,7 +14,10 @@ export type { Doc, DocLine, MarkerType } from './markdown/document-types';
 export {
     type DropLocateInput,
     dropIndentWidth,
+    listLevel,
     locateDropPosition,
+    type SnapDropInput,
+    snapDrop,
 } from './markdown/drop-locate';
 // --- line ranges ---
 export { isLineNumberInRanges } from './markdown/line-range';
