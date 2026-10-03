@@ -1,4 +1,5 @@
 import type { Doc } from '../markdown/document-types';
+import { resolveDeleteRange } from '../mutation';
 import { type Reject, reject } from '../result';
 import { type BlockSelection, selectionLineRanges } from '../selection/block-selection';
 import type { DocEdit, TextChange } from './block-transaction';
@@ -12,13 +13,8 @@ export function planDelete(params: { doc: Doc; selection: BlockSelection }): Doc
         .map((range) => {
             const startLine = doc.line(range.startLine);
             const endLine = doc.line(range.endLine);
-            const deletesOnlyFinalLine =
-                range.startLine === range.endLine && range.endLine === doc.lines && range.startLine > 1;
-            return {
-                from: deletesOnlyFinalLine ? startLine.from - 1 : startLine.from,
-                to: range.endLine === doc.lines ? doc.length : Math.min(doc.length, endLine.to + 1),
-                insert: '',
-            };
+            const { from, to } = resolveDeleteRange(doc, startLine.from, endLine.to);
+            return { from, to, insert: '' };
         })
         .filter((change) => change.to > change.from)
         .sort((a, b) => b.from - a.from);

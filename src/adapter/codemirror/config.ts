@@ -89,14 +89,6 @@ export function resolveConfig(config: Config): ResolvedConfig {
     return raw;
 }
 
-export function resolveLocateOptions(
-    locate: LocateOptionInput | undefined,
-    view: EditorView,
-): LocateOptions | undefined {
-    if (!locate) return undefined;
-    return typeof locate === 'function' ? locate(view) : locate;
-}
-
 /** Resolve a static option value or a per-view factory against the live view. */
 export function resolvePerView<T>(option: T | ((view: EditorView) => T) | undefined, view: EditorView): T | undefined {
     if (option === undefined) return undefined;

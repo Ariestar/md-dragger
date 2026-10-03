@@ -7,11 +7,6 @@ import { type InsertionRuleDecision, type InsertionSlotContext, resolveInsertion
 
 type ContainerType = BlockType.ListItem | BlockType.Blockquote | BlockType.Callout;
 
-export interface DropRuleContext {
-    slotContext: InsertionSlotContext;
-    decision: InsertionRuleDecision;
-}
-
 export interface ContainerPolicyResolveOptions {
     lineMap?: LineMap;
     tabSize: number;
@@ -210,12 +205,11 @@ export function canDropAt(
     sourceBlock: Block,
     targetLineNumber: number,
     options: { lineMap?: LineMap; tabSize: number },
-): DropRuleContext {
+): InsertionRuleDecision {
     const lineMap = options.lineMap ?? getLineMap(doc, { tabSize: options.tabSize });
     const slotContext = slotAt(doc, targetLineNumber, { lineMap, tabSize: options.tabSize });
-    const decision = resolveInsertionRule({
+    return resolveInsertionRule({
         sourceType: sourceBlock.type,
         slotContext,
     });
-    return { slotContext, decision };
 }

@@ -19,76 +19,76 @@ function drop(docText: string, source: Block, line: number) {
 describe('domain/rules/container-policy', () => {
     it('rejects seams inside a fenced code block', () => {
         const doc = '```ts\nconst x = 1;\n```\nafter';
-        expect(drop(doc, paragraph, 2).decision).toEqual({ allowDrop: false, rejectReason: 'inside_code_block' });
-        expect(drop(doc, paragraph, 3).decision).toEqual({ allowDrop: false, rejectReason: 'inside_code_block' });
-        expect(drop(doc, listItem, 2).decision).toEqual({ allowDrop: false, rejectReason: 'inside_code_block' });
+        expect(drop(doc, paragraph, 2)).toEqual({ allowDrop: false, rejectReason: 'inside_code_block' });
+        expect(drop(doc, paragraph, 3)).toEqual({ allowDrop: false, rejectReason: 'inside_code_block' });
+        expect(drop(doc, listItem, 2)).toEqual({ allowDrop: false, rejectReason: 'inside_code_block' });
     });
 
     it('allows seams at and around the code block fences', () => {
         const doc = '```ts\nconst x = 1;\n```\nafter';
-        expect(drop(doc, paragraph, 1).decision.allowDrop).toBe(true);
-        expect(drop(doc, paragraph, 4).decision.allowDrop).toBe(true);
-        expect(drop(doc, paragraph, 5).decision.allowDrop).toBe(true);
+        expect(drop(doc, paragraph, 1).allowDrop).toBe(true);
+        expect(drop(doc, paragraph, 4).allowDrop).toBe(true);
+        expect(drop(doc, paragraph, 5).allowDrop).toBe(true);
     });
 
     it('rejects seams inside a fenced math block', () => {
         const doc = '$$\nx^2 + 1\n$$\nafter';
-        expect(drop(doc, paragraph, 2).decision).toEqual({ allowDrop: false, rejectReason: 'inside_math_block' });
-        expect(drop(doc, paragraph, 3).decision).toEqual({ allowDrop: false, rejectReason: 'inside_math_block' });
-        expect(drop(doc, listItem, 2).decision).toEqual({ allowDrop: false, rejectReason: 'inside_math_block' });
+        expect(drop(doc, paragraph, 2)).toEqual({ allowDrop: false, rejectReason: 'inside_math_block' });
+        expect(drop(doc, paragraph, 3)).toEqual({ allowDrop: false, rejectReason: 'inside_math_block' });
+        expect(drop(doc, listItem, 2)).toEqual({ allowDrop: false, rejectReason: 'inside_math_block' });
     });
 
     it('allows seams at and around math block fences, and inside single-line or unclosed math', () => {
         const doc = '$$\nx^2 + 1\n$$\nafter';
-        expect(drop(doc, paragraph, 1).decision.allowDrop).toBe(true);
-        expect(drop(doc, paragraph, 4).decision.allowDrop).toBe(true);
-        expect(drop(doc, paragraph, 5).decision.allowDrop).toBe(true);
+        expect(drop(doc, paragraph, 1).allowDrop).toBe(true);
+        expect(drop(doc, paragraph, 4).allowDrop).toBe(true);
+        expect(drop(doc, paragraph, 5).allowDrop).toBe(true);
 
         // Single-line math ($$ x $$) has no interior seam.
-        expect(drop('$$ x^2 $$', paragraph, 1).decision.allowDrop).toBe(true);
+        expect(drop('$$ x^2 $$', paragraph, 1).allowDrop).toBe(true);
         // Unclosed math fence keeps historical behavior: only the fence line counts.
-        expect(drop('$$\nunclosed', paragraph, 1).decision.allowDrop).toBe(true);
-        expect(drop('$$\nunclosed', paragraph, 2).decision.allowDrop).toBe(true);
+        expect(drop('$$\nunclosed', paragraph, 1).allowDrop).toBe(true);
+        expect(drop('$$\nunclosed', paragraph, 2).allowDrop).toBe(true);
     });
 
     it('classifies fence interior before quote/list content inside it', () => {
         const quoteLike = '```\n> fake quote\n```';
-        expect(drop(quoteLike, paragraph, 2).decision.rejectReason).toBe('inside_code_block');
+        expect(drop(quoteLike, paragraph, 2).rejectReason).toBe('inside_code_block');
 
         const listLike = '```\n- fake item\n```';
-        expect(drop(listLike, paragraph, 2).decision.rejectReason).toBe('inside_code_block');
+        expect(drop(listLike, paragraph, 2).rejectReason).toBe('inside_code_block');
 
         const mathListLike = '$$\n- fake item\n$$';
-        expect(drop(mathListLike, paragraph, 2).decision.rejectReason).toBe('inside_math_block');
+        expect(drop(mathListLike, paragraph, 2).rejectReason).toBe('inside_math_block');
     });
 
     it('rejects inside a quote run unless the source is a blockquote', () => {
         const doc = '> one\n> two';
-        expect(drop(doc, paragraph, 2).decision).toEqual({ allowDrop: false, rejectReason: 'inside_quote_run' });
-        expect(drop(doc, blockquote, 2).decision.allowDrop).toBe(true);
+        expect(drop(doc, paragraph, 2)).toEqual({ allowDrop: false, rejectReason: 'inside_quote_run' });
+        expect(drop(doc, blockquote, 2).allowDrop).toBe(true);
     });
 
     it('restricts the seam above a quote only for callouts', () => {
         const doc = '> quoted\nafter';
-        expect(drop(doc, paragraph, 1).decision.allowDrop).toBe(true);
-        expect(drop(doc, callout, 1).decision).toEqual({ allowDrop: false, rejectReason: 'quote_boundary' });
+        expect(drop(doc, paragraph, 1).allowDrop).toBe(true);
+        expect(drop(doc, callout, 1)).toEqual({ allowDrop: false, rejectReason: 'quote_boundary' });
     });
 
     it('restricts the seam below a quote unless the source is a blockquote', () => {
         const doc = '> quoted\nafter';
-        expect(drop(doc, paragraph, 2).decision).toEqual({ allowDrop: false, rejectReason: 'quote_boundary' });
-        expect(drop(doc, blockquote, 2).decision.allowDrop).toBe(true);
+        expect(drop(doc, paragraph, 2)).toEqual({ allowDrop: false, rejectReason: 'quote_boundary' });
+        expect(drop(doc, blockquote, 2).allowDrop).toBe(true);
     });
 
     it('restricts the seam inside a list unless the source is a list item', () => {
         const doc = '- one\n  - nested';
-        expect(drop(doc, listItem, 2).decision.allowDrop).toBe(true);
-        expect(drop(doc, paragraph, 2).decision).toEqual({ allowDrop: false, rejectReason: 'inside_list' });
+        expect(drop(doc, listItem, 2).allowDrop).toBe(true);
+        expect(drop(doc, paragraph, 2)).toEqual({ allowDrop: false, rejectReason: 'inside_list' });
     });
 
     it('treats the seam between sibling list items as outside the list', () => {
         const doc = '- one\n- two';
-        expect(drop(doc, paragraph, 2).decision.allowDrop).toBe(true);
+        expect(drop(doc, paragraph, 2).allowDrop).toBe(true);
     });
 
     it('planMove rejects a drop into a code block interior', () => {

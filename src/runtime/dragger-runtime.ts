@@ -325,14 +325,14 @@ export class DraggerRuntime implements RuntimeController {
     private dropRejectReason(selection: BlockSelection, position: DropPosition): DragCancelReason | null {
         const planned = this.plan(selection, position);
         if (planned.type === 'ok') return null;
-        return isDragCancelReason(planned.reason) ? planned.reason : 'selection_invalid';
+        return planned.reason;
     }
 
-    private cancelDrop(drop: DragDropSnapshot, reason: string): DropResolution {
+    private cancelDrop(drop: DragDropSnapshot, reason: DragCancelReason): DropResolution {
         return {
             type: 'cancel',
             drop,
-            reason: isDragCancelReason(reason) ? reason : 'selection_invalid',
+            reason,
         };
     }
 
@@ -351,8 +351,4 @@ export class DraggerRuntime implements RuntimeController {
         }
         return raw;
     }
-}
-
-function isDragCancelReason(reason: string): reason is DragCancelReason {
-    return reason !== 'empty_selection';
 }

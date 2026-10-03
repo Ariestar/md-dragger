@@ -3,13 +3,7 @@ import { type EditorView, ViewPlugin } from '@codemirror/view';
 import type { BlockSelection, DropPosition } from '../../domain';
 import { type Change, DraggerRuntime, type InputSource, type Point } from '../../runtime';
 import { applyCommit } from './commit';
-import {
-    isDraggerEnabled,
-    type MdDraggerCodeMirrorOptions,
-    resolveConfig,
-    resolveLocateOptions,
-    resolvePerView,
-} from './config';
+import { isDraggerEnabled, type MdDraggerCodeMirrorOptions, resolveConfig, resolvePerView } from './config';
 import { lineAtPoint, lineAtScreenPoint, resolveDropPositionAtPoint, sourceLineFromInput } from './locate';
 import { pointerInput } from './pointer-input';
 import { broadcastToLiveViews, registerView } from './views';
@@ -39,7 +33,7 @@ export function dragRuntime(options: MdDraggerCodeMirrorOptions): Extension {
                 // handlers, no live-view registration, no drag effects.
                 if (!isDraggerEnabled(options, view)) return;
                 this.unregisterView = registerView(view);
-                const locateOverride = resolveLocateOptions(options.locate, view);
+                const locateOverride = resolvePerView(options.locate, view);
                 const externalTarget = resolvePerView(options.externalTarget, view);
                 const ux = resolvePerView(options.ux, view);
                 const commit = resolvePerView(options.commit, view) ?? { apply: applyCommit };

@@ -48,14 +48,14 @@ export function planMove(input: PlanMoveInput): MoveResult {
     // Container rules come first — a seam's insertability is structural and
     // does not depend on who is being dragged. Self-drop only applies to
     // seams the structure allows (a no-op or an in-place list indent change).
-    const slot = canDropAt(targetDoc, captured.block, line, {
+    const decision = canDropAt(targetDoc, captured.block, line, {
         lineMap,
         tabSize: input.tabSize,
     });
-    if (!slot.decision.allowDrop) {
+    if (!decision.allowDrop) {
         return {
             type: 'reject',
-            reason: slot.decision.rejectReason ?? 'container_policy',
+            reason: decision.rejectReason ?? 'container_policy',
         };
     }
 

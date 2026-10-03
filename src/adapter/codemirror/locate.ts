@@ -18,7 +18,6 @@ import {
     resolveListIndentUnit,
     resolveListIndentWidthPx,
 } from './config';
-import { lineBand } from './geometry';
 import { elementTarget, nativePointerEvent } from './pointer-input';
 import { locateEditor, pointerDocument } from './views';
 
@@ -63,6 +62,7 @@ export function resolveDropPosition(
     sourceIndentWidth: number,
     targetIndentWidth: number,
     options: MdDraggerCodeMirrorOptions,
+    sourceDoc?: Doc,
 ): DropPosition | null {
     const hitLine = lineAtPoint(view, point);
     if (hitLine === null) return null;
@@ -74,6 +74,7 @@ export function resolveDropPosition(
 
     return locateDropPosition({
         doc,
+        sourceDoc,
         selection,
         hitLine,
         belowMid: inDoc ? belowMid(view, hitLine, point.y) : hitLine > doc.lines,
@@ -155,6 +156,7 @@ export function snapDropPosition(input: SnapDropPositionInput): DropPosition {
     for (const line of byDistance) {
         const position = locateDropPosition({
             doc,
+            sourceDoc,
             selection,
             hitLine: line,
             belowMid: false,
@@ -187,30 +189,26 @@ export function resolveDropPositionAtPoint(
     const sourceDoc = sourceView.state.doc;
     if (source.lines.startLine < 1 || source.lines.startLine > sourceDoc.lines) return null;
 
-    const originBand = lineBand(sourceView, source.lines.startLine, options);
-    if (!originBand) return null;
-
     const indentUnit = resolveListIndentUnit(options);
     const sourceIndentWidth =
         source.type === BlockType.ListItem
             ? parseLine(sourceDoc.line(source.lines.startLine).text, sourceView.state.facet(EditorState.tabSize)).indent
                   .width
             : 0;
-    // Only list items nest on the x-axis; the rendered step is measured from
-    // list lines, so it is resolved lazily and never for paragraph sources.
-    let targetIndentWidth = sourceIndentWidth;
 
     const space = pointerDocument() ?? sourceView.dom.ownerDocument;
     const targetHit = locateEditor(point.x, point.y, space);
     if (!targetHit) return null;
     const targetPoint = { x: targetHit.x, y: targetHit.y };
-    // Horizontal indent steps are a distance in one viewport. A point measured
-    // in another window is not comparable to the source band.
-    if (source.type === BlockType.ListItem && targetHit.view.dom.ownerDocument === sourceView.dom.ownerDocument) {
-        const horizontalSteps = Math.round(
-            (targetPoint.x - originBand.left) / resolveListIndentWidthPx(options, sourceView),
-        );
-        targetIndentWidth += horizontalSteps * indentUnit;
+
+    let targetIndentWidth = sourceIndentWidth;
+    if (source.type === BlockType.ListItem) {
+        const stepPx = resolveListIndentWidthPx(options, targetHit.view);
+        if (stepPx > 0) {
+            const contentLeft = targetHit.view.contentDOM.getBoundingClientRect().left;
+            const horizontalSteps = Math.max(0, Math.round((targetPoint.x - contentLeft) / stepPx));
+            targetIndentWidth = horizontalSteps * indentUnit;
+        }
     }
     const position = resolveDropPosition(
         targetHit.view,
@@ -219,6 +217,7 @@ export function resolveDropPositionAtPoint(
         sourceIndentWidth,
         targetIndentWidth,
         options,
+        sourceDoc,
     );
     if (position === null) return null;
     return snapDropPosition({
