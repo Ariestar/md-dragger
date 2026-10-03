@@ -87,9 +87,9 @@ function formatBlockContent(contentLines: Array<{ indentRaw: string; body: strin
 
     const content = formattedLines.join('\n');
     const vars = target.variables ?? {};
-    let result = target.template.replace('${content}', content);
-    result = result.replace(/\$\{([a-zA-Z0-9_-]+)\}/g, (_, key) => vars[key] ?? '');
-    return result;
+    return target.template.replace(/\$\{([a-zA-Z0-9_-]+)\}/g, (_, key) =>
+        key === 'content' ? content : (vars[key] ?? ''),
+    );
 }
 
 function readFencedContent(

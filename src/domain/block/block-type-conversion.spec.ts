@@ -107,6 +107,28 @@ describe('domain/block-type-conversion', () => {
     });
 
     describe('custom template conversions', () => {
+        it('interpolates only the template and keeps content and variable values literal', () => {
+            const doc = stringDoc("${HOME}\n${content}\n$& $$ $` $'");
+            const changes = planConvert({
+                doc,
+                lines: { startLine: 1, endLine: 3 },
+                to: {
+                    template: '${title}\n${content}\n${content}',
+                    linePrefix: '> ',
+                    variables: { title: '${HOME}', HOME: 'unexpected replacement', content: 'not the body' },
+                },
+            });
+            const body = "> ${HOME}\n> ${content}\n> $& $$ $` $'";
+            expect(changes).toEqual([{ from: 0, to: doc.length, insert: `\${HOME}\n${body}\n${body}` }]);
+            expect(
+                planConvert({
+                    doc,
+                    lines: { startLine: 1, endLine: 3 },
+                    to: { type: BlockType.Heading, level: 1 },
+                }),
+            ).toEqual([{ from: 0, to: doc.length, insert: `# ${doc.sliceString(0, doc.length)}` }]);
+        });
+
         it('converts a paragraph to a Callout with variables', () => {
             const doc = stringDoc('Important message\nCheck this out');
             const template: BlockTemplate = {
