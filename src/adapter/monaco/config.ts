@@ -29,17 +29,15 @@ export type MdDraggerMonacoOptions = {
 
 export function resolveConfig(config: Config): ResolvedConfig {
     const raw = typeof config === 'function' ? config() : config;
-    if (!(raw.tabSize > 0)) {
-        throw new Error(`mdDraggerMonaco: config.tabSize must be positive, got ${String(raw.tabSize)}`);
+    if (!Number.isFinite(raw.tabSize) || raw.tabSize <= 0) {
+        throw new Error(`mdDraggerMonaco: config.tabSize must be finite and positive, got ${String(raw.tabSize)}`);
     }
-    if (!(raw.listIndentUnit > 0)) {
-        throw new Error(`mdDraggerMonaco: config.listIndentUnit must be positive, got ${String(raw.listIndentUnit)}`);
+    if (!Number.isFinite(raw.listIndentUnit) || raw.listIndentUnit <= 0) {
+        throw new Error(
+            `mdDraggerMonaco: config.listIndentUnit must be finite and positive, got ${String(raw.listIndentUnit)}`,
+        );
     }
     return raw;
-}
-
-export function resolveListIndentUnit(options: Pick<MdDraggerMonacoOptions, 'config'>): number {
-    return resolveConfig(options.config).listIndentUnit;
 }
 
 export function resolveListIndentWidthPx(
@@ -48,8 +46,8 @@ export function resolveListIndentWidthPx(
 ): number {
     const width =
         typeof options.listIndentWidthPx === 'function' ? options.listIndentWidthPx(editor) : options.listIndentWidthPx;
-    if (!(width > 0)) {
-        throw new Error(`mdDraggerMonaco: listIndentWidthPx must be positive, got ${String(width)}`);
+    if (!Number.isFinite(width) || width <= 0) {
+        throw new Error(`mdDraggerMonaco: listIndentWidthPx must be finite and positive, got ${String(width)}`);
     }
     return width;
 }

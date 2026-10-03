@@ -8,18 +8,8 @@ import {
     snapDrop,
 } from '../../domain';
 import type { Point, PressInput } from '../../runtime';
-import {
-    HANDLE_CLASS,
-    type MdDraggerMonacoOptions,
-    resolveConfig,
-    resolveListIndentUnit,
-    resolveListIndentWidthPx,
-} from './config';
+import { HANDLE_CLASS, type MdDraggerMonacoOptions, resolveConfig, resolveListIndentWidthPx } from './config';
 import { monacoDoc } from './doc';
-import { lineBand } from './geometry';
-
-// Monaco's editor.EditorOption.lineHeight numeric enum value
-const LINE_HEIGHT_OPTION = 75;
 
 /**
  * Resolves the 1-based source line for a press on a drag handle.
@@ -28,9 +18,10 @@ const LINE_HEIGHT_OPTION = 75;
 export function sourceLineFromInput(editor: editor.ICodeEditor, input: PressInput): number | null {
     const native = input.native;
     if (native && typeof native === 'object' && 'target' in native) {
-        const target = native.target as Element | null;
-        const handle = target?.closest(`.${HANDLE_CLASS}`) ?? null;
-        if (handle) {
+        const target = native.target;
+        if (!target || typeof (target as Element).closest !== 'function') return null;
+        const handle = (target as Element).closest(`.${HANDLE_CLASS}`);
+        if (handle && editor.getDomNode()?.contains(handle)) {
             const fromAttr = Number(handle.getAttribute('data-block-start'));
             const model = editor.getModel();
             if (model && Number.isInteger(fromAttr) && fromAttr >= 1 && fromAttr <= model.getLineCount()) {
@@ -54,13 +45,6 @@ export function lineAtPoint(editor: editor.ICodeEditor, point: Point): number | 
         return target.position.lineNumber;
     }
 
-    const domNode = editor.getDomNode();
-    if (!domNode) return null;
-
-    const rect = domNode.getBoundingClientRect();
-    if (point.y <= rect.top) return 1;
-    if (point.y >= rect.bottom) return model.getLineCount() + 1;
-
     return null;
 }
 
@@ -76,6 +60,9 @@ export function resolveDropPosition(
 ): DropPosition | null {
     const model = editor.getModel();
     if (!model) return null;
+    const domNode = editor.getDomNode();
+    if (!domNode) return null;
+    const rect = domNode.getBoundingClientRect();
 
     const source = selection.blocks[0];
     if (!source) return null;
@@ -86,7 +73,7 @@ export function resolveDropPosition(
     const doc = monacoDoc(model);
     const resolvedConfig = resolveConfig(options.config);
     const tabSize = resolvedConfig.tabSize;
-    const indentUnit = resolveListIndentUnit(options);
+    const indentUnit = resolvedConfig.listIndentUnit;
     const inDoc = hitLine >= 1 && hitLine <= doc.lines;
 
     const sourceIndentWidth =
@@ -94,15 +81,18 @@ export function resolveDropPosition(
 
     let targetIndentWidth = sourceIndentWidth;
     if (source.type === BlockType.ListItem) {
-        const originBand = lineBand(editor, source.lines.startLine, options);
-        if (originBand) {
-            const stepPx = resolveListIndentWidthPx(options, editor);
-            const horizontalSteps = Math.round((point.x - originBand.left) / stepPx);
-            targetIndentWidth += horizontalSteps * indentUnit;
-        }
+        const stepPx = resolveListIndentWidthPx(options, editor);
+        const contentLeft = rect.left + editor.getLayoutInfo().contentLeft - editor.getScrollLeft();
+        const horizontalSteps = Math.max(0, Math.round((point.x - contentLeft) / stepPx));
+        targetIndentWidth = horizontalSteps * indentUnit;
     }
 
-    const belowMid = inDoc ? isBelowMid(editor, hitLine, point.y) : hitLine > doc.lines;
+    const belowMid = inDoc
+        ? point.y >
+          rect.top +
+              (editor.getTopForLineNumber(hitLine) + editor.getBottomForLineNumber(hitLine)) / 2 -
+              editor.getScrollTop()
+        : hitLine > doc.lines;
 
     const raw = locateDropPosition({
         doc,
@@ -124,16 +114,4 @@ export function resolveDropPosition(
         tabSize,
         indentUnit,
     });
-}
-
-function isBelowMid(codeEditor: editor.ICodeEditor, line: number, y: number): boolean {
-    const domNode = codeEditor.getDomNode();
-    if (!domNode) return false;
-
-    const domRect = domNode.getBoundingClientRect();
-    const scrollTop = codeEditor.getScrollTop();
-    const lineTop = domRect.top + codeEditor.getTopForLineNumber(line) - scrollTop;
-    const lineHeight = codeEditor.getOption(LINE_HEIGHT_OPTION);
-
-    return y > lineTop + lineHeight / 2;
 }

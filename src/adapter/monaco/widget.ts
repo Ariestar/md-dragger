@@ -1,5 +1,5 @@
 import type { editor } from 'monaco-editor';
-import type { DropPosition } from '../../domain';
+import type { DropPosition, LineRange } from '../../domain';
 import { DRAG_SOURCE_LINE_CLASS, DROP_SEAM_CLASS, INVALID_CLASS, type MdDraggerMonacoOptions } from './config';
 import { type DropSeam, dropSeam } from './geometry';
 
@@ -10,17 +10,11 @@ export class DropSeamWidget implements editor.IOverlayWidget {
     public static readonly ID = 'md-dragger.drop-seam-widget';
     private readonly domNode: HTMLElement;
 
-    constructor(ownerDoc: Document = typeof document !== 'undefined' ? document : ({} as Document)) {
-        this.domNode =
-            ownerDoc.createElement?.('div') ??
-            ({
-                style: {},
-                classList: { add: () => {}, remove: () => {} },
-                remove: () => {},
-            } as unknown as HTMLElement);
+    constructor(ownerDoc: Document) {
+        this.domNode = ownerDoc.createElement('div');
         this.domNode.className = DROP_SEAM_CLASS;
         this.domNode.style.display = 'none';
-        this.domNode.style.position = 'fixed';
+        this.domNode.style.position = 'absolute';
         this.domNode.style.height = '2px';
         this.domNode.style.borderRadius = '2px';
         this.domNode.style.pointerEvents = 'none';
@@ -50,15 +44,18 @@ export class DropSeamWidget implements editor.IOverlayWidget {
             return;
         }
 
+        const domNode = editor.getDomNode();
         const seam: DropSeam | null = dropSeam(editor, position, options);
-        if (!seam) {
+        if (!seam || !domNode) {
             this.domNode.style.display = 'none';
             return;
         }
 
         this.domNode.style.display = 'block';
-        this.domNode.style.left = `${seam.left}px`;
-        this.domNode.style.top = `${seam.y}px`;
+        // Monaco mounts overlays in an editor-relative container.
+        const rect = domNode.getBoundingClientRect();
+        this.domNode.style.left = `${seam.left - rect.left}px`;
+        this.domNode.style.top = `${seam.y - rect.top}px`;
         this.domNode.style.width = `${Math.max(10, seam.right - seam.left)}px`;
 
         if (invalid) {
@@ -67,44 +64,36 @@ export class DropSeamWidget implements editor.IOverlayWidget {
             this.domNode.classList.remove(INVALID_CLASS);
         }
     }
-
-    destroy(): void {
-        this.domNode.remove();
-    }
 }
 
 /**
  * Manages source block highlight decorations in Monaco Editor.
  */
 export class DragHighlightManager {
-    private decorationIds: string[] = [];
+    private readonly decorations: editor.IEditorDecorationsCollection;
 
-    update(editor: editor.ICodeEditor, startLine: number, endLine: number): void {
-        this.clear(editor);
-        if (startLine < 1 || endLine < startLine) return;
+    constructor(codeEditor: editor.ICodeEditor) {
+        this.decorations = codeEditor.createDecorationsCollection();
+    }
 
-        this.decorationIds = editor.deltaDecorations(
-            [],
-            [
-                {
-                    range: {
-                        startLineNumber: startLine,
-                        startColumn: 1,
-                        endLineNumber: endLine,
-                        endColumn: 1,
-                    },
-                    options: {
-                        isWholeLine: true,
-                        className: DRAG_SOURCE_LINE_CLASS,
-                    },
+    update(ranges: LineRange[]): void {
+        this.decorations.set(
+            ranges.map(({ startLine, endLine }) => ({
+                range: {
+                    startLineNumber: startLine,
+                    startColumn: 1,
+                    endLineNumber: endLine,
+                    endColumn: 1,
                 },
-            ],
+                options: {
+                    isWholeLine: true,
+                    className: DRAG_SOURCE_LINE_CLASS,
+                },
+            })),
         );
     }
 
-    clear(editor: editor.ICodeEditor): void {
-        if (this.decorationIds.length > 0) {
-            this.decorationIds = editor.deltaDecorations(this.decorationIds, []);
-        }
+    clear(): void {
+        this.decorations.clear();
     }
 }

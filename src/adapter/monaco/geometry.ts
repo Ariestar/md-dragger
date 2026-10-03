@@ -1,6 +1,6 @@
 import type { editor } from 'monaco-editor';
 import { type DropPosition, listLevel } from '../../domain';
-import { type MdDraggerMonacoOptions, resolveConfig, resolveListIndentUnit, resolveListIndentWidthPx } from './config';
+import { type MdDraggerMonacoOptions, resolveConfig, resolveListIndentWidthPx } from './config';
 
 export type LineBand = {
     left: number;
@@ -14,9 +14,6 @@ export type DropSeam = {
     right: number;
     y: number;
 };
-
-// Monaco's editor.EditorOption.lineHeight numeric enum value
-const LINE_HEIGHT_OPTION = 75;
 
 /**
  * Returns the absolute viewport bounding rect of a line's content band.
@@ -35,17 +32,15 @@ export function lineBand(
 
     const domRect = domNode.getBoundingClientRect();
     const layout = codeEditor.getLayoutInfo();
-    const lineHeight = codeEditor.getOption(LINE_HEIGHT_OPTION);
     const scrollTop = codeEditor.getScrollTop();
 
     const lineTop = domRect.top + codeEditor.getTopForLineNumber(line) - scrollTop;
-    const contentLeft = domRect.left + layout.contentLeft;
-    const contentRight = contentLeft + layout.contentWidth;
+    const contentLeft = domRect.left + layout.contentLeft - codeEditor.getScrollLeft();
+    const contentRight = domRect.left + layout.contentLeft + layout.contentWidth;
 
     const lineText = model.getLineContent(line);
     const resolvedConfig = resolveConfig(options.config);
-    const indentUnit = resolveListIndentUnit(options);
-    const level = listLevel(lineText, resolvedConfig.tabSize, indentUnit);
+    const level = listLevel(lineText, resolvedConfig.tabSize, resolvedConfig.listIndentUnit);
     const indentStepPx = resolveListIndentWidthPx(options, codeEditor);
 
     const left = contentLeft + level * indentStepPx;
@@ -54,7 +49,7 @@ export function lineBand(
         left,
         right: Math.max(left, contentRight),
         top: lineTop,
-        bottom: lineTop + lineHeight,
+        bottom: domRect.top + codeEditor.getBottomForLineNumber(line) - scrollTop,
     };
 }
 
@@ -75,7 +70,6 @@ export function dropSeam(
 
     const domRect = domNode.getBoundingClientRect();
     const layout = codeEditor.getLayoutInfo();
-    const lineHeight = codeEditor.getOption(LINE_HEIGHT_OPTION);
     const scrollTop = codeEditor.getScrollTop();
     const lineCount = model.getLineCount();
 
@@ -87,14 +81,14 @@ export function dropSeam(
         if (!anchor) return null;
         left = anchor.left + resolveListIndentWidthPx(options, codeEditor);
     } else {
-        left = domRect.left + layout.contentLeft;
+        left = domRect.left + layout.contentLeft - codeEditor.getScrollLeft();
     }
 
     let y: number;
     if (targetLine <= 1) {
         y = domRect.top + codeEditor.getTopForLineNumber(1) - scrollTop;
     } else if (targetLine > lineCount) {
-        y = domRect.top + codeEditor.getTopForLineNumber(lineCount) - scrollTop + lineHeight;
+        y = domRect.top + codeEditor.getBottomForLineNumber(lineCount) - scrollTop;
     } else {
         y = domRect.top + codeEditor.getTopForLineNumber(targetLine) - scrollTop;
     }

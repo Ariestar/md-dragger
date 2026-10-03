@@ -18,7 +18,6 @@ export {
     type LocateOptions,
     type MdDraggerMonacoOptions,
     resolveConfig,
-    resolveListIndentUnit,
     resolveListIndentWidthPx,
 } from './config';
 export { monacoDoc } from './doc';
@@ -38,14 +37,15 @@ export function mdDraggerMonaco(editor: editor.ICodeEditor, options: MdDraggerMo
     }
 
     const domNode = editor.getDomNode();
-    const ownerDoc = domNode?.ownerDocument ?? (typeof document !== 'undefined' ? document : ({} as Document));
-    const seamWidget = new DropSeamWidget(ownerDoc);
+    if (!domNode) throw new Error('mdDraggerMonaco: editor has no DOM node');
+    resolveConfig(options.config);
+    const input = pointerInput(editor);
+    const seamWidget = new DropSeamWidget(domNode.ownerDocument);
     editor.addOverlayWidget(seamWidget);
 
-    const highlightManager = new DragHighlightManager();
+    const highlightManager = new DragHighlightManager(editor);
 
-    const input = pointerInput(editor);
-
+    let applying = false;
     const runtime = new DraggerRuntime({
         input,
         document: {
@@ -68,13 +68,24 @@ export function mdDraggerMonaco(editor: editor.ICodeEditor, options: MdDraggerMo
                 options.locate?.lineFromPoint ? options.locate.lineFromPoint(point) : lineAtPoint(editor, point),
         },
         commit: {
-            apply: (edits) => applyCommit(editor, edits),
+            apply: (edits) => {
+                applying = true;
+                try {
+                    applyCommit(editor, edits);
+                } finally {
+                    applying = false;
+                }
+            },
         },
-        config: resolveConfig(options.config),
+        config: () => resolveConfig(options.config),
         ux: typeof options.ux === 'function' ? options.ux(editor) : options.ux,
         onChange: (result) => {
             const model = editor.getModel();
-            if (!model) return;
+            if (!model) {
+                seamWidget.update(editor, null, false, options);
+                highlightManager.clear();
+                return;
+            }
 
             const doc = monacoDoc(model);
             const { position, invalid } = dropSeamState(result.outputs, doc);
@@ -83,23 +94,34 @@ export function mdDraggerMonaco(editor: editor.ICodeEditor, options: MdDraggerMo
             const selection = selectionFromOutputs(result.outputs);
             if (selection) {
                 const ranges = selectionLineRanges(model.getLineCount(), selection);
-                if (ranges.length > 0) {
-                    highlightManager.update(editor, ranges[0].startLine, ranges[ranges.length - 1].endLine);
-                } else {
-                    highlightManager.clear(editor);
-                }
+                highlightManager.update(ranges);
             } else {
-                highlightManager.clear(editor);
+                highlightManager.clear();
             }
         },
     });
 
     runtime.mount();
 
-    return () => {
+    const cancel = () => {
+        input.cancel();
+        runtime.clearSelectionOrCancel();
+    };
+    const subscriptions = [
+        editor.onDidChangeModel(cancel),
+        editor.onDidChangeModelContent(() => {
+            if (!applying) cancel();
+        }),
+    ];
+    let disposed = false;
+    const dispose = () => {
+        if (disposed) return;
+        disposed = true;
+        for (const subscription of subscriptions) subscription.dispose();
         runtime.destroy();
         editor.removeOverlayWidget(seamWidget);
-        seamWidget.destroy();
-        highlightManager.clear(editor);
+        highlightManager.clear();
     };
+    subscriptions.push(editor.onDidDispose(dispose));
+    return dispose;
 }
