@@ -26,6 +26,24 @@ function snapAt(text: string, sourceLine: number, seam: number): DropPosition {
 }
 
 describe('domain snapDrop', () => {
+    it('keeps destination list parents when snapping a drop from another document', () => {
+        const sourceDoc = stringDoc('- source');
+        const targetDoc = stringDoc('- target\n    - child\n```ts\nbody\n```\nend');
+        const block = detectBlock(sourceDoc, 1, { tabSize });
+        if (!block) throw new Error('missing source block');
+        const position = snapDrop({
+            raw: { doc: targetDoc, line: 4, parent: null },
+            sourceDoc,
+            selection: selectOne(block),
+            sourceIndentWidth: 0,
+            targetIndentWidth: indentUnit,
+            tabSize,
+            indentUnit,
+        });
+        expect(position.line).toBe(3);
+        expect(position.parent?.lines.startLine).toBe(1);
+    });
+
     it('keeps a valid seam untouched', () => {
         const position = snapAt('a\nb\nc', 1, 2);
         expect(position.line).toBe(2);
@@ -99,6 +117,19 @@ describe('domain snapDrop', () => {
 });
 
 describe('domain listLevel', () => {
+    it.each([0, -4, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+        'rejects invalid indent unit %s explicitly',
+        (unit) => {
+            expect(() => listLevel('    - child', 4, unit)).toThrow(
+                'md-dragger: indentUnit must be finite and greater than zero',
+            );
+        },
+    );
+
+    it('rejects a non-finite computed level explicitly', () => {
+        expect(() => listLevel('    - child', 4, Number.MIN_VALUE)).toThrow('md-dragger: list level must be finite');
+    });
+
     it('computes 0 for non-list items', () => {
         expect(listLevel('hello world', 4, 4)).toBe(0);
         expect(listLevel('> quote', 4, 4)).toBe(0);

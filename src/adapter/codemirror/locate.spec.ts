@@ -1,7 +1,8 @@
 import type { EditorView } from '@codemirror/view';
 import { describe, expect, it } from 'vitest';
-import { BlockType, detectBlock, selectOne, snapDrop as domainSnap } from '../../domain';
+import { BlockType, detectBlock, listLevel as domainListLevel, snapDrop as domainSnap, selectOne } from '../../domain';
 import { stringDoc } from '../../domain/transaction/string-doc';
+import * as codeMirror from './index';
 import { resolveDropPositionAtPoint, snapDrop } from './locate';
 import { registerView, withPointerDocument } from './views';
 
@@ -11,6 +12,11 @@ const indentUnit = 4;
 describe('adapter/codemirror locate', () => {
     it('re-exports snapDrop from domain', () => {
         expect(snapDrop).toBe(domainSnap);
+    });
+
+    it('preserves the public sourceListLevel name without wrapping the domain function', () => {
+        expect(codeMirror.sourceListLevel).toBe(domainListLevel);
+        expect(codeMirror.sourceListLevel('    - child', tabSize, indentUnit)).toBe(1);
     });
 
     it('resolves nested list drop position when dragging into an editor in another window', () => {

@@ -109,11 +109,19 @@ export function dropIndentWidth(position: DropPosition, options: { tabSize: numb
     return 0;
 }
 
-/** 0-based nesting level of a list line (0 for root or non-list). */
+/**
+ * 0-based nesting level of a list line (0 for root or non-list).
+ * Throws for a non-finite/non-positive indent unit or a non-finite result.
+ */
 export function listLevel(lineText: string, tabSize: number, indentUnit: number): number {
+    if (!Number.isFinite(indentUnit) || indentUnit <= 0) {
+        throw new RangeError('md-dragger: indentUnit must be finite and greater than zero');
+    }
     const parsed = parseLine(lineText, tabSize);
     if (parsed.marker?.kind !== 'list' || parsed.quote.prefix.length > 0) return 0;
-    return Math.round(parsed.indent.width / indentUnit);
+    const level = Math.round(parsed.indent.width / indentUnit);
+    if (!Number.isFinite(level)) throw new RangeError('md-dragger: list level must be finite');
+    return level;
 }
 
 /** Rejections that mean the pointer is over the source block itself. The
