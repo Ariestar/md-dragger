@@ -1,6 +1,6 @@
 {
   "name": "md-dragger",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Core markdown block drag-and-drop engine",
   "type": "commonjs",
   "repository": {
