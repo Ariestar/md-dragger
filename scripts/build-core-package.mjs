@@ -13,6 +13,7 @@ const common = {
         runtime: 'src/runtime/index.ts',
         'runtime/modules': 'src/runtime/modules/index.ts',
         'adapter/codemirror': 'src/adapter/codemirror/index.ts',
+        'adapter/monaco': 'src/adapter/monaco/index.ts',
     },
     bundle: true,
     platform: 'neutral',
@@ -20,7 +21,7 @@ const common = {
     sourcemap: false,
     logLevel: 'info',
     outdir: 'dist/npm',
-    external: ['@codemirror/state', '@codemirror/view'],
+    external: ['@codemirror/state', '@codemirror/view', 'monaco-editor'],
 };
 
 await esbuild.build({

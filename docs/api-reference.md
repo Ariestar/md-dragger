@@ -9,6 +9,7 @@ Entry points (all ESM + CJS, typed):
 | `md-dragger/runtime` | Headless `DraggerRuntime` + host contracts |
 | `md-dragger/runtime/modules` | Reusable runtime modules (`autoScroll`, …) |
 | `md-dragger/adapter/codemirror` | CM6 wiring + decoration builders |
+| `md-dragger/adapter/monaco` | Monaco wiring + overlay and highlight rendering |
 
 ---
 
@@ -158,3 +159,39 @@ The adapter emits protocol classes; hosts style them:
 - View-level CSS variables hosts fill from geometry: seam left/width (`--d-seam-left`, `--d-seam-width` in the Obsidian host), rendered list indent step (`--d-list-indent-step`).
 
 The Obsidian plugin's `styles.css` is the reference implementation of the whole protocol.
+
+## adapter/monaco
+
+Requires `monaco-editor >=0.45.0` as an optional peer dependency. The adapter uses
+Monaco's native model, edit, decoration collection, and line geometry APIs.
+
+```ts
+import { mdDraggerMonaco } from 'md-dragger/adapter/monaco';
+
+const dispose = mdDraggerMonaco(editor, {
+    config: () => ({ tabSize: 4, listIndentUnit: 4 }),
+    listIndentWidthPx: 24,
+});
+// Call dispose() to detach early; editor disposal also tears down the adapter.
+```
+
+The host renders `.md-dragger-handle[data-block-start]` elements inside the editor
+DOM (`data-block-start` is a 1-based line number) and styles `.md-dragger-drag-source`,
+`.md-dragger-drop-seam`, and `.is-invalid`. Handles are host-owned; this adapter
+does not create a gutter. `config` and `listIndentWidthPx` accept values or getters
+and require finite, positive metrics. `locate` can override `sourceLineFromInput`,
+`resolveDropPosition`, and `lineFromPoint`; `ux` accepts gesture settings/modules
+or a getter receiving the editor. `enabled` is checked when attaching.
+
+`monacoDoc(model)` returns the same immutable `Doc` for a model version, preserving
+native UTF-16 offsets and line endings. Model changes cancel the current gesture
+and clear selection. `applyCommit(editor, edits)` accepts only the current model's
+snapshot, applies all changes in one batch with undo boundaries, and throws on
+stale/foreign documents or rejected edits. Cross-model transfers are not supported.
+
+For custom compositions, `pointerInput(editor)` returns an `InputSource` with
+`cancel()`; removing its last subscription detaches DOM listeners. `lineAtPoint`,
+`sourceLineFromInput`, and `resolveDropPosition` handle locating; `lineBand` and
+`dropSeam` provide viewport geometry, including wrapped lines and scrolling.
+`DropSeamWidget(ownerDocument)` renders the seam. `DragHighlightManager(editor)`
+uses a native decoration collection and accepts disjoint `LineRange[]` in `update`.
