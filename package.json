@@ -137,7 +137,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^17.6.0",
     "monaco-editor": "^0.57.0",
-    "publint": "^0.3.24",
+    "publint": "^0.3.25",
     "tslib": "^2.4.0",
     "typescript": "^7.0.2",
     "vitest": "^5.0.2"
