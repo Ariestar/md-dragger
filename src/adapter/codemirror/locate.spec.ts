@@ -73,6 +73,19 @@ describe('adapter/codemirror locate', () => {
             expect(position?.line).toBe(2);
             expect(position?.parent?.type).toBe(BlockType.ListItem);
             expect(position?.parent?.lines.startLine).toBe(1);
+
+            // With centered line origin at x: 60 (20px right of contentDOM.left: 40):
+            // Point at x: 65 is only 5px right of line origin => 0 indent steps (no parent)!
+            const centeredPosition = withPointerDocument(targetDocObj, () =>
+                resolveDropPositionAtPoint(sourceView, { x: 65, y: 15 }, selection, {
+                    config: { tabSize, listIndentUnit: indentUnit },
+                    listIndentWidthPx: 20,
+                    contentLeft: () => 60,
+                }),
+            );
+            expect(centeredPosition).not.toBeNull();
+            expect(centeredPosition?.line).toBe(2);
+            expect(centeredPosition?.parent).toBeNull();
         } finally {
             unregister();
         }

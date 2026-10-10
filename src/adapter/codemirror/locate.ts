@@ -11,6 +11,7 @@ import {
 } from '../../domain';
 import type { Point, PressInput } from '../../runtime';
 import {
+    contentLeft,
     HANDLE_CLASS,
     type MdDraggerCodeMirrorOptions,
     resolveListIndentUnit,
@@ -118,8 +119,8 @@ export function resolveDropPositionAtPoint(
     if (source.type === BlockType.ListItem) {
         const stepPx = resolveListIndentWidthPx(options, targetHit.view);
         if (stepPx > 0) {
-            const contentLeft = targetHit.view.contentDOM.getBoundingClientRect().left;
-            const horizontalSteps = Math.max(0, Math.round((targetPoint.x - contentLeft) / stepPx));
+            const left = contentLeft(options, targetHit.view);
+            const horizontalSteps = Math.max(0, Math.round((targetPoint.x - left) / stepPx));
             targetIndentWidth = horizontalSteps * indentUnit;
         }
     }

@@ -1,7 +1,7 @@
 import { EditorState } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import { type DropPosition, parseLine } from '../../domain';
-import { type CodeMirrorGeometryOptions, resolveListIndentUnit, resolveListIndentWidthPx } from './config';
+import { type CodeMirrorGeometryOptions, contentLeft, resolveListIndentUnit, resolveListIndentWidthPx } from './config';
 
 // Content band = the block's rendered row, as an absolute viewport rect.
 // Single geometry source for highlight, indicator, and x-axis locate — one
@@ -41,7 +41,7 @@ export function lineBand(view: EditorView, line: number, options: CodeMirrorGeom
     let left: number;
     if (parsed.marker?.kind === 'list' && parsed.quote.prefix.length === 0) {
         const level = parsed.indent.width / resolveListIndentUnit(options);
-        left = view.contentDOM.getBoundingClientRect().left + level * resolveListIndentWidthPx(options, view);
+        left = contentLeft(options, view) + level * resolveListIndentWidthPx(options, view);
     } else {
         const content = view.coordsAtPos(bandFrom, 1);
         if (!content) return null;
@@ -81,7 +81,7 @@ export function dropSeam(
         // Root intent: column 0 of the content area, same lattice as a level-0
         // band. Not the seam line's own coordsAtPos — that carries the host's
         // list hanging indent and would misalign over nested lines.
-        left = view.contentDOM.getBoundingClientRect().left;
+        left = contentLeft(options, view);
     }
 
     const block = view.lineBlockAt(doc.line(bandLine).from);
