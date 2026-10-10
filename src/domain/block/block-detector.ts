@@ -248,21 +248,6 @@ export function detectBlock(doc: Doc, lineNumber: number, options: { tabSize: nu
     }
 
     const block = detectBlockUncached(doc, lineNumber, tabSize);
-
-    // Cache carefully: a list item's range includes nested list items, which are
-    // their own blocks. Never cache the parent under a nested list-item start line
-    // (would steal handles / wrong drop parent).
-    if (block) {
-        perDocCache.set(block.lines.startLine, block);
-        for (let n = block.lines.startLine + 1; n <= block.lines.endLine; n++) {
-            if (isListLine(parseLine(doc.line(n).text, tabSize))) {
-                continue;
-            }
-            perDocCache.set(n, block);
-        }
-    } else {
-        perDocCache.set(lineNumber, null);
-    }
-
+    perDocCache.set(lineNumber, block);
     return block;
 }
