@@ -53,11 +53,18 @@ export type CommitOptionInput = CommitOptions | ((view: EditorView) => CommitOpt
 // knowledge (theme CSS): ink-mde 2rem, Obsidian --list-indent, …
 export type ListIndentWidthPx = number | ((view: EditorView) => number);
 
+// Rendered pixel x-axis origin of the content column. Defaults to standard
+// CodeMirror contentDOM.getBoundingClientRect().left; hosts with customized
+// line margins (e.g. centered line width) provide their physical line origin.
+export type ContentLeft = number | ((view: EditorView) => number);
+
 export type MdDraggerCodeMirrorOptions = {
     // Required: tabSize + listIndentUnit. No silent defaults.
     config: Config;
     // Required: pixel width of one rendered list nesting level (x-axis drag step).
     listIndentWidthPx: ListIndentWidthPx;
+    // Optional: rendered x-axis origin of the content column.
+    contentLeft?: ContentLeft;
     handle?: HandleOptions;
     locate?: LocateOptionInput;
     externalTarget?: ExternalTargetOptionInput;
@@ -74,9 +81,12 @@ export type MdDraggerCodeMirrorOptions = {
     enabled?: (view: EditorView) => boolean;
 };
 
-// Geometry needs only the structural config plus the rendered indent step.
+// Geometry needs only the structural config plus the rendered indent step and content origin.
 // Shared by the adapter geometry module and consumer paint extensions.
-export type CodeMirrorGeometryOptions = Pick<MdDraggerCodeMirrorOptions, 'config' | 'listIndentWidthPx'>;
+export type CodeMirrorGeometryOptions = Pick<
+    MdDraggerCodeMirrorOptions,
+    'config' | 'listIndentWidthPx' | 'contentLeft'
+>;
 
 export function resolveConfig(config: Config): ResolvedConfig {
     const raw = typeof config === 'function' ? config() : config;
@@ -122,4 +132,15 @@ export function resolveListIndentWidthPx(
         throw new Error(`mdDragger: listIndentWidthPx must be a finite non-negative number, got ${String(raw)}`);
     }
     return raw;
+}
+
+export function contentLeft(options: Pick<MdDraggerCodeMirrorOptions, 'contentLeft'>, view: EditorView): number {
+    if (options.contentLeft !== undefined) {
+        const raw = typeof options.contentLeft === 'function' ? options.contentLeft(view) : options.contentLeft;
+        if (!Number.isFinite(raw)) {
+            throw new Error(`mdDragger: contentLeft must be a finite number, got ${String(raw)}`);
+        }
+        return raw;
+    }
+    return view.contentDOM.getBoundingClientRect().left;
 }

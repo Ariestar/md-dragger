@@ -2,7 +2,7 @@ import { EditorState, Facet, type Range } from '@codemirror/state';
 import { Decoration, type DecorationSet, type EditorView } from '@codemirror/view';
 import { type DropPosition, listLevel, selectionLineRanges } from '../../domain';
 import { dragSelectionDoc, dropSeamState, type PipelineOutput, selectionFromOutputs } from '../../runtime';
-import type { CodeMirrorGeometryOptions } from './config';
+import { type CodeMirrorGeometryOptions, contentLeft } from './config';
 import { dropSeam } from './geometry';
 
 export { listLevel } from '../../domain';
@@ -88,9 +88,9 @@ export function seamOffset(
 ): { left: number; width: number } | null {
     const seam = dropSeam(view, position, options);
     if (!seam) return null;
-    const contentLeft = view.contentDOM.getBoundingClientRect().left;
+    const left = contentLeft(options, view);
     return {
-        left: Math.max(0, seam.left - contentLeft),
+        left: Math.max(0, seam.left - left),
         width: Math.max(0, seam.right - seam.left),
     };
 }

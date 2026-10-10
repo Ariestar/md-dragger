@@ -22,6 +22,8 @@ export {
     type CodeMirrorGeometryOptions,
     type CommitOptionInput,
     type CommitOptions,
+    type ContentLeft,
+    contentLeft,
     EDITOR_CLASS,
     type ExternalTargetOptionInput,
     type ExternalTargetOptions,
