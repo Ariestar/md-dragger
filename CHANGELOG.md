@@ -2,6 +2,17 @@
 
 All notable changes to md-dragger are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [Semantic Versioning](https://semver.org/).
 
+## [2.2.1] — 2026-10-11
+
+### Added
+
+- `MdDraggerCodeMirrorOptions.contentLeft?: ContentLeft` — optional physical x-axis origin of the content column for editors with custom line margins (e.g. centered line width). Defaults to `view.contentDOM.getBoundingClientRect().left`.
+
+### Fixed
+
+- Preserve independent block detection and drag handles for indented continuation lines inside list items (#106).
+- Anchor list drop indentation step calculation to configurable `contentLeft` instead of full-width `contentDOM` (#107).
+
 ## [2.2.0] — 2026-10-03
 
 ### Added
