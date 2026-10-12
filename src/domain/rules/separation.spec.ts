@@ -125,7 +125,7 @@ describe('domain/rules/separation runKind', () => {
             'quote@2',
             'list',
             'list',
-            null,
+            'list',
             null,
             null,
         ]);

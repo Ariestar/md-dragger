@@ -1,7 +1,13 @@
 import type { Doc } from '../markdown/document-types';
 import { findFencedBlock } from '../markdown/fence-scanner';
-import { getLineMap, getLineMetaAt, peekCachedLineMap } from '../markdown/line-map';
-import { isListLine, parseLine } from '../parse/parse-line';
+import {
+    createLineMetaFromText,
+    getLineMap,
+    getLineMetaAt,
+    listOwnsLine,
+    peekCachedLineMap,
+} from '../markdown/line-map';
+import { parseLine } from '../parse/parse-line';
 import { isTableLine } from './block-guards';
 import { type Block, BlockType } from './block-types';
 
@@ -66,54 +72,15 @@ function getListItemSubtreeRange(
     lineNumber: number,
     tabSize: number,
 ): { startLine: number; endLine: number } {
-    const current = parseLine(doc.line(lineNumber).text, tabSize);
-    const currentIndent = current.indent.width;
+    const item = createLineMetaFromText(doc.line(lineNumber).text, tabSize);
     let endLine = lineNumber;
-
     for (let i = lineNumber + 1; i <= doc.lines; i++) {
-        const nextText = doc.line(i).text;
-
-        if (nextText.trim().length === 0) {
-            const lookahead = findNextNonEmptyLine(doc, i + 1, tabSize);
-            if (
-                !lookahead ||
-                (lookahead.isList && lookahead.indentWidth <= currentIndent) ||
-                lookahead.indentWidth <= currentIndent
-            ) {
-                break;
-            }
-            endLine = i;
-            continue;
-        }
-
-        const next = parseLine(nextText, tabSize);
-        if (isListLine(next) && next.indent.width <= currentIndent) {
-            break;
-        }
-
-        if (isListLine(next) || next.indent.width > currentIndent) {
-            endLine = i;
-            continue;
-        }
-
-        break;
+        const next = createLineMetaFromText(doc.line(i).text, tabSize);
+        if (next.isEmpty) continue;
+        if (!listOwnsLine(item, next)) break;
+        endLine = i;
     }
-
     return { startLine: lineNumber, endLine };
-}
-
-function findNextNonEmptyLine(
-    doc: Doc,
-    fromLine: number,
-    tabSize: number,
-): { isList: boolean; indentWidth: number } | null {
-    for (let i = fromLine; i <= doc.lines; i++) {
-        const text = doc.line(i).text;
-        if (text.trim().length === 0) continue;
-        const p = parseLine(text, tabSize);
-        return { isList: isListLine(p), indentWidth: p.indent.width };
-    }
-    return null;
 }
 
 const blockDetectionCache = new WeakMap<Doc, Map<number, Map<number, Block | null>>>();

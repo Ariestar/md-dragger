@@ -203,6 +203,11 @@ describe('domain snapDrop', () => {
         ).toBe(10);
     });
 
+    it('snaps out of a quote run inside a list item to the item’s edges', () => {
+        expect(snapAt('- item\n    > [!note] x\n    > body\n    more text\n- next\n\npara\n', 7, 3).line).toBe(5);
+        expect(snapAt('- item\n    > q1\n    > q2\n    child\n- next\n\npara\n', 7, 3).line).toBe(5);
+    });
+
     it('snaps frontmatter seams to the first gap below it', () => {
         const text = '---\nt: x\n---\n\n# H\n\npara';
         expect(snapAt(text, 7, 1).line).toBe(5);
@@ -270,6 +275,14 @@ describe('domain snapDrop', () => {
             expect(raw.line).toBe(7);
             expect(snapDrop({ ...input, raw }).line).toBe(11);
         }
+    });
+
+    it('keeps the raw grey seam for a nested source', () => {
+        const text = '> [!outer]\n> > [!note] A\n> > a\n\n```\nx\n```';
+        expect(snapAt(text, 2, 5).line).toBe(5);
+        expect(snapAt(text, 2, 6).line).toBe(6);
+        // A quoted list item under an unquoted item, over its own line: it does not leave the item.
+        expect(snapAt('- a\n    > - q\n    > - r\n- b', 2, 2).line).toBe(2);
     });
 
     it('re-derives the parent when snapping a list seam', () => {
@@ -368,6 +381,10 @@ describe('domain locateDropPosition quoted parent', () => {
     it('lets a plain quote a list turns into an item take an unquoted parent, outside a quote', () => {
         expect(nestUnder('- parent\n\n> quote', 3, 1).parent?.lines.startLine).toBe(1);
         expect(nestUnder('> - parent\n\n> quote', 3, 1).parent).toBeNull();
+        // Across a blank line below an item's quoted child, the seam is outside the quote.
+        expect(nestUnder('- a\n    > q\n\nend\n\n> zz', 6, 2).parent?.lines.startLine).toBe(1);
+        // Tight below the child too, where a paragraph nests: the seam is not between two quoted lines.
+        expect(nestUnder('- a\n    > q\n- b\n\n> zz', 5, 2).parent?.lines.startLine).toBe(1);
     });
 
     it('offers a quoted parent only to list items, a nested block selected with its item included', () => {

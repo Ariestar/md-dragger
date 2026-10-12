@@ -15,6 +15,7 @@ export type RejectReason =
     | 'inside_quote_run'
     | 'inside_table'
     | 'inside_frontmatter'
+    | 'nested_block'
     | 'frontmatter_fence'
     | 'table_cell'
     | 'unsupported_command';

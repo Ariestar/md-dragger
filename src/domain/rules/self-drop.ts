@@ -17,28 +17,6 @@ export type SelfDropResult = {
     targetIndentWidth?: number;
 };
 
-function isListSelection(params: {
-    doc: Doc;
-    blocks: readonly Block[];
-    parse: (line: string) => ParsedLine;
-    ranges: readonly LineRange[];
-}): boolean {
-    const { doc, blocks, parse, ranges } = params;
-    if (blocks[0]?.type !== BlockType.ListItem) return false;
-
-    for (const range of ranges) {
-        let foundContent = false;
-        for (let lineNumber = range.startLine; lineNumber <= range.endLine; lineNumber++) {
-            const text = doc.line(lineNumber).text;
-            if (text.trim().length === 0) continue;
-            foundContent = true;
-            if (!isListLine(parse(text))) return false;
-        }
-        if (!foundContent) return false;
-    }
-    return true;
-}
-
 /**
  * Self-drop: dropping on the source segments or on the gap right below the
  * last one (a canonical seam, possibly past blank lines). Indent intent comes
@@ -93,7 +71,13 @@ export function selfDrop(params: {
         };
     }
 
-    if (!isListSelection({ doc, blocks, parse, ranges: segments })) {
+    // Re-levelling shifts the selection by one amount, from its first list line: only list items change level in
+    // place, one with all its children, several only as list lines alone (an item that stops at the root would leave
+    // its children shifted out of it).
+    const listLinesOnly = segments.every((segment) =>
+        lineMap.lineMeta.slice(segment.startLine, segment.endLine + 1).every((meta) => meta.isEmpty || meta.isList),
+    );
+    if (!blocks.every((block) => block.type === BlockType.ListItem) || (blocks.length > 1 && !listLinesOnly)) {
         return {
             inSelfRange: true,
             allowInPlaceIndentChange: false,

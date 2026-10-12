@@ -1,5 +1,5 @@
 import { isCalloutLine, isHorizontalRuleLine } from '../block/block-guards';
-import { isListLine, parseLine } from '../parse/parse-line';
+import { indentWidth, isListLine, parseLine } from '../parse/parse-line';
 import type { Doc } from './document-types';
 import type { LineRange } from './line-range-types';
 
@@ -10,6 +10,8 @@ export interface LineMeta {
     isTable: boolean;
     isHr: boolean;
     indentWidth: number;
+    /** Whitespace width before the first `>`; the indent for unquoted lines. */
+    leadWidth: number;
     quoteDepth: number;
 }
 
@@ -33,12 +35,14 @@ const EMPTY_LINE_META: LineMeta = {
     isTable: false,
     isHr: false,
     indentWidth: 0,
+    leadWidth: 0,
     quoteDepth: 0,
 };
 
-function createLineMetaFromText(text: string, tabSize: number): LineMeta {
+export function createLineMetaFromText(text: string, tabSize: number): LineMeta {
     const parsed = parseLine(text, tabSize);
     const isEmpty = text.trim().length === 0;
+    const prefix = parsed.quote.prefix;
     return {
         isEmpty,
         isList: isListLine(parsed),
@@ -46,8 +50,26 @@ function createLineMetaFromText(text: string, tabSize: number): LineMeta {
         isTable: text.trimStart().startsWith('|'),
         isHr: isHorizontalRuleLine(text),
         indentWidth: parsed.indent.width,
+        leadWidth:
+            parsed.quote.depth > 0
+                ? indentWidth(prefix.slice(0, prefix.length - prefix.trimStart().length), tabSize)
+                : parsed.indent.width,
         quoteDepth: parsed.quote.depth,
     };
+}
+
+/**
+ * Whether a list line owns a following non-blank line as part of its item.
+ * Under an unquoted item a quoted line is owned by the whitespace before its
+ * `>`, so `- item` owns `    > [!note] x`; every other line by its indent,
+ * and none that starts left of a quoted list's `>` (`    > - q` under an item
+ * owns neither `    - sibling` nor `> other`).
+ */
+export function listOwnsLine(list: LineMeta, line: LineMeta): boolean {
+    if (list.quoteDepth === 0 && line.quoteDepth > 0) return line.leadWidth > list.indentWidth;
+    if (line.indentWidth <= list.indentWidth) return false;
+    if (list.quoteDepth === 0) return true;
+    return line.quoteDepth > 0 ? line.leadWidth >= list.leadWidth : line.leadWidth > list.leadWidth;
 }
 
 function createLineMetaArray(doc: Doc, tabSize: number): LineMeta[] {
@@ -93,7 +115,7 @@ function buildLineMapIndexes(
         while (listStack.length > 0) {
             const topLine = listStack[listStack.length - 1];
             const topMeta = lineMeta[topLine] ?? EMPTY_LINE_META;
-            if (meta.indentWidth > topMeta.indentWidth) {
+            if (listOwnsLine(topMeta, meta)) {
                 break;
             }
             listStack.pop();

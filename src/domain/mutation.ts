@@ -8,7 +8,7 @@ import { dropIndentWidth } from './markdown/drop-locate';
 import type { Gap } from './markdown/gap';
 import { type LineMap, listItemContaining, quoteRunAt } from './markdown/line-map';
 import type { LineRange } from './markdown/line-range-types';
-import { formatIndent, isListLine, listMarkerText, listMarkerType, parseLine } from './parse/parse-line';
+import { formatIndent, indentWidth, isListLine, listMarkerText, listMarkerType, parseLine } from './parse/parse-line';
 import type { ParsedLine } from './parse/types';
 import { calloutCovers, itemText } from './rules/container-policy';
 import { type Facing, facingAt, needsBlankLine, type RunKind, runKind } from './rules/separation';
@@ -159,10 +159,23 @@ function sideSpacing(
                 : side === 'top' && options.parent && !both
                   ? 0
                   : k;
-        // A paragraph line of the list right under the payload's item line is content the item adopts: tight, as it
-        // was there.
-        const adopts = side === 'bottom' && upper.type === BlockType.ListItem && lower.type === BlockType.Paragraph;
-        return spacing === 0 && !adopts && needsBlankLine(upper, lower) ? 1 : spacing;
+        // A paragraph line of the list right under the payload's unquoted item line is content the item adopts:
+        // tight, as it was there.
+        const adopts =
+            side === 'bottom' &&
+            upper.type === BlockType.ListItem &&
+            upper.line.quote.depth === 0 &&
+            lower.type === BlockType.Paragraph;
+        // Two quoted children written together are one quote, unless the lower one starts left of the upper one's
+        // `>`, in an outer item.
+        const lead = ({ line: { quote } }: Facing) =>
+            indentWidth(quote.prefix.slice(0, quote.prefix.length - quote.prefix.trimStart().length), options.tabSize);
+        const joinsQuote =
+            upper.line.quote.depth > 0 &&
+            lower.line.quote.depth > 0 &&
+            lead(lower) >= lead(upper) &&
+            !options.fromQuote(neighbour.line);
+        return spacing === 0 && (joinsQuote || (!adopts && needsBlankLine(upper, lower))) ? 1 : spacing;
     }
     if (
         interior &&
@@ -433,15 +446,15 @@ function asRunHead(facing: Facing): Facing {
     return { ...facing, line: { ...facing.line, marker: { ...marker, text: '1. ' } } };
 }
 
-/** First list line's indent in a multi-line source blob. */
+/** First list line's indent (and quote depth) in a multi-line source blob. */
 function getSourceListBase(
     lines: string[],
     parse: (line: string) => ParsedLine,
-): { indentWidth: number; indentRaw: string } | null {
+): { indentWidth: number; indentRaw: string; quoteDepth: number } | null {
     for (const line of lines) {
         const parsed = parse(line);
         if (isListLine(parsed)) {
-            return { indentWidth: parsed.indent.width, indentRaw: parsed.indent.raw };
+            return { indentWidth: parsed.indent.width, indentRaw: parsed.indent.raw, quoteDepth: parsed.quote.depth };
         }
     }
     return null;
@@ -451,14 +464,16 @@ function getSourceListBase(
  * Shift every list line (and deeper continuations) so the root list indent
  * becomes targetIndentWidth. Structure-driven: caller supplies target from
  * dropIndentWidth(position); no scanning nearby doc lines for "context".
+ * Quoted children of an unquoted list shift the whitespace before their `>`.
  */
 export function relevelListText(params: {
     sourceContent: string;
     parse: (line: string) => ParsedLine;
     formatIndentFn: (sample: string, width: number) => string;
     targetIndentWidth: number;
+    tabSize: number;
 }): string {
-    const { sourceContent, parse, formatIndentFn, targetIndentWidth } = params;
+    const { sourceContent, parse, formatIndentFn, targetIndentWidth, tabSize } = params;
     const lines = sourceContent.split('\n');
     const sourceBase = getSourceListBase(lines, parse);
     if (!sourceBase) return sourceContent;
@@ -470,6 +485,15 @@ export function relevelListText(params: {
         .map((line) => {
             if (line.trim().length === 0) return line;
             const parsed = parse(line);
+
+            if (sourceBase.quoteDepth === 0 && parsed.quote.depth > 0) {
+                const prefix = parsed.quote.prefix;
+                const leadRaw = prefix.slice(0, prefix.length - prefix.trimStart().length);
+                const leadWidth = indentWidth(leadRaw, tabSize);
+                if (leadWidth < sourceBase.indentWidth) return line;
+                const newLead = formatIndentFn(sourceBase.indentRaw, Math.max(0, leadWidth + delta));
+                return `${newLead}${line.slice(leadRaw.length)}`;
+            }
 
             if (!isListLine(parsed) && parsed.indent.width < sourceBase.indentWidth) return line;
             const newIndent = formatIndentFn(sourceBase.indentRaw, Math.max(0, parsed.indent.width + delta));
@@ -521,5 +545,6 @@ export function insertTextForMove(params: {
         parse,
         formatIndentFn: (sample, width) => formatIndent(width, tabSize, sample),
         targetIndentWidth: dropIndentWidth(position, { tabSize, indentUnit }),
+        tabSize,
     });
 }

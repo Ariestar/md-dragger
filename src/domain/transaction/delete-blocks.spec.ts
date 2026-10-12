@@ -159,6 +159,13 @@ describe('planDelete', () => {
         expect(deleteAndApply('1. a\n    - b\n1. c\n\n    - d\n* \n* e', [3])).toBe('1. a\n    - b\n* \n* e');
     });
 
+    it('deletes a nested item with its quoted child list, and not the sibling after it', () => {
+        expect(deleteAndApply('- root\n    - a\n        > - q\n    - b\n- end', [2])).toBe('- root\n    - b\n- end');
+        expect(deleteAndApply('- root\n    - a\n        > - q\n    # tail\n- end', [2])).toBe(
+            '- root\n    # tail\n- end',
+        );
+    });
+
     it('rejects an empty selection', () => {
         const doc = stringDoc('a');
         expect(planDelete({ doc, selection: { blocks: [] }, tabSize })).toEqual({

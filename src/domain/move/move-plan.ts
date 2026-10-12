@@ -6,7 +6,7 @@ import { getLineMap, type LineMap } from '../markdown/line-map';
 import type { LineRange } from '../markdown/line-range-types';
 import { parseLine } from '../parse/parse-line';
 import { isReject, type RejectReason } from '../result';
-import { canDropAt, listConversion } from '../rules/container-policy';
+import { canDropAt, isNestedBlock, listConversion } from '../rules/container-policy';
 import { selfDrop } from '../rules/self-drop';
 import type { BlockSelection } from '../selection/block-selection';
 import { type CapturedMoveSource, captureMoveSource, moveInsertion } from '../transaction/move-blocks';
@@ -55,6 +55,11 @@ export function planMove(input: PlanMoveInput): MoveResult {
     const captured =
         input.captured ?? captureMoveSource(sourceDoc, input.selection, { lineMap: sourceLineMap, tabSize });
     if (!captured) return { type: 'reject', reason: 'empty_selection' };
+
+    // A nested block moves only with its container, wherever it is dropped.
+    if (captured.blocks.some((block) => isNestedBlock(sourceDoc, block, { lineMap: sourceLineMap, tabSize }))) {
+        return { type: 'reject', reason: 'nested_block' };
+    }
 
     // Gap interiors and container rules are structural: they come before the
     // self check. Self-drop only applies to gaps the structure allows (a

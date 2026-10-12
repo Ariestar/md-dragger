@@ -6,7 +6,7 @@ import { getLineMap } from '../markdown/line-map';
 import { planMove } from '../move/move-plan';
 import { selectOne } from '../selection/block-selection';
 import { stringDoc } from '../transaction/string-doc';
-import { canDropAt } from './container-policy';
+import { canDropAt, isNestedBlock } from './container-policy';
 
 const TAB_SIZE = 4;
 
@@ -50,6 +50,13 @@ function decide(docText: string, source: Source, line: number) {
     const at = gapAt(doc, line, { lineMap, tabSize: TAB_SIZE });
     if (at.type !== 'gap') throw new Error(`seam ${line} is ${at.reason}`);
     return canDropAt({ blocks: [block], content: SOURCES[source] }, at.gap, { lineMap, tabSize: TAB_SIZE, sourceDoc });
+}
+
+function nested(docText: string, line: number): boolean {
+    const doc = stringDoc(docText);
+    const block = detectBlock(doc, line, { tabSize: TAB_SIZE });
+    if (!block) throw new Error(`no block at line ${line}`);
+    return isNestedBlock(doc, block, { lineMap: getLineMap(doc, { tabSize: TAB_SIZE }), tabSize: TAB_SIZE });
 }
 
 describe('domain/rules/container-policy', () => {
@@ -117,6 +124,10 @@ describe('domain/rules/container-policy', () => {
         expect(decide(doc, 'blockquote', 4)).toMatchObject({ region: { startLine: 3, endLine: 5 } });
     });
 
+    it('keeps a root quote line out of a quote run inside a list item', () => {
+        expect(drop('- item\n    > q1\n    > q2\n- next', 'blockquote', 3)).toBe('inside_list');
+    });
+
     it('rejects a deeper plain quote line inside a callout’s nested quote', () => {
         expect(drop('> [!note] Outer\n> > a\n> > b', 'deeperQuote', 3)).toBe('inside_quote_run');
     });
@@ -164,6 +175,12 @@ describe('domain/rules/container-policy', () => {
         expect(decide(doc, 'codeBlock', 12)).toMatchObject({ region: { startLine: 1, endLine: 13 } });
     });
 
+    it('rejects a block a list keeps as it is between an item and its quote-prefixed child', () => {
+        const doc = '- item\n    > [!note] x\n    > body\n- next';
+        expect(drop(doc, 'codeBlock', 2)).toBe('inside_list');
+        expect(drop(doc, 'codeBlock', 4)).toBe('ok');
+    });
+
     it('accepts every block at both document edges', () => {
         const doc = '> [!note] A\n> a';
         for (const source of Object.keys(SOURCES) as Source[]) {
@@ -187,5 +204,34 @@ describe('domain/rules/container-policy', () => {
             indentUnit: 4,
         });
         expect(result).toEqual({ type: 'reject', reason: 'inside_code_block' });
+    });
+});
+
+describe('domain/rules/container-policy isNestedBlock', () => {
+    it('is true for a callout nested in a callout', () => {
+        expect(nested('> [!outer]\n>\n> > [!note] A\n> > a\n>\n> > [!note] B\n> > b', 3)).toBe(true);
+    });
+
+    it('is true for a plain quote line and a list item inside a callout', () => {
+        const doc = '> [!note] Outer\n> body\n> > nested quote\n> - item';
+        expect(nested(doc, 3)).toBe(true);
+        expect(nested(doc, 4)).toBe(true);
+    });
+
+    it('is true for a list child paragraph and a callout indented under an item', () => {
+        expect(nested('- item\n    para in item', 2)).toBe(true);
+        expect(nested('- item\n    > [!note] x\n    > body\n- next', 2)).toBe(true);
+    });
+
+    it('is true for a quoted list item under an unquoted item', () => {
+        expect(nested('- a\n    > - q\n    > - r\n- b', 2)).toBe(true);
+        expect(nested('- a\n    > - q\n    >     - r\n- b', 3)).toBe(true);
+    });
+
+    it('is false for a top-level callout, a plain quote line and a nested list item', () => {
+        expect(nested('para\n\n> [!note] A\n> a', 3)).toBe(false);
+        expect(nested('> q1\n> > q2\n> q3', 2)).toBe(false);
+        expect(nested('- a\n    - b', 2)).toBe(false);
+        expect(nested('> - a\n>     - b', 2)).toBe(false);
     });
 });
