@@ -161,6 +161,17 @@ describe('moveTx ordered-list renumber', () => {
     });
 });
 
+describe('moveTx in-place list indent change', () => {
+    it('changes an ordered item’s level in place without duplicating it when renumbering fires', () => {
+        // Outdent, at the gap below the source and at its own line.
+        expect(moveUnder('1. a\n    1. b\n2. c', [2], 3, null)).toBe('1. a\n2. b\n3. c');
+        expect(moveUnder('1. a\n    1. b\n2. c', [2], 2, null)).toBe('1. a\n2. b\n3. c');
+        // Nest, at the gap below the source and at its own line.
+        expect(moveUnder('3. a\n4. b\n', [2], 3, 1)).toBe('1. a\n    4. b\n');
+        expect(moveUnder('3. a\n4. b\n', [2], 2, 1)).toBe('1. a\n    4. b\n');
+    });
+});
+
 describe('moveTx list re-levelling', () => {
     const fence = '```';
 

@@ -176,41 +176,43 @@ function lineTextAt(doc: Doc, pos: number): string {
 }
 
 /**
- * Merge post-move renumber marker edits back onto the original doc:
- * marker edits inside the inserted text are folded into the insert string;
- * a marker edit at the insert seam merges into one change with the insert
- * (CM6 rejects overlapping ranges); the rest map to original coordinates.
- * Returns one simultaneous, non-overlapping change set on the original doc.
+ * Merge post-move renumber marker edits back onto the original doc: a marker
+ * edit inside a change's written text is folded into that change's text; a
+ * marker edit at a pure insertion's seam merges into one change with it (CM6
+ * rejects overlapping ranges); the rest map to original coordinates. Every
+ * change keeps its own replaced range. Returns one simultaneous,
+ * non-overlapping change set on the original doc.
  */
 function composeOnOriginal(doc: Doc, geometry: TextChange[], renumber: TextChange[]): TextChange[] {
     const sorted = [...geometry].sort((a, b) => a.from - b.from);
     const mapper = buildPosMapper(sorted, doc.length);
-
-    let insert: TextChange | null = null;
-    let insertStart = 0;
-    let insertEnd = 0;
-    for (const c of sorted) {
-        if (c.insert.length > 0) {
-            insert = c;
-            insertStart = c.from + editedDeltaBefore(sorted, c.from);
-            insertEnd = insert.from;
-            break;
-        }
-    }
-    let insertText = insert?.insert ?? '';
+    // Each change that writes text, with the offset of that text in the edited doc.
+    const writes = sorted
+        .filter((c) => c.insert.length > 0)
+        .map((c) => ({
+            from: c.from,
+            to: c.to,
+            pure: c.from === c.to,
+            start: c.from + editedDeltaBefore(sorted, c.from),
+            insert: c.insert,
+        }));
 
     const mapped: TextChange[] = [];
-    for (const r of renumber) {
+    // Right to left, so folding one edit into a text never shifts the offsets of the next.
+    for (const r of [...renumber].sort((a, b) => b.from - a.from)) {
         const from = mapper.backward(r.from);
         const to = mapper.backward(r.to);
-        if (insert && from === 'insert' && to === 'insert') {
-            const offA = r.from - insertStart;
-            const offB = r.to - insertStart;
-            insertText = insertText.slice(0, offA) + r.insert + insertText.slice(offB);
+        if (from === 'insert' && to === 'insert') {
+            const write = writes.find((w) => r.from >= w.start && r.to <= w.start + w.insert.length);
+            if (write) {
+                write.insert =
+                    write.insert.slice(0, r.from - write.start) + r.insert + write.insert.slice(r.to - write.start);
+            }
         } else if (typeof from === 'number' && typeof to === 'number') {
-            if (insert && insert.from === insert.to && from === insert.from) {
-                insertText = insertText + r.insert;
-                insertEnd = Math.max(insertEnd, to);
+            const seam = writes.find((w) => w.pure && w.from === from);
+            if (seam) {
+                seam.insert += r.insert;
+                seam.to = to;
             } else {
                 mapped.push({ from, to, insert: r.insert });
             }
@@ -219,15 +221,8 @@ function composeOnOriginal(doc: Doc, geometry: TextChange[], renumber: TextChang
         // any such case is dropped defensively.
     }
 
-    const out: TextChange[] = [];
-    for (const c of sorted) {
-        if (c === insert) {
-            out.push({ from: insert.from, to: insertEnd, insert: insertText });
-        } else {
-            out.push(c);
-        }
-    }
-    return sortChanges([...out, ...mapped]);
+    const deletions = sorted.filter((c) => c.insert.length === 0);
+    return sortChanges([...writes.map(({ from, to, insert }) => ({ from, to, insert })), ...deletions, ...mapped]);
 }
 
 /** Edited-doc offset contributed by changes strictly before `from`. */
