@@ -333,6 +333,33 @@ describe('moveTx in-place list indent change', () => {
         expect(moveUnder('1. a\n    1. b\n    2. x\n2. c', [2], 2, null)).toBe('1. a\n2. b\n    1. x\n2. c');
     });
 
+    it('refuses an in-place level change of several items when the selection has non-list lines', () => {
+        const fence = '```';
+        for (const text of [
+            '- a\n    - b\n- c\n    > [!note] x\n    > body\n- d',
+            `- a\n    - b\n- c\n    ${fence}js\n    code\n    ${fence}\n- d`,
+        ]) {
+            const doc = stringDoc(text);
+            const selection = selectBlocks([blockAt(doc, 2), blockAt(doc, 3)]);
+            expect(
+                planMove({ sourceDoc: doc, selection, position: { doc, line: 2, parent: null }, tabSize, indentUnit }),
+            ).toEqual({
+                type: 'reject',
+                reason: 'self_range_blocked',
+            });
+        }
+    });
+
+    it('changes the level of an item with non-list children in place', () => {
+        expect(moveUnder('- a\n- b\n    > [!note] x\n    > body', [2], 2, 1)).toBe(
+            '- a\n    - b\n        > [!note] x\n        > body',
+        );
+        expect(moveUnder('- a\n    - b\n        > [!note] x\n        > body\n- c', [2], 2, null)).toBe(
+            '- a\n- b\n    > [!note] x\n    > body\n- c',
+        );
+        expect(moveUnder('- a\n- b\n    para child\n- c', [2], 2, 1)).toBe('- a\n    - b\n        para child\n- c');
+    });
+
     it('outdents an ordered child through the pointer pipeline without duplicating it', () => {
         const text = '1. a\n    1. b\n    2. c\n2. d\n';
         const doc = stringDoc(text);
@@ -540,6 +567,46 @@ describe('moveTx blank-line separation', () => {
         expect(moveAndApply('intro:\n1. a\n2. b\n3. c', 2, 4)).toBe('intro:\n1. b\n2. a\n3. c');
         expect(moveAndApply('intro:\n1. a\n2. b\n3. c', 3, 2)).toBe('intro:\n1. b\n2. a\n3. c');
         expect(moveAndApply('intro:\n1. a\n2. b\n3. c', 2, 5)).toBe('intro:\n1. b\n2. c\n3. a');
+    });
+
+    it('moves a list item with its quote-prefixed child', () => {
+        expect(moveAndApply('top\n\n- item\n    > [!note] x\n    > body\n- next', 3, 1)).toBe(
+            '- item\n    > [!note] x\n    > body\n\ntop\n\n- next',
+        );
+    });
+
+    it('keeps the quoted children of a moved item apart from the child it lands above', () => {
+        // Its quoted list line does not adopt the paragraph, and its callout does not join the quote below.
+        expect(moveAndApply('- source\n    > - q\n\n- target\n    child\n- end', 1, 5)).toBe(
+            '- target\n- source\n    > - q\n\n    child\n- end',
+        );
+        expect(moveAndApply('- a\n    > [!note] A\n    > body\n- b\n    > # B\n\nend', 1, 5)).toBe(
+            '- b\n- a\n    > [!note] A\n    > body\n\n    > # B\n\nend',
+        );
+    });
+
+    it('nests a list item with its quote-prefixed child, shifting the whitespace before `>`', () => {
+        const text = '- a\n- b\n- item\n    > [!note] x\n    > body';
+        const doc = stringDoc(text);
+        const position: DropPosition = { doc, line: 2, parent: blockAt(doc, 1) };
+        const planned = planMove({
+            sourceDoc: doc,
+            selection: selectOne(blockAt(doc, 3)),
+            position,
+            tabSize,
+            indentUnit,
+        });
+        if (planned.type !== 'ok') throw new Error(`plan rejected: ${planned.reason}`);
+        const edits = moveTx({ sourceDoc: doc, plan: planned.value });
+        if (!Array.isArray(edits)) throw new Error(`move rejected: ${edits.reason}`);
+        expect(applyEdits(text, edits)).toBe('- a\n    - item\n        > [!note] x\n        > body\n- b');
+    });
+
+    it('rejects a nested callout and anything inside its container', () => {
+        const text = '> [!outer]\n>\n> > [!note] A\n> > a\n>\n> > [!note] B\n> > b\n\nend';
+        expect(planBlocks(text, [3], 9)).toEqual({ type: 'reject', reason: 'nested_block' });
+        expect(planBlocks(text, [3], 1)).toEqual({ type: 'reject', reason: 'nested_block' });
+        expect(planBlocks(text, [9], 4)).toEqual({ type: 'reject', reason: 'inside_quote_run' });
     });
 
     it('moves an outer callout once when its nested callout is selected too', () => {
@@ -838,6 +905,8 @@ describe('moveTx context adaptation', () => {
     });
 
     it('turns nothing into an item inside a quote under an item', () => {
-        expect(moveUnder('- a\n    > q1\n    > q2\n\n> x', [5], 3, 1)).not.toContain('- x');
+        const text = '- a\n    > q1\n    > q2\n\n> x';
+        expect(() => moveUnder(text, [5], 3, 1)).toThrow('plan rejected: inside_list');
+        expect(planBlocks(text, [5], 3)).toMatchObject({ type: 'reject', reason: 'inside_list' });
     });
 });

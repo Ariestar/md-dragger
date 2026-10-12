@@ -68,7 +68,11 @@ export function listConversion(
     let head: number | null = null;
     if (parent?.type === BlockType.ListItem) {
         const parentLine = parent.lines.startLine;
-        const child = (line: number) => (line > 0 ? listItemContaining(lineMap, line, parentLine) : null);
+        // A list inside a quote is another list: the items join an unquoted child's list only.
+        const child = (line: number) => {
+            const item = line > 0 ? listItemContaining(lineMap, line, parentLine) : null;
+            return item !== null && lineMeta[item].quoteDepth === 0 ? item : null;
+        };
         const below = gap.below !== null && child(gap.seam) === gap.seam ? gap.seam : null;
         head = child(aboveLine) ?? below ?? parentLine;
     } else if (aboveLine > 0 && gap.below) {
@@ -140,6 +144,22 @@ export function canDropAt(
         }
     }
     return { allowDrop: true };
+}
+
+/**
+ * A block that moves only with its container: one that starts inside a
+ * callout other than itself, or inside a list item's subtree unless it is a
+ * list item of that item's quote depth (`- item\n    > - q` is a quoted child).
+ * The engine cannot rewrite a quote prefix or a non-list indentation.
+ */
+export function isNestedBlock(doc: Doc, block: Block, options: { lineMap: LineMap; tabSize: number }): boolean {
+    const start = block.lines.startLine;
+    if (start > 1 && calloutCovers(doc, start - 1, start, options)) return true;
+    const { lineMeta } = options.lineMap;
+    const item = listItemContaining(options.lineMap, start, 0);
+    return (
+        item !== null && (block.type !== BlockType.ListItem || lineMeta[item].quoteDepth !== lineMeta[start].quoteDepth)
+    );
 }
 
 /** Whether one callout, starting at or above `top`, reaches down to `bottom`. */

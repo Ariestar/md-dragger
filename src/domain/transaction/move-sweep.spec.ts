@@ -20,11 +20,12 @@ const tabSize = 4;
 const indentUnit = 4;
 
 /**
- * Varied pages: blank-separated and tight callout runs, quote runs, lists
- * (nested ordered ones, and items with fence and table children), fences,
- * tables, rules used as section breaks, math, comments, frontmatter, paragraphs and
- * quotes bounded by headings, padding, and documents with and without a
- * final newline. Every line is unique within its page, so an output line
+ * Varied pages: blank-separated and tight callout runs, nested callouts,
+ * callouts in list items, lists inside a callout and a quote, quote runs,
+ * lists (nested ordered ones, and items with fence and table children),
+ * fences, tables, rules used as section breaks, math, comments, frontmatter,
+ * paragraphs and quotes bounded by headings, padding, and documents with and
+ * without a final newline. Every line is unique within its page, so an output line
  * names its source line.
  */
 const PAGES: Record<string, string> = {
@@ -33,11 +34,14 @@ const PAGES: Record<string, string> = {
     pair: 'alpha\n\n> [!note] First\n> first body\n\nbravo\n\n> [!tip] Second\n> second body\n\ncharlie\n',
     tight: '# Title\nIntro line.\n> [!a] A\n> a body\n# Next\n%%\nnext comment\n%%\n> [!b] B\n> b body\n## End\nlast line',
     mixed: '---\ntitle: x\n---\n\n# Title\n\nIntro paragraph.\nSecond intro line.\n\n- one\n- two\n    - two a\n    two para\n- three\n\n> [!note] Note\n> body\n\n> plain quote\n> second quote line\n\n```js\ncode\n\nmore code\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n***\n\n$$\nx^2\n$$\n\nLast paragraph.\n',
+    containers:
+        'top\n\n- item\n    > [!note] In list\n    > list body\n- two\n    child para\n- tasks\n    > [!todo] Todo\n    > - [ ] task\n\n> [!outer] Outer\n> > [!note] Inner\n> > inner body\n> outer tail\n\n1. first\n2. second\n3. third\n\nbottom',
     edges: '\n\nfirst\n\n| h1 | h2 |\n|----|----|\n| c1 | c2 |\n\n---\n\n$$\ny\n$$\n\n%%\ncomment one\n\ncomment two\n%%\n\n> q1\n> q2\n\n> > deep1\n> > deep2\n\n- [ ] task a\n- [ ] task b\n\nlast',
     loose: 'Lead:\n1. alpha\n2. beta\n\n- x\n\n- y\n\n- z\n\npara one\npara two\npara three\n\n# Heading\nunder heading',
     lists: '1. a\n    1. b\n    2. c\n2. d\n- x\n- y\n    ```js\n    code\n    ```\n- z\n    | h |\n    |---|\n    | c |\n',
     rules: 'Intro\n\n---\n\nsecret: content\n\n---\n\nstay',
     nested: '- a\n    - a1\n    - a2\n\n- b\n\n- c\n\n1. o\n\n    1. o1\n\n    2. o2\n2. p\n',
+    quoted: '> [!todo] Today\n> - buy milk\n> - call mom\n\n- a\n- b\n\npara\n\n1. one\n2. two\n\n> - q1\n> - q2\n\n- x\n- y\n- z\n\nend',
     headings: '# A\nalpha\n# B\nbeta\n## C\n> qa\n## D\n> qb\n> qc\n## E\ngamma\ndelta\n\nepsilon\nzeta\n\n> qd',
     markers:
         '* star one\n* star two\n\n+ plus one\n+ plus two\n\n1) paren one\n2) paren two\n\n- bullet parent\n    1. ordered child one\n    2. ordered child two\n\n> quoted line\n>\n> after bare\n\n> ## Quoted heading\n\n## 1. Numbered heading\n\ntail',
@@ -45,7 +49,7 @@ const PAGES: Record<string, string> = {
 };
 
 /** Pages whose lists are swept with every pair of blocks at every nesting level too. */
-const LIST_PAGES = ['lists', 'nested'];
+const LIST_PAGES = ['lists', 'containers', 'nested', 'quoted'];
 
 /** Text without whitespace and with ordered numbers masked: relevelling and renumbering change only those. */
 function norm(line: string): string {
@@ -204,6 +208,14 @@ function hazards(doc: Doc, origins: Origins, before: Set<string>): string[] {
             up.quote.depth !== lo.quote.depth
         )
             found.push(`quote depth ${tag}`);
+        // An unquoted line directly under a quoted one continues that quote unless it starts a block that can
+        // interrupt a paragraph. Read from the text, not the detector, whose list ownership shares the engine's view.
+        const lead = upperText.length - upperText.trimStart().length;
+        const interrupts =
+            lo.indent.width - lead < 4 &&
+            /^(#{1,6}\s|```|~~~|\$\$|(\*\s*){3,}$|(-\s*){3,}$|(_\s*){3,}$|[-*+]\s|1[.)]\s)/.test(lowerText.trimStart());
+        if (upperText.trimStart().startsWith('>') && lo.quote.depth === 0 && !interrupts)
+            found.push(`lazy into quote ${tag}`);
     }
     return found;
 }
@@ -429,7 +441,11 @@ function relooseLists(doc: Doc, out: Doc, segments: { startLine: number; endLine
 function joinedListSpacing(out: Doc, head: number, last: number, gapBlanks: number): string[] {
     const lineMap = getLineMap(out, { tabSize });
     const parent = lineMap.listParentLine[head];
-    const sibling = (line: number) => (line > 0 ? listItemContaining(lineMap, line, parent) : null);
+    // A list inside a quote is another list.
+    const sibling = (line: number) =>
+        line > 0 && runKind(out, line, { lineMap, tabSize }) === 'list'
+            ? listItemContaining(lineMap, line, parent)
+            : null;
     const before = head > 1 ? lineMap.prevNonEmpty[head - 1] : 0;
     const previous = sibling(before);
     // Measured from the payload's own last line: a root item dropped above an item's children adopts them.
@@ -825,6 +841,8 @@ describe('moveTx invariant sweep', () => {
 
     it.each([
         ['callouts', 'pair'],
+        ['mixed', 'containers'],
+        ['containers', 'edges'],
         ['edges', 'loose'],
         ['loose', 'tight'],
         ['tight', 'mixed'],

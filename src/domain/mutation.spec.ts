@@ -14,7 +14,15 @@ describe('relevelListText', () => {
             parse: (line) => parseLine(line, 4),
             formatIndentFn: (sample, width) => formatIndent(width, 4, sample),
             targetIndentWidth,
+            tabSize: 4,
         });
+
+    it('shifts the whitespace before `>` of a quoted child when the item is nested one level', () => {
+        expect(relevel('- item\n    > [!note] x\n    > body', 4)).toBe(
+            '    - item\n        > [!note] x\n        > body',
+        );
+        expect(relevel('    - item\n        > [!note] x', 0)).toBe('- item\n    > [!note] x');
+    });
 
     it("keeps the text of an item's fence, table, heading, rule and math children", () => {
         const fence = '```';
@@ -25,6 +33,10 @@ describe('relevelListText', () => {
         expect(relevel('- b\n    # Sub\n    ***\n    $$\n    x\n    $$', 4)).toBe(
             '    - b\n        # Sub\n        ***\n        $$\n        x\n        $$',
         );
+    });
+
+    it('keeps shifting the indent after the prefix for a list inside a quote', () => {
+        expect(relevel('> - a\n>     - b', 4)).toBe('>     - a\n>         - b');
     });
 });
 
