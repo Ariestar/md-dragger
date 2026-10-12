@@ -131,6 +131,34 @@ describe('moveTx ordered-list renumber', () => {
         expect(moveAndApply('1. a\npara\n3. c', 2, 4)).toBe('1. a\n2. c\npara');
     });
 
+    it('renumbers no ordered run across a bullet item', () => {
+        // `1. a` lands under `- x`: it starts a new ordered list, which is not `1. d`'s run.
+        expect(moveAndApply('1. a\n2. d\n- x\n- y\n', 1, 4)).toBe('1. d\n- x\n1. a\n- y\n');
+        expect(moveUnder('1. a\n    1. b\n    2. c\n2. d\n- x\n- y\n', [4], 6, 5)).toBe(
+            '1. a\n    1. b\n    2. c\n- x\n    2. d\n- y\n',
+        );
+    });
+
+    it('leaves the run above a block moved out of the end of the document untouched', () => {
+        // The removal reaches the document end: no row follows it, so `3. c\n5. d` is not the moved block's run.
+        const sourceDoc = stringDoc('3. c\n5. d\npara');
+        const block = detectBlock(sourceDoc, 3, { tabSize });
+        if (!block) throw new Error('no block at line 3');
+        const planned = planMove({
+            sourceDoc,
+            selection: selectOne(block),
+            position: { doc: stringDoc('x'), line: 1, parent: null },
+            tabSize,
+            indentUnit,
+        });
+        if (planned.type !== 'ok') throw new Error(`plan rejected: ${planned.reason}`);
+        const edits = moveTx({ sourceDoc, plan: planned.value });
+        if (!Array.isArray(edits)) throw new Error(`move rejected: ${edits.reason}`);
+        const source = edits.find((e) => e.doc === sourceDoc);
+        if (!source) throw new Error('missing source edit');
+        expect(applyEdits('3. c\n5. d\npara', [source])).toBe('3. c\n5. d');
+    });
+
     it('renumbers the target run when moving into another document', () => {
         // Cross-doc: the inserted item joins the target doc's run (folding
         // its new marker into the insert) and the source doc just loses the
