@@ -27,6 +27,7 @@ export {
     EDITOR_CLASS,
     type ExternalTargetOptionInput,
     type ExternalTargetOptions,
+    type GutterBlock,
     HANDLE_CLASS,
     type HandleOptions,
     type ListIndentWidthPx,
