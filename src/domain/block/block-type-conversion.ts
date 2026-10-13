@@ -62,7 +62,7 @@ type ExtractedLine = { indentRaw: string; body: string };
 
 type ExtractedContent = {
     lines: ExtractedLine[];
-    callout?: { quotePrefix: string; calloutType: string; rawHeader: string };
+    callout?: { quotePrefix: string; calloutType: string; fold: string; rawHeader: string };
 };
 
 function unwrapBlock(doc: Doc, startLine: number, endLine: number): ExtractedContent {
@@ -72,10 +72,11 @@ function unwrapBlock(doc: Doc, startLine: number, endLine: number): ExtractedCon
     }
 
     const startText = doc.line(startLine).text;
-    const calloutMatch = startText.match(/^(\s*>\s*)\[!([a-zA-Z0-9_-]+)([-+]?)\]\s*(.*)$/);
+    const calloutMatch = startText.match(/^(\s*>\s*)\[!([a-zA-Z0-9_-]+)\]([-+]?)\s*(.*)$/);
     if (calloutMatch) {
         const quotePrefix = calloutMatch[1];
         const calloutType = calloutMatch[2];
+        const fold = calloutMatch[3];
         const title = calloutMatch[4].trim();
         const lines: ExtractedLine[] = [];
         if (title.length > 0) {
@@ -88,7 +89,7 @@ function unwrapBlock(doc: Doc, startLine: number, endLine: number): ExtractedCon
         }
         return {
             lines,
-            callout: { quotePrefix, calloutType, rawHeader: startText },
+            callout: { quotePrefix, calloutType, fold, rawHeader: startText },
         };
     }
 
@@ -104,9 +105,8 @@ function planConvertLines(doc: Doc, startLine: number, endLine: number, to: Conv
         const newType = targetCallout[2];
         if (extracted.callout.calloutType.toLowerCase() === newType.toLowerCase()) return [];
         const startText = extracted.callout.rawHeader;
-        const foldMatch = startText.match(/^(\s*>\s*)\[![a-zA-Z0-9_-]+([-+]?)/);
-        const fold = foldMatch?.[2] ?? '';
-        const updated = startText.replace(/^(\s*>\s*)\[![^\]]+\]/, `$1[!${newType}${fold}]`);
+        const fold = extracted.callout.fold;
+        const updated = startText.replace(/^(\s*>\s*)\[![^\]]+\][-+]?/, `$1[!${newType}]${fold}`);
         return [{ from: doc.line(startLine).from, to: doc.line(startLine).to, insert: updated }];
     }
 
