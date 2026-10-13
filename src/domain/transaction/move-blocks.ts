@@ -3,7 +3,7 @@ import type { Doc } from '../markdown/document-types';
 import type { LineRange } from '../markdown/line-range-types';
 import type { MovePlan } from '../move/move-plan';
 import { insertTextForMove, resolveDeleteRange, resolveInsertionChange } from '../mutation';
-import { isListLine, listMarkerType, parseLine } from '../parse/parse-line';
+import { parseLine } from '../parse/parse-line';
 import type { ParsedLine } from '../parse/types';
 import { type Reject, reject } from '../result';
 import { type BlockSelection, selectionLineRanges } from '../selection/block-selection';
@@ -168,33 +168,31 @@ function renumberAnchors(doc: Doc, geometry: TextChange[], edited: Doc, parse: (
             const end = start + c.insert.length - trailingNewlines(c.insert);
             const first = firstContentLine(c.insert);
             const last = lastContentLine(c.insert);
-            if (start > 0 && isOrderedListItem(parse(first))) {
-                const above = parse(lineTextAt(edited, start - 1));
-                if (sameListRun(parse(first), above)) addRow(start - 1);
+            if (start > 0 && continuesOrderedRun(parse(first), parse(lineTextAt(edited, start - 1)))) {
+                addRow(start - 1);
             }
-            if (end < edited.length && isOrderedListItem(parse(last))) {
-                const below = parse(lineTextAt(edited, end + 1));
-                if (sameListRun(parse(last), below)) addRow(end + 1);
+            if (end < edited.length && continuesOrderedRun(parse(last), parse(lineTextAt(edited, end + 1)))) {
+                addRow(end + 1);
             }
         }
         if (c.to > c.from) {
-            // An in-place write replaces whole lines without their terminator: the row after it is past that
-            // terminator.
-            const end = mapper.forward(c.to);
-            const after = end !== null && c.insert.length > 0 ? (c.to < doc.length ? end + 1 : null) : end;
+            // A deletion that reaches the document end has no row after it. An in-place write replaces whole
+            // lines without their terminator: the row after it is past that terminator.
+            const end = c.to < doc.length ? mapper.forward(c.to) : null;
+            const after = end !== null && c.insert.length > 0 ? end + 1 : end;
             if (c.from > 0) {
                 const before = mapper.forward(c.from - 1);
                 if (before !== null) {
                     const r1 = parse(lineTextAt(edited, before));
                     const lastDeleted = parse(lineTextAt(doc, c.to - 1));
-                    if (isOrderedListItem(lastDeleted) && sameListRun(r1, lastDeleted)) addRow(before);
-                    if (after !== null && sameListRun(r1, parse(lineTextAt(edited, after)))) addRow(before);
+                    if (continuesOrderedRun(r1, lastDeleted)) addRow(before);
+                    if (after !== null && continuesOrderedRun(r1, parse(lineTextAt(edited, after)))) addRow(before);
                 }
             }
             if (after !== null) {
                 const r2 = parse(lineTextAt(edited, after));
                 const firstDeleted = parse(lineTextAt(doc, c.from));
-                if (isOrderedListItem(firstDeleted) && sameListRun(firstDeleted, r2)) addRow(after);
+                if (continuesOrderedRun(firstDeleted, r2)) addRow(after);
             }
         }
     }
@@ -288,13 +286,15 @@ function lastContentLine(text: string): string {
     return '';
 }
 
-function isOrderedListItem(p: ParsedLine): boolean {
-    return isListLine(p) && listMarkerType(p) === 'ordered';
-}
-
-/** Two lines belong to the same list run when indent and quote depth match. */
-function sameListRun(a: ParsedLine, b: ParsedLine): boolean {
-    return isListLine(a) && isListLine(b) && a.indent.width === b.indent.width && a.quote.depth === b.quote.depth;
+/** Two ordered list lines of one renumbered run: the same indent and quote depth. */
+function continuesOrderedRun(head: ParsedLine, line: ParsedLine): boolean {
+    const isOrdered = (p: ParsedLine) => p.marker?.kind === 'list' && p.marker.markerType === 'ordered';
+    return (
+        isOrdered(head) &&
+        isOrdered(line) &&
+        head.indent.width === line.indent.width &&
+        head.quote.depth === line.quote.depth
+    );
 }
 
 /** Apply non-overlapping TextChanges to a doc and return the resulting text. */
