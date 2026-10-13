@@ -1,6 +1,6 @@
 import type { Extension } from '@codemirror/state';
 import { type EditorView, GutterMarker, gutter, type BlockInfo as ViewBlockInfo } from '@codemirror/view';
-import { detectBlock, parseLine } from '../../domain';
+import { detectBlock, type LineMarker, parseLine } from '../../domain';
 import {
     type GutterBlock,
     HANDLE_CLASS,
@@ -19,6 +19,22 @@ function createDefaultHandle(doc: Document): HTMLElement {
     return handle;
 }
 
+function isMarkerEqual(a?: LineMarker | null, b?: LineMarker | null): boolean {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    if (a.kind !== b.kind || a.text !== b.text) return false;
+    if (a.kind === 'list' && b.kind === 'list') {
+        return a.markerType === b.markerType && a.checked === b.checked;
+    }
+    if (a.kind === 'heading' && b.kind === 'heading') {
+        return a.level === b.level;
+    }
+    if (a.kind === 'callout' && b.kind === 'callout') {
+        return a.calloutType === b.calloutType;
+    }
+    return true;
+}
+
 /** One marker per block-start line so handles keep line identity across updates. */
 class BlockHandleMarker extends GutterMarker {
     constructor(
@@ -32,8 +48,9 @@ class BlockHandleMarker extends GutterMarker {
         return (
             other instanceof BlockHandleMarker &&
             other.block.lines.startLine === this.block.lines.startLine &&
+            other.block.lines.endLine === this.block.lines.endLine &&
             other.block.type === this.block.type &&
-            other.block.marker?.text === this.block.marker?.text &&
+            isMarkerEqual(other.block.marker, this.block.marker) &&
             other.render === this.render
         );
     }
