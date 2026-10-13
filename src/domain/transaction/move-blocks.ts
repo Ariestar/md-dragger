@@ -76,15 +76,22 @@ export function moveTx(params: { sourceDoc: Doc; plan: MovePlan }): DocEdit[] | 
     const targetDoc = plan.position.doc;
     const parse = (text: string) => parseLine(text, plan.tabSize);
 
-    const insertText = insertTextForMove({
-        doc: targetDoc,
-        sourceBlock: plan.captured.block,
-        targetLineNumber: plan.position.line,
-        sourceContent: plan.captured.payload.content,
-        position: plan.position,
-        tabSize: plan.tabSize,
-        indentUnit: plan.indentUnit,
-    });
+    const project = (sourceContent: string) =>
+        insertTextForMove({
+            doc: targetDoc,
+            sourceBlock: plan.captured.block,
+            targetLineNumber: plan.position.line,
+            sourceContent,
+            position: plan.position,
+            tabSize: plan.tabSize,
+            indentUnit: plan.indentUnit,
+        });
+
+    if (plan.allowIndent) {
+        return [compileDocEdit(sourceDoc, relevelInPlace(sourceDoc, plan.captured.payload.ranges, project), parse)];
+    }
+
+    const insertText = project(plan.captured.payload.content);
     if (!insertText.length) return reject('no_insert_text');
 
     if (sourceDoc !== targetDoc) {
@@ -98,10 +105,22 @@ export function moveTx(params: { sourceDoc: Doc; plan: MovePlan }): DocEdit[] | 
         payload: plan.captured.payload,
         targetLine: plan.position.line,
         insertText,
-        allowInPlace: plan.allowIndent,
     });
     if ('type' in geometry) return geometry;
     return [compileDocEdit(targetDoc, geometry, parse)];
+}
+
+/** An in-place list indent change: each segment's lines are replaced by their relevelled text, separators unchanged. */
+function relevelInPlace(doc: Doc, segments: LineRange[], project: (text: string) => string): TextChange[] {
+    const ranges = segments.map((s) => ({ from: doc.line(s.startLine).from, to: doc.line(s.endLine).to }));
+    const lines = project(ranges.map((r) => doc.sliceString(r.from, r.to)).join('\n')).split('\n');
+    let next = 0;
+    return segments.map((s, i) => {
+        const count = s.endLine - s.startLine + 1;
+        const insert = lines.slice(next, next + count).join('\n');
+        next += count;
+        return { ...ranges[i], insert };
+    });
 }
 
 function compileDocEdit(doc: Doc, geometry: TextChange[], parse: (line: string) => ParsedLine): DocEdit {
@@ -137,7 +156,9 @@ function renumberAnchors(doc: Doc, geometry: TextChange[], edited: Doc, parse: (
     for (const c of sorted) {
         if (c.insert.length > 0) {
             const start = c.from + editedDeltaBefore(sorted, c.from);
-            const end = start + c.insert.length;
+            // The written text's own last row: a trailing newline is a line
+            // terminator, so the row after it is the one past it.
+            const end = start + c.insert.length - trailingNewlines(c.insert);
             const first = firstContentLine(c.insert);
             const last = lastContentLine(c.insert);
             if (start > 0 && isOrderedListItem(parse(first))) {
@@ -145,12 +166,15 @@ function renumberAnchors(doc: Doc, geometry: TextChange[], edited: Doc, parse: (
                 if (sameListRun(parse(first), above)) addRow(start - 1);
             }
             if (end < edited.length && isOrderedListItem(parse(last))) {
-                const below = parse(lineTextAt(edited, end));
-                if (sameListRun(parse(last), below)) addRow(end);
+                const below = parse(lineTextAt(edited, end + 1));
+                if (sameListRun(parse(last), below)) addRow(end + 1);
             }
         }
         if (c.to > c.from) {
-            const after = mapper.forward(c.to);
+            // An in-place write replaces whole lines without their terminator: the row after it is past that
+            // terminator.
+            const end = mapper.forward(c.to);
+            const after = end !== null && c.insert.length > 0 ? (c.to < doc.length ? end + 1 : null) : end;
             if (c.from > 0) {
                 const before = mapper.forward(c.from - 1);
                 if (before !== null) {
@@ -200,15 +224,16 @@ function composeOnOriginal(doc: Doc, geometry: TextChange[], renumber: TextChang
     const mapped: TextChange[] = [];
     // Right to left, so folding one edit into a text never shifts the offsets of the next.
     for (const r of [...renumber].sort((a, b) => b.from - a.from)) {
+        // Inside written text, its end included: an empty item's marker can end exactly where the text ends.
+        const write = writes.find((w) => r.from >= w.start && r.to <= w.start + w.insert.length);
+        if (write) {
+            write.insert =
+                write.insert.slice(0, r.from - write.start) + r.insert + write.insert.slice(r.to - write.start);
+            continue;
+        }
         const from = mapper.backward(r.from);
         const to = mapper.backward(r.to);
-        if (from === 'insert' && to === 'insert') {
-            const write = writes.find((w) => r.from >= w.start && r.to <= w.start + w.insert.length);
-            if (write) {
-                write.insert =
-                    write.insert.slice(0, r.from - write.start) + r.insert + write.insert.slice(r.to - write.start);
-            }
-        } else if (typeof from === 'number' && typeof to === 'number') {
+        if (typeof from === 'number' && typeof to === 'number') {
             const seam = writes.find((w) => w.pure && w.from === from);
             if (seam) {
                 seam.insert += r.insert;
@@ -233,6 +258,10 @@ function editedDeltaBefore(sorted: TextChange[], from: number): number {
         delta += c.insert.length - (c.to - c.from);
     }
     return delta;
+}
+
+function trailingNewlines(text: string): number {
+    return text.length - text.replace(/\n+$/, '').length;
 }
 
 /** First / last non-empty line of inserted text — leading and trailing
@@ -292,9 +321,8 @@ function geometrySameDoc(params: {
     payload: MoveSourcePayload;
     targetLine: number;
     insertText: string;
-    allowInPlace: boolean;
 }): TextChange[] | Reject {
-    const { doc, payload, targetLine, insertText, allowInPlace } = params;
+    const { doc, payload, targetLine, insertText } = params;
 
     const deletedLen = payload.segments.reduce((sum, s) => sum + (s.deleteTo - s.deleteFrom), 0);
     const insertion = resolveInsertionChange(doc, targetLine, insertText, {
@@ -303,17 +331,6 @@ function geometrySameDoc(params: {
 
     if (payload.segments.some((s) => insertion.pos > s.deleteFrom && insertion.pos < s.deleteTo)) {
         return reject('insertion_inside_deleted_range');
-    }
-
-    const first = payload.segments[0];
-    if (allowInPlace && insertion.pos === first.deleteFrom) {
-        return [
-            {
-                from: first.deleteFrom,
-                to: first.deleteTo,
-                insert: insertion.text,
-            },
-        ];
     }
 
     return [{ from: insertion.pos, to: insertion.pos, insert: insertion.text }, ...geometryDelete(payload)];

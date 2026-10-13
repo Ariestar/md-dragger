@@ -3,6 +3,7 @@ import { detectBlock } from '../block/block-detector';
 import type { Block } from '../block/block-types';
 import type { DropPosition } from '../command/drop-position';
 import type { Doc } from '../markdown/document-types';
+import { locateDropPosition, snapDrop } from '../markdown/drop-locate';
 import { planMove } from '../move/move-plan';
 import { selectBlocks, selectOne } from '../selection/block-selection';
 import type { DocEdit } from './block-transaction';
@@ -162,6 +163,33 @@ describe('moveTx ordered-list renumber', () => {
 });
 
 describe('moveTx in-place list indent change', () => {
+    it('replaces an in-place list indent change in place', () => {
+        const text = '- a\n- b\n\npara';
+        const doc = stringDoc(text);
+        const position: DropPosition = { doc, line: 2, parent: blockAt(doc, 1) };
+        const planned = planMove({
+            sourceDoc: doc,
+            selection: selectOne(blockAt(doc, 2)),
+            position,
+            tabSize,
+            indentUnit,
+        });
+        if (planned.type !== 'ok') throw new Error(`plan rejected: ${planned.reason}`);
+        expect(planned.value.allowIndent).toBe(true);
+        const edits = moveTx({ sourceDoc: doc, plan: planned.value });
+        if (!Array.isArray(edits)) throw new Error(`move rejected: ${edits.reason}`);
+        expect(edits[0].changes).toEqual([{ from: 4, to: 7, insert: '    - b' }]);
+        expect(applyEdits(text, edits)).toBe('- a\n    - b\n\npara');
+    });
+
+    it('indents every selected segment in place, once', () => {
+        expect(moveUnder('- a\n- b\n- c', [2, 3], 2, 1)).toBe('- a\n    - b\n    - c');
+        // Two segments: b and c are separated by the unselected x.
+        expect(moveUnder('- a\n- b\n- x\n- c', [2, 4], 2, 1)).toBe('- a\n    - b\n- x\n    - c');
+        // Each segment once; the numbers are the renumberer's own (it numbers runs split by indent separately).
+        expect(moveUnder('1. a\n2. b\n3. x\n4. c\n', [2, 4], 2, 1)).toBe('1. a\n    2. b\n1. x\n    4. c\n');
+    });
+
     it('changes an ordered item’s level in place without duplicating it when renumbering fires', () => {
         // Outdent, at the gap below the source and at its own line.
         expect(moveUnder('1. a\n    1. b\n2. c', [2], 3, null)).toBe('1. a\n2. b\n3. c');
@@ -169,6 +197,43 @@ describe('moveTx in-place list indent change', () => {
         // Nest, at the gap below the source and at its own line.
         expect(moveUnder('3. a\n4. b\n', [2], 3, 1)).toBe('1. a\n    4. b\n');
         expect(moveUnder('3. a\n4. b\n', [2], 2, 1)).toBe('1. a\n    4. b\n');
+    });
+
+    it('renumbers an empty ordered item, and the sublist it leaves, when its level changes in place', () => {
+        expect(moveUnder('1. a\n    1. \n2. c', [2], 2, null)).toBe('1. a\n2. \n3. c');
+        // The sublist `b` leaves restarts at 1; `2. c` keeps its number (runs split by indent are numbered apart).
+        expect(moveUnder('1. a\n    1. b\n    2. x\n2. c', [2], 2, null)).toBe('1. a\n2. b\n    1. x\n2. c');
+    });
+
+    it('outdents an ordered child through the pointer pipeline without duplicating it', () => {
+        const text = '1. a\n    1. b\n    2. c\n2. d\n';
+        const doc = stringDoc(text);
+        const selection = selectOne(blockAt(doc, 3));
+        const locate = {
+            doc,
+            sourceDoc: doc,
+            selection,
+            sourceIndentWidth: 4,
+            targetIndentWidth: 0,
+            tabSize,
+            indentUnit,
+        };
+        const raw = locateDropPosition({ ...locate, hitLine: 3, belowMid: true });
+        const position = snapDrop({
+            raw,
+            sourceDoc: doc,
+            selection,
+            sourceIndentWidth: 4,
+            targetIndentWidth: 0,
+            tabSize,
+            indentUnit,
+        });
+        expect(position).toMatchObject({ line: 4, parent: null });
+        const planned = planMove({ sourceDoc: doc, selection, position, tabSize, indentUnit });
+        if (planned.type !== 'ok') throw new Error(`plan rejected: ${planned.reason}`);
+        const edits = moveTx({ sourceDoc: doc, plan: planned.value });
+        if (!Array.isArray(edits)) throw new Error(`move rejected: ${edits.reason}`);
+        expect(applyEdits(text, edits)).toBe('1. a\n    1. b\n1. c\n2. d\n');
     });
 });
 
