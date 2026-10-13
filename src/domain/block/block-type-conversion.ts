@@ -58,19 +58,56 @@ export function resolveBlockTemplate(to: ConvertTo): BlockTemplate {
     }
 }
 
-function planConvertLines(doc: Doc, startLine: number, endLine: number, to: ConvertTo): TextChange[] {
+type ExtractedLine = { indentRaw: string; body: string };
+
+type ExtractedContent = {
+    lines: ExtractedLine[];
+    callout?: { quotePrefix: string; calloutType: string; rawHeader: string };
+};
+
+function unwrapBlock(doc: Doc, startLine: number, endLine: number): ExtractedContent {
+    const fenced = readFencedContent(doc, startLine, endLine);
+    if (fenced) {
+        return { lines: fenced.contentLines.map(splitIndent) };
+    }
+
     const startText = doc.line(startLine).text;
-    const m = startText.match(/^(\s*>\s*)\[!([a-zA-Z0-9_-]+)/);
-    const toM = 'template' in to && to.template.match(/^(\s*>\s*)\[!([a-zA-Z0-9_-]+)/);
-    if (m && toM) {
-        if (m[2] === toM[2]) return [];
-        return [
-            {
-                from: doc.line(startLine).from,
-                to: doc.line(startLine).to,
-                insert: startText.replace(m[0], `${m[1]}[!${toM[2]}`),
-            },
-        ];
+    const calloutMatch = startText.match(/^(\s*>\s*)\[!([a-zA-Z0-9_-]+)([-+]?)\]\s*(.*)$/);
+    if (calloutMatch) {
+        const quotePrefix = calloutMatch[1];
+        const calloutType = calloutMatch[2];
+        const title = calloutMatch[4].trim();
+        const lines: ExtractedLine[] = [];
+        if (title.length > 0) {
+            lines.push(splitIndent(title));
+        }
+        for (let i = startLine + 1; i <= endLine; i++) {
+            const lineText = doc.line(i).text;
+            const stripped = lineText.replace(/^(\s*>\s?)/, '');
+            lines.push(splitIndent(stripped));
+        }
+        return {
+            lines,
+            callout: { quotePrefix, calloutType, rawHeader: startText },
+        };
+    }
+
+    const lines = Array.from({ length: endLine - startLine + 1 }, (_, i) => stripPrefix(doc.line(startLine + i).text));
+    return { lines };
+}
+
+function planConvertLines(doc: Doc, startLine: number, endLine: number, to: ConvertTo): TextChange[] {
+    const extracted = unwrapBlock(doc, startLine, endLine);
+
+    const targetCallout = 'template' in to ? to.template.match(/^(\s*>\s*)\[!([a-zA-Z0-9_-]+)/) : null;
+    if (extracted.callout && targetCallout) {
+        const newType = targetCallout[2];
+        if (extracted.callout.calloutType.toLowerCase() === newType.toLowerCase()) return [];
+        const startText = extracted.callout.rawHeader;
+        const foldMatch = startText.match(/^(\s*>\s*)\[![a-zA-Z0-9_-]+([-+]?)/);
+        const fold = foldMatch?.[2] ?? '';
+        const updated = startText.replace(/^(\s*>\s*)\[![^\]]+\]/, `$1[!${newType}${fold}]`);
+        return [{ from: doc.line(startLine).from, to: doc.line(startLine).to, insert: updated }];
     }
 
     const fenced = readFencedContent(doc, startLine, endLine);
@@ -79,23 +116,16 @@ function planConvertLines(doc: Doc, startLine: number, endLine: number, to: Conv
         if (to.type === BlockType.MathBlock && fenced?.type === BlockType.MathBlock) return [];
     }
 
-    const contentLines: Array<{ indentRaw: string; body: string }> = fenced
-        ? fenced.contentLines.map(splitIndent)
-        : Array.from({ length: endLine - startLine + 1 }, (_, i) => stripPrefix(doc.line(startLine + i).text));
-    if (m && contentLines.length > 1 && contentLines[0].body === '') {
-        contentLines.shift();
-    }
-
     const target = resolveBlockTemplate(to);
     const from = doc.line(startLine).from;
     const toPos = doc.line(endLine).to;
-    const formatted = formatBlockContent(contentLines, target);
+    const formatted = formatBlockContent(extracted.lines, target);
 
     if (formatted === doc.sliceString(from, toPos)) return [];
     return [{ from, to: toPos, insert: formatted }];
 }
 
-function formatBlockContent(contentLines: Array<{ indentRaw: string; body: string }>, target: BlockTemplate): string {
+function formatBlockContent(contentLines: ExtractedLine[], target: BlockTemplate): string {
     const formattedLines = contentLines.map((line, index) => {
         if (!target.linePrefix) return `${line.indentRaw}${line.body}`;
         const prefix = target.linePrefix.replace('${ordinal}', String(index + 1));
