@@ -166,6 +166,22 @@ describe('domain/block-type-conversion', () => {
             ]);
         });
 
+        it('converts a callout without title to blockquote without empty top line', () => {
+            const doc = stringDoc('> [!note]\n> Line 1\n> Line 2');
+            const changes = planConvert({
+                doc,
+                lines: { startLine: 1, endLine: 3 },
+                to: { type: BlockType.Blockquote },
+            });
+            expect(changes).toEqual([
+                {
+                    from: 0,
+                    to: 27,
+                    insert: '> Line 1\n> Line 2',
+                },
+            ]);
+        });
+
         it('switches callout type in-place preserving content and title without extra line', () => {
             const doc = stringDoc('> [!note]\n> Line 1\n> Line 2');
             const changes = planConvert({

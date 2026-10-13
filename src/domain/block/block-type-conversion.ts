@@ -82,6 +82,9 @@ function planConvertLines(doc: Doc, startLine: number, endLine: number, to: Conv
     const contentLines: Array<{ indentRaw: string; body: string }> = fenced
         ? fenced.contentLines.map(splitIndent)
         : Array.from({ length: endLine - startLine + 1 }, (_, i) => stripPrefix(doc.line(startLine + i).text));
+    if (m && contentLines.length > 1 && contentLines[0].body === '') {
+        contentLines.shift();
+    }
 
     const target = resolveBlockTemplate(to);
     const from = doc.line(startLine).from;
