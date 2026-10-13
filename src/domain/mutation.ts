@@ -447,15 +447,25 @@ function asRunHead(facing: Facing): Facing {
     return { ...facing, line: { ...facing.line, marker: { ...marker, text: '1. ' } } };
 }
 
-/** First list line's indent (and quote depth) in a multi-line source blob. */
+/**
+ * First list line's indent (and quote depth) in a multi-line source blob; with `byLead`, a quoted one's
+ * whitespace before its `>`.
+ */
 function getSourceListBase(
     lines: string[],
     parse: (line: string) => ParsedLine,
+    tabSize: number,
+    byLead: boolean,
 ): { indentWidth: number; indentRaw: string; quoteDepth: number } | null {
     for (const line of lines) {
         const parsed = parse(line);
         if (isListLine(parsed)) {
-            return { indentWidth: parsed.indent.width, indentRaw: parsed.indent.raw, quoteDepth: parsed.quote.depth };
+            const { prefix, depth } = parsed.quote;
+            if (byLead && depth > 0) {
+                const lead = prefix.slice(0, prefix.length - prefix.trimStart().length);
+                return { indentWidth: indentWidth(lead, tabSize), indentRaw: lead, quoteDepth: 0 };
+            }
+            return { indentWidth: parsed.indent.width, indentRaw: parsed.indent.raw, quoteDepth: depth };
         }
     }
     return null;
@@ -473,10 +483,12 @@ export function relevelListText(params: {
     formatIndentFn: (sample: string, width: number) => string;
     targetIndentWidth: number;
     tabSize: number;
+    /** Level a quoted list by the whitespace before its `>`. */
+    byLead: boolean;
 }): string {
-    const { sourceContent, parse, formatIndentFn, targetIndentWidth, tabSize } = params;
+    const { sourceContent, parse, formatIndentFn, targetIndentWidth, tabSize, byLead } = params;
     const lines = sourceContent.split('\n');
-    const sourceBase = getSourceListBase(lines, parse);
+    const sourceBase = getSourceListBase(lines, parse, tabSize, byLead);
     if (!sourceBase) return sourceContent;
 
     const delta = targetIndentWidth - sourceBase.indentWidth;
@@ -525,27 +537,64 @@ function asListItems(text: string, linePrefix: string, tabSize: number): string 
  * not part of the text.
  */
 export function insertTextForMove(params: {
-    sourceBlock: Block;
+    /** The selected blocks, in order. */
+    blocks: Block[];
     sourceContent: string;
+    /** Offsets in sourceContent where each of `blocks` starts. */
+    starts: number[];
     position: DropPosition;
     asItems: string | null;
     tabSize: number;
     indentUnit: number;
 }): string {
-    const { sourceBlock, sourceContent, position, asItems, tabSize, indentUnit } = params;
+    const { blocks, sourceContent, starts, position, asItems, tabSize, indentUnit } = params;
     const parse = (line: string) => parseLine(line, tabSize);
-    const text = asItems ? asListItems(sourceContent, asItems, tabSize) : sourceContent;
+    const targetIndentWidth = dropIndentWidth(position, { tabSize, indentUnit });
+    const relevel = (text: string, width: number, byLead: boolean) =>
+        relevelListText({
+            sourceContent: text,
+            parse,
+            formatIndentFn: (sample, w) => formatIndent(w, tabSize, sample),
+            targetIndentWidth: width,
+            tabSize,
+            byLead,
+        });
+    if (asItems) return relevel(asListItems(sourceContent, asItems, tabSize), targetIndentWidth, false);
 
     // Structure only: parent list → target indent from dropIndentWidth(parent).
     // No getListContextNearLine / listSampleLine side channel.
-    const nestList =
-        asItems !== null || sourceBlock.type === BlockType.ListItem || position.parent?.type === BlockType.ListItem;
-    if ((asItems === null && sourceBlock.type === BlockType.Blockquote) || !nestList) return text;
-    return relevelListText({
-        sourceContent: text,
-        parse,
-        formatIndentFn: (sample, width) => formatIndent(width, tabSize, sample),
-        targetIndentWidth: dropIndentWidth(position, { tabSize, indentUnit }),
-        tabSize,
-    });
+    const parent = position.parent?.type === BlockType.ListItem ? position.parent : null;
+    // Every selected block lands at the target level. A list item of the parent's quote depth is re-levelled from its
+    // own first line. Any other item lands as it would at the root (a quoted one also loses the whitespace before its
+    // `>`) and is then nested as a whole, as another block is: the engine writes no `>` prefix, so the whitespace after
+    // the parent's own `>` markers grows until the first line is at the target width, and a block or line outside the
+    // parent's quote stays as it is (as every block does at the root).
+    const depth = (line: string) => parseLine(line, tabSize).quote.depth;
+    const parentDepth = parent ? depth(position.doc.line(parent.lines.startLine).text) : 0;
+    const outer = (line: string) =>
+        (parseLine(line, tabSize).quote.prefix.match(/\s*> ?/g) ?? []).slice(0, parentDepth).join('');
+    const nest = (text: string) => {
+        const first = text.split('\n', 1)[0];
+        if (depth(first) < parentDepth) return text;
+        const own = first.slice(outer(first).length);
+        const indent = formatIndent(
+            targetIndentWidth - indentWidth(own.slice(0, own.length - own.trimStart().length), tabSize),
+            tabSize,
+        );
+        return text
+            .split('\n')
+            .map((line) => {
+                if (line.trim().length === 0 || depth(line) < parentDepth) return line;
+                const prefix = outer(line);
+                return prefix + indent + line.slice(prefix.length);
+            })
+            .join('\n');
+    };
+    const land = (block: Block, text: string) => {
+        if (block.type !== BlockType.ListItem) return nest(text);
+        if (parent && depth(text.split('\n', 1)[0]) === parentDepth) return relevel(text, targetIndentWidth, false);
+        return nest(relevel(relevel(text, 0, true), 0, false));
+    };
+    const ends = [...starts.slice(1), sourceContent.length];
+    return blocks.map((block, i) => land(block, sourceContent.slice(starts[i], ends[i]))).join('');
 }

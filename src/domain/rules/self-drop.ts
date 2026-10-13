@@ -6,7 +6,7 @@ import { canonicalSeam } from '../markdown/gap';
 import { getLineMetaAt, type LineMap } from '../markdown/line-map';
 import { isLineNumberInRanges } from '../markdown/line-range';
 import type { LineRange } from '../markdown/line-range-types';
-import { isListLine } from '../parse/parse-line';
+import { isListLine, listMarkerText } from '../parse/parse-line';
 import type { ParsedLine } from '../parse/types';
 import type { RejectReason } from '../result';
 
@@ -71,13 +71,8 @@ export function selfDrop(params: {
         };
     }
 
-    // Re-levelling shifts the selection by one amount, from its first list line: only list items change level in
-    // place, one with all its children, several only as list lines alone (an item that stops at the root would leave
-    // its children shifted out of it).
-    const listLinesOnly = segments.every((segment) =>
-        lineMap.lineMeta.slice(segment.startLine, segment.endLine + 1).every((meta) => meta.isEmpty || meta.isList),
-    );
-    if (!blocks.every((block) => block.type === BlockType.ListItem) || (blocks.length > 1 && !listLinesOnly)) {
+    // Re-levelling shifts each selected item's lines, its children included: only list items change level in place.
+    if (!blocks.every((block) => block.type === BlockType.ListItem)) {
         return {
             inSelfRange: true,
             allowInPlaceIndentChange: false,
@@ -138,7 +133,15 @@ export function selfDrop(params: {
         (isSameLine && targetIndentWidth !== sourceIndent) ||
         (!isAfterSelf && targetIndentWidth < sourceIndent);
 
-    if (!allowInPlaceIndentChange) {
+    // Several segments each take the target level where they are: under a list parent, every one needs an item above
+    // it that the target level nests under.
+    const parentMeta =
+        position.parent?.type === BlockType.ListItem ? getLineMetaAt(lineMap, position.parent.lines.startLine) : null;
+    const nests =
+        !parentMeta ||
+        segments.length === 1 ||
+        segments.every((s) => nestsInPlace(doc, lineMap, parse, s, targetIndentWidth, parentMeta.quoteDepth, tabSize));
+    if (!allowInPlaceIndentChange || !nests) {
         return {
             inSelfRange: true,
             allowInPlaceIndentChange: false,
@@ -152,4 +155,41 @@ export function selfDrop(params: {
         allowInPlaceIndentChange: true,
         targetIndentWidth,
     };
+}
+
+/**
+ * Whether a segment can change to `width` where it is: the innermost item of quote depth `depth` that holds the line
+ * above it (a quoted one directly above: a blank line ends a quote) and whose content starts at or before `width`
+ * takes it as a child, not as an indented code block.
+ */
+function nestsInPlace(
+    doc: Doc,
+    lineMap: LineMap,
+    parse: (line: string) => ParsedLine,
+    segment: LineRange,
+    width: number,
+    depth: number,
+    tabSize: number,
+): boolean {
+    const above = lineMap.prevNonEmpty[segment.startLine - 1];
+    if (above === 0 || (depth > 0 && above !== segment.startLine - 1)) return false;
+    // A task item's content starts at its box; a tab after the marker runs to the next tab stop.
+    const content = (line: number) => {
+        const parsed = parse(doc.line(line).text);
+        let column = parsed.indent.width;
+        for (const ch of listMarkerText(parsed).replace(/\[[ xX]\]\s+$/, '')) {
+            column += ch === '\t' ? tabSize - (column % tabSize) : 1;
+        }
+        return column;
+    };
+    let item = lineMap.lineMeta[above].isList ? above : lineMap.prevListLine[above];
+    while (
+        item > 0 &&
+        (lineMap.listSubtreeEndLine[item] < above ||
+            lineMap.lineMeta[item].quoteDepth !== depth ||
+            content(item) > width)
+    ) {
+        item = lineMap.listParentLine[item];
+    }
+    return item > 0 && width < content(item) + 4;
 }

@@ -31,6 +31,8 @@ export type CapturedMoveSource = {
     segments: LineRange[];
     /** The segments joined the way their holes close at the source. */
     content: string;
+    /** Offsets in `content` where each of `blocks` starts. */
+    starts: number[];
     first: PayloadEnd;
     last: PayloadEnd;
 };
@@ -45,6 +47,8 @@ export function captureMoveSource(
 
     const text = (from: number, to: number) => doc.sliceString(doc.line(from).from, doc.line(to).to);
     let content = text(segments[0].startLine, segments[0].endLine);
+    // Where each segment starts in `content`.
+    const offsets = [0];
     for (let i = 1; i < segments.length; i++) {
         const upper = segments[i - 1].endLine;
         const lower = segments[i].startLine;
@@ -62,8 +66,14 @@ export function captureMoveSource(
             },
             options,
         );
-        content += `\n${'\n'.repeat(kept)}${text(segments[i].startLine, segments[i].endLine)}`;
+        content += `\n${'\n'.repeat(kept)}`;
+        offsets.push(content.length);
+        content += text(segments[i].startLine, segments[i].endLine);
     }
+    const starts = blocks.map((block) => {
+        const at = segments.findIndex((s) => block.lines.startLine <= s.endLine);
+        return offsets[at] + doc.line(block.lines.startLine).from - doc.line(segments[at].startLine).from;
+    });
 
     const firstLine = segments[0].startLine;
     const lastLine = segments[segments.length - 1].endLine;
@@ -89,6 +99,7 @@ export function captureMoveSource(
         blocks,
         segments,
         content,
+        starts,
         first: end(firstLine, blocks[0]),
         last: end(lastLine, blocks[blocks.length - 1]),
     };
@@ -115,10 +126,11 @@ export function moveTx(params: { sourceDoc: Doc; plan: MovePlan }): DocEdit[] | 
     const targetDoc = plan.position.doc;
     const { tabSize } = plan;
     const parse = (text: string) => parseLine(text, tabSize);
-    const project = (sourceContent: string) =>
+    const project = (blocks: Block[], sourceContent: string, starts: number[]) =>
         insertTextForMove({
-            sourceBlock: plan.captured.blocks[0],
+            blocks,
             sourceContent,
+            starts,
             position: plan.position,
             asItems: plan.asItems,
             tabSize,
@@ -126,10 +138,10 @@ export function moveTx(params: { sourceDoc: Doc; plan: MovePlan }): DocEdit[] | 
         });
 
     if (plan.allowIndent) {
-        return [compileDocEdit(sourceDoc, relevelInPlace(sourceDoc, plan.captured.segments, project), parse)];
+        return [compileDocEdit(sourceDoc, relevelInPlace(sourceDoc, plan.captured, project), parse)];
     }
 
-    const text = project(plan.captured.content);
+    const text = project(plan.captured.blocks, plan.captured.content, plan.captured.starts);
     if (!text.length) return reject('no_insert_text');
     // A payload written as list items faces its neighbours as list items.
     const item: PayloadEnd = { type: BlockType.ListItem, run: 'list', standalone: false, selected: BlockType.ListItem };
@@ -172,15 +184,19 @@ export function moveTx(params: { sourceDoc: Doc; plan: MovePlan }): DocEdit[] | 
 }
 
 /** An in-place list indent change: each segment's lines are replaced by their relevelled text, separators unchanged. */
-function relevelInPlace(doc: Doc, segments: LineRange[], project: (text: string) => string): TextChange[] {
-    const ranges = segments.map((s) => ({ from: doc.line(s.startLine).from, to: doc.line(s.endLine).to }));
-    const lines = project(ranges.map((r) => doc.sliceString(r.from, r.to)).join('\n')).split('\n');
-    let next = 0;
-    return segments.map((s, i) => {
-        const count = s.endLine - s.startLine + 1;
-        const insert = lines.slice(next, next + count).join('\n');
-        next += count;
-        return { ...ranges[i], insert };
+function relevelInPlace(
+    doc: Doc,
+    { blocks, segments }: CapturedMoveSource,
+    project: (blocks: Block[], text: string, starts: number[]) => string,
+): TextChange[] {
+    return segments.map((s) => {
+        const from = doc.line(s.startLine).from;
+        const to = doc.line(s.endLine).to;
+        const own = blocks.filter(
+            (block) => block.lines.startLine >= s.startLine && block.lines.startLine <= s.endLine,
+        );
+        const starts = own.map((block) => doc.line(block.lines.startLine).from - from);
+        return { from, to, insert: project(own, doc.sliceString(from, to), starts) };
     });
 }
 

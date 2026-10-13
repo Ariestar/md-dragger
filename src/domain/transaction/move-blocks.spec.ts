@@ -364,21 +364,44 @@ describe('moveTx in-place list indent change', () => {
         expect(moveUnder('1. a\n    1. b\n    2. x\n2. c', [2], 2, null)).toBe('1. a\n2. b\n    1. x\n2. c');
     });
 
-    it('refuses an in-place level change of several items when the selection has non-list lines', () => {
-        const fence = '```';
-        for (const text of [
-            '- a\n    - b\n- c\n    > [!note] x\n    > body\n- d',
-            `- a\n    - b\n- c\n    ${fence}js\n    code\n    ${fence}\n- d`,
-        ]) {
+    it('refuses an in-place level change under a list parent when a segment has no item there to nest under', () => {
+        const refuses = (text: string, lines: number[], line: number, parentLine: number) => {
             const doc = stringDoc(text);
-            const selection = selectBlocks([blockAt(doc, 2), blockAt(doc, 3)]);
-            expect(
-                planMove({ sourceDoc: doc, selection, position: { doc, line: 2, parent: null }, tabSize, indentUnit }),
-            ).toEqual({
+            const selection = selectBlocks(lines.map((at) => blockAt(doc, at)));
+            const position: DropPosition = { doc, line, parent: blockAt(doc, parentLine) };
+            expect(planMove({ sourceDoc: doc, selection, position, tabSize, indentUnit })).toEqual({
                 type: 'reject',
                 reason: 'self_range_blocked',
             });
-        }
+        };
+        refuses('- a\n    - b\n        - c\n\npara\n\n- d', [3, 7], 3, 1);
+        // `- c` at width 8 would be indented code under `- q`, whose content starts at column 2.
+        refuses('- a\n    - p\n    - x\n- q\n- c', [3, 5], 3, 2);
+        // The item above `- c` is in a quote: `- c` would be its lazy text.
+        refuses('- p\n- a\n> - q\n- c', [2, 4], 2, 1);
+    });
+
+    it('measures where the content of the item above a later segment starts', () => {
+        // A task item's content starts at its box.
+        expect(moveUnder('- p\n- a\n- [ ] t\n- c', [2, 4], 2, 1)).toBe('- p\n    - a\n- [ ] t\n    - c');
+        // A tab after the marker runs to the next tab stop: `-\tb`'s content starts at column 4, `c` nests at 6.
+        expect(moveUnder('  - p\n    - a\n- x\n-\tb\n- c', [2, 5], 2, 1)).toBe(
+            '  - p\n      - a\n- x\n-\tb\n      - c',
+        );
+        // `-\t p`'s content starts at column 5: `- q` at width 4 would be its paragraph's lazy text.
+        const doc = stringDoc('- a\n    - x\n        - b\n-\t p\n- q');
+        const selection = selectBlocks([blockAt(doc, 3), blockAt(doc, 5)]);
+        const position: DropPosition = { doc, line: 3, parent: blockAt(doc, 1) };
+        expect(planMove({ sourceDoc: doc, selection, position, tabSize, indentUnit })).toEqual({
+            type: 'reject',
+            reason: 'self_range_blocked',
+        });
+    });
+
+    it('nests a quoted item of a later segment in place as a move would, so the item after it stays a list item', () => {
+        expect(moveUnder('- p\n- a\n- x\n\n> - q\n\n- c', [2, 5, 7], 2, 1)).toBe(
+            '- p\n    - a\n- x\n\n    > - q\n\n    - c',
+        );
     });
 
     it('changes the level of an item with non-list children in place', () => {
@@ -935,6 +958,97 @@ describe('moveTx list re-levelling', () => {
     it("keeps an item's fence child when it moves out to the root", () => {
         expect(moveUnder(`- a\n    - b\n        ${fence}\n        code\n        ${fence}\n- c\n`, [2], 7, null)).toBe(
             `- a\n- c\n- b\n    ${fence}\n    code\n    ${fence}\n`,
+        );
+    });
+
+    it('re-levels the nested items of a payload that starts with another block', () => {
+        expect(moveUnder('para\n\n- a\n    - b\n- c\n\nend', [1, 4], 8)).toBe('- a\n- c\n\nend\n\npara\n\n- b');
+        expect(moveUnder('top\n\npara\n\n- a\n    - b\n- c', [3, 6], 1)).toBe('para\n\n- b\n\ntop\n\n- a\n- c');
+    });
+
+    it('keeps the blocks above the first list item as they are, their list lines included', () => {
+        expect(moveUnder('> [!todo] T\n> - m\n\n- a\n    - b\n- c\n\nend', [1, 5], 9)).toBe(
+            '- a\n- c\n\nend\n\n> [!todo] T\n> - m\n\n- b',
+        );
+        expect(moveUnder(`${fence}\n    - x\n${fence}\n\n- a\n    - b\n- c\n\nend`, [1, 6], 10)).toBe(
+            `- a\n- c\n\nend\n\n${fence}\n    - x\n${fence}\n\n- b`,
+        );
+    });
+
+    it('re-levels an unquoted item from its own level when a quoted item comes first', () => {
+        expect(moveUnder('> - q\n\n- a\n    - b\n- c\n\nend', [1, 4], 8)).toBe('- a\n- c\n\nend\n\n> - q\n\n- b');
+    });
+
+    it('keeps the children of an item that follows a deeper one', () => {
+        expect(moveUnder('top\n\n- a\n    - b\n- c\n\n- d\n\n    child', [4, 7], 1)).toBe(
+            '- b\n\n- d\n\n    child\n\ntop\n\n- a\n- c',
+        );
+        // In place: both outdented on the first one's line.
+        expect(moveUnder('- a\n    - b\n- c\n\n- d\n\n    child', [2, 5], 2, null)).toBe(
+            '- a\n- b\n- c\n\n- d\n\n    child',
+        );
+        // In place, both in one segment.
+        expect(moveUnder('- a\n    - b\n- c\n\n    child', [2, 3], 2, null)).toBe('- a\n- b\n- c\n\n    child');
+    });
+
+    it('lands every selected item at the drop level', () => {
+        // An item selected after a shallower one is not nested under it.
+        expect(moveUnder('top\n\n- a\n- x\n    - c', [3, 5], 1)).toBe('- a\n- c\n\ntop\n\n- x');
+        // Under a list parent, an item selected after a deeper one stays under the parent.
+        expect(moveUnder('- p\n\nend\n\n- x\n    - b\n- d', [6, 7], 2, 1)).toBe('- p\n    - b\n    - d\n\nend\n\n- x');
+    });
+
+    it('nests a quoted item under an unquoted list parent with the item before it, its quote whole', () => {
+        expect(moveUnder('- p\n\nend\n\n- a\n\n> - q', [5, 7], 2, 1)).toBe('- p\n    - a\n\n    > - q\n\nend');
+    });
+
+    it('keeps a block selected after an item as it is when it moves to the root', () => {
+        // The fence follows a nested item that is not the first: its code keeps its indent.
+        expect(
+            moveUnder(`top\n\n- a\n- x\n    - b\n\n${fence}py\nif True:\n    print(1)\n${fence}`, [3, 5, 7], 1),
+        ).toBe(`- a\n- b\n\n${fence}py\nif True:\n    print(1)\n${fence}\n\ntop\n\n- x`);
+    });
+
+    it('nests a block selected after an item already at the drop level, so the item after it stays a list item', () => {
+        expect(moveUnder('- a\n    - b\n\npara\n\n- c\n\n- p\n\nend', [2, 4, 6], 10, 8)).toBe(
+            '- a\n\n- p\n    - b\n\n    para\n\n    - c\n\nend',
+        );
+        // An item of another quote depth than the parent's nests the same way.
+        expect(moveUnder('- x\n    - a\n\n> - q\n\n- c\n\n- p\n\nend', [2, 4, 6], 10, 8)).toBe(
+            '- x\n\n- p\n    - a\n\n    > - q\n\n    - c\n\nend',
+        );
+    });
+
+    it('nests a block selected after an item from its first line, so its leading spaces do not make it code', () => {
+        expect(moveUnder('- x\n    1. a\n\n# h\n\n  para\n\n- p\n\nend', [2, 6], 10, 8)).toBe(
+            '- x\n\n# h\n\n- p\n    1. a\n\n    para\n\nend',
+        );
+        expect(moveUnder('- x\n    1. a\n\n# h\n\n  > quote\n\n- p\n\nend', [2, 6], 10, 8)).toBe(
+            '- x\n\n# h\n\n- p\n    1. a\n\n    > quote\n\nend',
+        );
+    });
+
+    it("lands an item outside the parent's list as it would at the root, then nests it whole", () => {
+        // A quoted item nested in its quote's list, under an unquoted parent.
+        expect(moveUnder('- x\n\n> - a\n>     - r\n\n- p\n\nend', [1, 4], 8, 6)).toBe(
+            '> - a\n\n- p\n    - x\n\n    > - r\n\nend',
+        );
+        // A quoted item with spaces before its `>`, at the root and under an unquoted parent.
+        expect(moveAndApply('top\n\n  > - q', 3, 1)).toBe('> - q\n\ntop');
+        expect(moveUnder('- x\n\nend\n\n  > - q\n\n- p', [1, 5], 8, 7)).toBe('end\n\n- p\n    - x\n\n    > - q');
+        // An unquoted nested item under a quoted parent lands outside the quote, at the root.
+        expect(moveUnder('> - x\n> - p\n# H\n\n- a\n    - b', [1, 6], 3, 2)).toBe(
+            '> - p\n>     - x\n\n- b\n# H\n\n- a',
+        );
+        // An unquoted item's quoted child stays with it.
+        expect(moveUnder('> - x\n> - p\n# H\n\n- c\n    > note', [1, 5], 3, 2)).toBe(
+            '> - p\n>     - x\n\n- c\n    > note\n\n# H',
+        );
+    });
+
+    it('nests an item of a deeper quote under a quoted list parent as a whole', () => {
+        expect(moveUnder('> - x\n>     - a\n> - b\n> > - q\n> - p', [2, 3, 4], 6, 5)).toBe(
+            '> - x\n> - p\n>     - a\n>     - b\n>     > - q',
         );
     });
 });

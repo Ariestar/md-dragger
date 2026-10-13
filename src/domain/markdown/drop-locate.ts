@@ -95,9 +95,10 @@ function dropParent(
     const sameDoc = input.sourceDoc === undefined || input.sourceDoc === doc;
     const sourceLines = sameDoc ? selectionLineRanges(doc.lines, selection) : [];
     // The engine writes no `>` prefix: a parent is an item of the payload's own quote depth, and a quoted parent
-    // only for list items in the quote they move within, directly above the seam: any other quote stays apart from
-    // it. A payload a list turns into items (a plain quote too) is unquoted where the seam is not between two quoted
-    // lines.
+    // only for list items in the quote they move within, directly above the seam, and not when the payload ends the
+    // quote: a blank line before a quoted line, or any line outside the quote before a later selected block of its
+    // depth. Any other quote stays apart from it. A payload a list turns into items (a plain quote too) is unquoted
+    // where the seam is not between two quoted lines.
     const sourceDoc = input.sourceDoc ?? doc;
     const first = selection.blocks[0].lines.startLine;
     const { lineMeta } = lineMap;
@@ -108,7 +109,21 @@ function dropParent(
     if (depth > 0) {
         const run = quoteRunAt(lineMap, above);
         const items = captured?.blocks.every((block) => block.type === BlockType.ListItem);
-        if (!items || !sameDoc || above !== line - 1 || first < run.startLine || first > run.endLine) return null;
+        const lineDepth = (text: string) => parseLine(text, tabSize).quote.depth;
+        const quoteEnds =
+            captured !== null &&
+            (/\n[ \t]*\n[ \t]*>/.test(captured.content) ||
+                captured.starts.some(
+                    (at, i) =>
+                        i > 0 &&
+                        lineDepth(captured.content.slice(at).split('\n', 1)[0]) >= depth &&
+                        captured.content
+                            .slice(0, at - 1)
+                            .split('\n')
+                            .some((line) => lineDepth(line) < depth),
+                ));
+        if (!items || !sameDoc || above !== line - 1 || quoteEnds || first < run.startLine || first > run.endLine)
+            return null;
     }
 
     while (parentLine > 0) {
