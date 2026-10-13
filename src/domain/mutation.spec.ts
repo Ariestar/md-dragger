@@ -15,6 +15,7 @@ describe('relevelListText', () => {
             formatIndentFn: (sample, width) => formatIndent(width, 4, sample),
             targetIndentWidth,
             tabSize: 4,
+            byLead: false,
         });
 
     it('shifts the whitespace before `>` of a quoted child when the item is nested one level', () => {

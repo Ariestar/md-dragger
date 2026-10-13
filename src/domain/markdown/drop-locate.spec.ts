@@ -478,6 +478,44 @@ describe('domain locateDropPosition', () => {
         // A quoted item's quote ends at a blank line.
         expect(nestUnder('> [!todo] T\n> - m\n\n> - q\n> - r', 4, 3).parent).toBeNull();
     });
+
+    it('takes no quoted parent for a payload with a blank line, which ends the quote', () => {
+        // Under `> - q`, `> - b` would be written `>     - b` after the blank line: indented code in a new quote.
+        const doc = stringDoc('> - p\n> - x\n> - q\n# H\n\n> - b');
+        const items = [2, 6].map((line) => detectBlock(doc, line, { tabSize }));
+        if (!items[0] || !items[1]) throw new Error('no block');
+        const parentOf = (blocks: Block[]) =>
+            locateDropPosition({
+                doc,
+                selection: selectBlocks(blocks),
+                hitLine: 3,
+                belowMid: true,
+                sourceIndentWidth: 0,
+                targetIndentWidth: indentUnit,
+                tabSize,
+                indentUnit,
+            }).parent;
+        expect(parentOf([items[0]])?.lines.startLine).toBe(3);
+        expect(parentOf([items[0], items[1]])).toBeNull();
+    });
+
+    it('takes no quoted parent for a payload with a block outside the quote before a quoted one', () => {
+        // Under `> - q`, `> - b` would be written `>     - b` after `# H`: indented code in a new quote.
+        const doc = stringDoc('> - p\n>     - x\n> - q\n# unselected\n\n# H\n> - b');
+        const blocks = [2, 6, 7].map((line) => detectBlock(doc, line, { tabSize }));
+        if (blocks.some((block) => !block)) throw new Error('no block');
+        const position = locateDropPosition({
+            doc,
+            selection: selectBlocks(blocks as Block[]),
+            hitLine: 3,
+            belowMid: true,
+            sourceIndentWidth: indentUnit,
+            targetIndentWidth: indentUnit,
+            tabSize,
+            indentUnit,
+        });
+        expect(position.parent).toBeNull();
+    });
 });
 
 describe('domain locateDropPosition quoted parent', () => {
