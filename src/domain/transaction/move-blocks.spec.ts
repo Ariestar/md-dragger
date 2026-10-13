@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { detectBlock } from '../block/block-detector';
+import type { Block } from '../block/block-types';
 import type { DropPosition } from '../command/drop-position';
+import type { Doc } from '../markdown/document-types';
 import { planMove } from '../move/move-plan';
-import { selectOne } from '../selection/block-selection';
+import { selectBlocks, selectOne } from '../selection/block-selection';
 import type { DocEdit } from './block-transaction';
 import { moveTx } from './move-blocks';
 import { stringDoc } from './string-doc';
@@ -17,6 +19,30 @@ function moveAndApply(text: string, fromLine: number, toLine: number): string {
     if (!block) throw new Error(`no block at line ${fromLine}`);
     const position: DropPosition = { doc, line: toLine, parent: null };
     const planned = planMove({ sourceDoc: doc, selection: selectOne(block), position, tabSize, indentUnit });
+    if (planned.type !== 'ok') throw new Error(`plan rejected: ${planned.reason}`);
+    const edits = moveTx({ sourceDoc: doc, plan: planned.value });
+    if (!Array.isArray(edits)) throw new Error(`move rejected: ${edits.reason}`);
+    return applyEdits(text, edits);
+}
+
+function blockAt(doc: Doc, line: number): Block {
+    const block = detectBlock(doc, line, { tabSize });
+    if (!block) throw new Error(`no block at line ${line}`);
+    return block;
+}
+
+/** Move the blocks at fromLines to the raw seam before toLine, nested under the list item at parentLine (or at the root). */
+function moveUnder(text: string, fromLines: number[], toLine: number, parentLine: number | null): string {
+    const doc = stringDoc(text);
+    const selection = selectBlocks(fromLines.map((line) => blockAt(doc, line)));
+    const parent = parentLine === null ? null : blockAt(doc, parentLine);
+    const planned = planMove({
+        sourceDoc: doc,
+        selection,
+        position: { doc, line: toLine, parent },
+        tabSize,
+        indentUnit,
+    });
     if (planned.type !== 'ok') throw new Error(`plan rejected: ${planned.reason}`);
     const edits = moveTx({ sourceDoc: doc, plan: planned.value });
     if (!Array.isArray(edits)) throw new Error(`move rejected: ${edits.reason}`);
@@ -132,5 +158,33 @@ describe('moveTx ordered-list renumber', () => {
         if (!target || !source) return;
         expect(applyEdits('2. a\n3. b', [target])).toBe('1. a\n2. b\n3. x');
         expect(applyEdits('1. x\n', [source])).toBe('');
+    });
+});
+
+describe('moveTx list re-levelling', () => {
+    const fence = '```';
+
+    it("keeps a nested item's fence, heading and rule children when it nests", () => {
+        expect(moveUnder(`- a\n- c\n- b\n    ${fence}js\n    code\n    ${fence}\n`, [3], 2, 1)).toBe(
+            `- a\n    - b\n        ${fence}js\n        code\n        ${fence}\n- c\n`,
+        );
+        expect(moveUnder('- a\n- c\n- b\n    # Sub\n    ***\n', [3], 2, 1)).toBe(
+            '- a\n    - b\n        # Sub\n        ***\n- c\n',
+        );
+    });
+
+    it("keeps a nested item's table and math children when it nests", () => {
+        expect(moveUnder('- a\n- b\n\n- x\n\n    | h |\n    |---|\n    | c |\n    tail', [4], 2, 1)).toBe(
+            '- a\n    - x\n\n        | h |\n        |---|\n        | c |\n        tail\n- b\n',
+        );
+        expect(moveUnder('- a\n- c\n- b\n    $$\n    x^2\n    $$\n', [3], 2, 1)).toBe(
+            '- a\n    - b\n        $$\n        x^2\n        $$\n- c\n',
+        );
+    });
+
+    it("keeps an item's fence child when it moves out to the root", () => {
+        expect(moveUnder(`- a\n    - b\n        ${fence}\n        code\n        ${fence}\n- c\n`, [2], 7, null)).toBe(
+            `- a\n- c\n- b\n    ${fence}\n    code\n    ${fence}\n`,
+        );
     });
 });

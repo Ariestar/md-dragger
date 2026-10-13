@@ -109,19 +109,11 @@ export function relevelListText(params: {
         .map((line) => {
             if (line.trim().length === 0) return line;
             const parsed = parse(line);
-            const markerText = parsed.marker && parsed.marker.kind === 'list' ? parsed.marker.text : '';
-            const afterIndent = markerText + parsed.body;
 
-            if (!isListLine(parsed)) {
-                if (parsed.indent.width >= sourceBase.indentWidth) {
-                    const newIndent = formatIndentFn(sourceBase.indentRaw, Math.max(0, parsed.indent.width + delta));
-                    return `${parsed.quote.prefix}${newIndent}${afterIndent}`;
-                }
-                return line;
-            }
-
+            if (!isListLine(parsed) && parsed.indent.width < sourceBase.indentWidth) return line;
             const newIndent = formatIndentFn(sourceBase.indentRaw, Math.max(0, parsed.indent.width + delta));
-            return `${parsed.quote.prefix}${newIndent}${markerText}${parsed.body}`;
+            // The line's own text after its indent: a list marker, fence, table row, heading, rule or body.
+            return `${parsed.quote.prefix}${newIndent}${line.slice(parsed.quote.prefix.length + parsed.indent.raw.length)}`;
         })
         .join('\n');
 }

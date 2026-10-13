@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { rebaseAppendChange } from './mutation';
+import { rebaseAppendChange, relevelListText } from './mutation';
+import { formatIndent, parseLine } from './parse/parse-line';
 import { stringDoc } from './transaction/string-doc';
 
 describe('rebaseAppendChange', () => {
@@ -36,5 +37,26 @@ describe('rebaseAppendChange', () => {
         const current = stringDoc('current');
 
         expect(rebaseAppendChange(snapshot, { from: 0, to: 1, insert: 'x' }, current)).toBeNull();
+    });
+});
+
+describe('relevelListText', () => {
+    const relevel = (sourceContent: string, targetIndentWidth: number) =>
+        relevelListText({
+            sourceContent,
+            parse: (line) => parseLine(line, 4),
+            formatIndentFn: (sample, width) => formatIndent(width, 4, sample),
+            targetIndentWidth,
+        });
+
+    it("keeps the text of an item's fence, table, heading, rule and math children", () => {
+        const fence = '```';
+        expect(relevel(`- b\n    ${fence}js\n    code\n    ${fence}`, 4)).toBe(
+            `    - b\n        ${fence}js\n        code\n        ${fence}`,
+        );
+        expect(relevel('- x\n    | h |\n    |---|', 4)).toBe('    - x\n        | h |\n        |---|');
+        expect(relevel('- b\n    # Sub\n    ***\n    $$\n    x\n    $$', 4)).toBe(
+            '    - b\n        # Sub\n        ***\n        $$\n        x\n        $$',
+        );
     });
 });
