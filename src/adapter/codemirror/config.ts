@@ -1,5 +1,5 @@
 import type { EditorView } from '@codemirror/view';
-import type { BlockSelection, DropPosition } from '../../domain';
+import type { Block, BlockSelection, DropPosition, LineMarker } from '../../domain';
 import type {
     CommitHost,
     Config,
@@ -13,11 +13,13 @@ import type {
 export const HANDLE_CLASS = 'md-dragger-handle';
 export const EDITOR_CLASS = 'md-dragger-editor';
 
-// Custom handle element factory. Called with the editor's document — a canvas
-// card's iframe or a pop-out window, not the main document. The same element
-// shape is reused across blocks; per-block state (data attributes) is set by
-// the gutter. The default is a plain ⋮⋮ button.
-export type RenderHandle = (doc: Document) => HTMLElement;
+export type GutterBlock = Block & {
+    marker?: LineMarker | null;
+};
+
+// Custom handle element factory. Called with the editor's document and
+// the detected GutterBlock metadata (block type, line range, syntax marker).
+export type RenderHandle = (doc: Document, block: GutterBlock) => HTMLElement;
 
 export type HandleOptions = {
     render?: RenderHandle;
