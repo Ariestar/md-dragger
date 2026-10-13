@@ -166,6 +166,48 @@ describe('domain/block-type-conversion', () => {
             ]);
         });
 
+        it('switches callout type in-place preserving content and title without extra line', () => {
+            const doc = stringDoc('> [!note]\n> Line 1\n> Line 2');
+            const changes = planConvert({
+                doc,
+                lines: { startLine: 1, endLine: 3 },
+                to: { template: '> [!tip]\n${content}', linePrefix: '> ' },
+            });
+            expect(changes).toEqual([
+                {
+                    from: 0,
+                    to: 9,
+                    insert: '> [!tip]',
+                },
+            ]);
+        });
+
+        it('switches callout type in-place preserving title and fold marker', () => {
+            const doc = stringDoc('> [!note]- My Title\n> Line 1');
+            const changes = planConvert({
+                doc,
+                lines: { startLine: 1, endLine: 2 },
+                to: { template: '> [!warning]\n${content}', linePrefix: '> ' },
+            });
+            expect(changes).toEqual([
+                {
+                    from: 0,
+                    to: 19,
+                    insert: '> [!warning]- My Title',
+                },
+            ]);
+        });
+
+        it('returns empty changes when switching to the same callout type', () => {
+            const doc = stringDoc('> [!note]\n> Line 1');
+            const changes = planConvert({
+                doc,
+                lines: { startLine: 1, endLine: 2 },
+                to: { template: '> [!note]\n${content}', linePrefix: '> ' },
+            });
+            expect(changes).toEqual([]);
+        });
+
         it('converts a block to a custom HTML div with class variable', () => {
             const doc = stringDoc('Card line 1\nCard line 2');
             const template: BlockTemplate = {

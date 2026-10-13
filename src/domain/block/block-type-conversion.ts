@@ -59,6 +59,20 @@ export function resolveBlockTemplate(to: ConvertTo): BlockTemplate {
 }
 
 function planConvertLines(doc: Doc, startLine: number, endLine: number, to: ConvertTo): TextChange[] {
+    const startText = doc.line(startLine).text;
+    const m = startText.match(/^(\s*>\s*)\[!([a-zA-Z0-9_-]+)/);
+    const toM = 'template' in to && to.template.match(/^(\s*>\s*)\[!([a-zA-Z0-9_-]+)/);
+    if (m && toM) {
+        if (m[2] === toM[2]) return [];
+        return [
+            {
+                from: doc.line(startLine).from,
+                to: doc.line(startLine).to,
+                insert: startText.replace(m[0], `${m[1]}[!${toM[2]}`),
+            },
+        ];
+    }
+
     const fenced = readFencedContent(doc, startLine, endLine);
     if (!('template' in to)) {
         if (to.type === BlockType.CodeBlock && fenced?.type === BlockType.CodeBlock) return [];
