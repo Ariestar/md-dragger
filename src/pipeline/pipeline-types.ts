@@ -15,6 +15,7 @@ export type DragCancelReason =
 export type DragDropSnapshot = {
     position: DropPosition | null;
     rejectReason?: DragCancelReason | null;
+    mode?: 'move' | 'copy';
 };
 
 export type DropResolution =

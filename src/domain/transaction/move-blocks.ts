@@ -87,6 +87,13 @@ export function moveTx(params: { sourceDoc: Doc; plan: MovePlan }): DocEdit[] | 
             indentUnit: plan.indentUnit,
         });
 
+    if (plan.mode === 'copy') {
+        const insertText = project(plan.captured.payload.content);
+        if (!insertText.length) return reject('no_insert_text');
+        const insert = geometryInsert(targetDoc, plan.position.line, insertText);
+        return [compileDocEdit(targetDoc, insert, parse)];
+    }
+
     if (plan.allowIndent) {
         return [compileDocEdit(sourceDoc, relevelInPlace(sourceDoc, plan.captured.payload.ranges, project), parse)];
     }

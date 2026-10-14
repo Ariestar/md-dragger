@@ -1,6 +1,6 @@
 import type { EditorView } from '@codemirror/view';
 import { pointInViewport, type Viewport } from '../../domain/viewport';
-import type { InputSource } from '../../runtime';
+import type { InputSource, Point, Pointer } from '../../runtime';
 import { liveViewWindows, withPointerDocument } from './views';
 
 type WindowBinding = {
@@ -26,6 +26,9 @@ export function pointerInput(view: EditorView): InputSource {
     // Held from press until release. Entering a pop-out blurs the source window
     // without ending the gesture, so blur must not cancel while the pointer is down.
     let pointerDown = false;
+    let activePointerId: number | null = null;
+    let lastPoint: Point | null = null;
+    let lastPointer: Pointer | null = null;
     const ownerWindow = (): Window => {
         const win = view.dom.ownerDocument.defaultView;
         if (!win) throw new Error('md-dragger: editor document has no window');
@@ -110,6 +113,9 @@ export function pointerInput(view: EditorView): InputSource {
         onPress: (handler) => {
             const listener = (event: PointerEvent) => {
                 pointerDown = true;
+                activePointerId = event.pointerId;
+                lastPoint = null;
+                lastPointer = null;
                 syncWindows();
                 deliver(event, () =>
                     handler({
@@ -134,26 +140,75 @@ export function pointerInput(view: EditorView): InputSource {
         },
         onMove: (handler) => {
             const listener = (event: PointerEvent) => {
-                if (event.buttons === 0) pointerDown = false;
-                deliverPointer(event, (point) =>
+                if (event.buttons === 0) {
+                    pointerDown = false;
+                    activePointerId = null;
+                    lastPoint = null;
+                    lastPointer = null;
+                }
+                deliverPointer(event, (point) => {
+                    const pointer = { id: event.pointerId, type: event.pointerType };
+                    if (pointerDown && activePointerId === event.pointerId) {
+                        lastPoint = point;
+                        lastPointer = pointer;
+                    }
                     handler({
                         point,
-                        pointer: { id: event.pointerId, type: event.pointerType },
+                        pointer,
                         buttons: event.buttons,
+                        modifiers: {
+                            altKey: event.altKey,
+                            ctrlKey: event.ctrlKey,
+                            metaKey: event.metaKey,
+                            shiftKey: event.shiftKey,
+                        },
                         native: event,
                         claim: () => claimPointerEvent(event),
-                    }),
-                );
+                    });
+                });
             };
-            return listen(theWindow, 'pointermove', listener, { capture: true, passive: false });
+            const keyListener = (event: KeyboardEvent) => {
+                if (!pointerDown || !lastPoint || !lastPointer) return;
+                if (event.key === 'Alt' || event.key === 'Control' || event.key === 'Meta' || event.key === 'Shift') {
+                    handler({
+                        point: lastPoint,
+                        pointer: lastPointer,
+                        buttons: 1,
+                        modifiers: {
+                            altKey: event.altKey,
+                            ctrlKey: event.ctrlKey,
+                            metaKey: event.metaKey,
+                            shiftKey: event.shiftKey,
+                        },
+                        native: event,
+                    });
+                }
+            };
+            const unlisten = [
+                listen(theWindow, 'pointermove', listener, { capture: true, passive: false }),
+                listen(theWindow, 'keydown', keyListener, true),
+                listen(theWindow, 'keyup', keyListener, true),
+            ];
+            return () => {
+                for (const off of unlisten) off();
+            };
         },
         onRelease: (handler) => {
             const listener = (event: PointerEvent) => {
                 pointerDown = false;
+                activePointerId = null;
+                lastPoint = null;
+                lastPointer = null;
                 deliverPointer(event, (point) =>
                     handler({
                         point,
                         pointer: { id: event.pointerId, type: event.pointerType },
+                        modifiers: {
+                            altKey: event.altKey,
+                            ctrlKey: event.ctrlKey,
+                            metaKey: event.metaKey,
+                            shiftKey: event.shiftKey,
+                        },
                         native: event,
                         claim: () => claimPointerEvent(event),
                         releaseCapture: () => releasePointerCapture(view.dom, event.pointerId),
@@ -174,6 +229,9 @@ export function pointerInput(view: EditorView): InputSource {
                     pointerDown && (!!win?.frameElement || liveViewWindows().some((other) => other !== win));
                 if (retarget) return;
                 pointerDown = false;
+                activePointerId = null;
+                lastPoint = null;
+                lastPointer = null;
                 handler({
                     pointer: { id: event.pointerId, type: event.pointerType },
                     reason: 'pointer_cancelled',
@@ -186,6 +244,9 @@ export function pointerInput(view: EditorView): InputSource {
             // drag state and the host's grabbing cursor stuck. Force-cancel then.
             const cancelFallback = () => {
                 pointerDown = false;
+                activePointerId = null;
+                lastPoint = null;
+                lastPointer = null;
                 handler({
                     pointer: { id: -1, type: null },
                     reason: 'pointer_cancelled',

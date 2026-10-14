@@ -304,12 +304,58 @@ describe('adapter/monaco pointer input', () => {
         expect(host.domNode.setPointerCapture).toHaveBeenCalledWith(1);
         expect(host.domNode.releasePointerCapture).toHaveBeenCalledWith(1);
         for (const unsubscribe of dispose) unsubscribe();
-        expect(remove).toHaveBeenCalledTimes(4);
+        expect(remove).toHaveBeenCalledTimes(5);
         const again = source.onPress(press);
         pointer(host.domNode, 'pointerdown');
         pointer(host.win, 'pointermove');
         expect(move).toHaveBeenCalledOnce();
         again();
+    });
+    it('refreshes the active move when Alt changes without pointer movement', () => {
+        const host = createMockEditor(null);
+        const source = pointerInput(host.editor);
+        const move = vi.fn();
+        const dispose = [source.onPress(vi.fn()), source.onMove(move)];
+
+        pointer(host.domNode, 'pointerdown');
+        pointer(host.win, 'pointermove');
+        move.mockClear();
+
+        host.win.dispatchEvent(
+            Object.assign(new Event('keydown'), {
+                key: 'Alt',
+                altKey: true,
+                ctrlKey: false,
+                metaKey: false,
+                shiftKey: false,
+            }),
+        );
+        expect(move).toHaveBeenCalledWith(
+            expect.objectContaining({
+                point: { x: 150, y: 150 },
+                pointer: { id: 1, type: 'mouse' },
+                buttons: 1,
+                modifiers: { altKey: true, ctrlKey: false, metaKey: false, shiftKey: false },
+            }),
+        );
+
+        host.win.dispatchEvent(
+            Object.assign(new Event('keyup'), {
+                key: 'Alt',
+                altKey: false,
+                ctrlKey: false,
+                metaKey: false,
+                shiftKey: false,
+            }),
+        );
+        expect(move).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                pointer: { id: 1, type: 'mouse' },
+                modifiers: { altKey: false, ctrlKey: false, metaKey: false, shiftKey: false },
+            }),
+        );
+
+        for (const unsubscribe of dispose) unsubscribe();
     });
 });
 
@@ -343,7 +389,7 @@ describe('adapter/monaco lifecycle', () => {
         host.disposeEditor();
         dispose();
         expect(host.native.removeOverlayWidget).toHaveBeenCalledOnce();
-        expect(remove).toHaveBeenCalledTimes(4);
+        expect(remove).toHaveBeenCalledTimes(5);
     });
 
     it('requires a real editor DOM and owning window before allocating widgets', () => {

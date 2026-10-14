@@ -46,6 +46,7 @@ function createRuntime(commit: CommitHost) {
     return {
         outputs,
         commit: () => runtime.commitDrop(sessionId, point, pointer, pointer.type),
+        commitWithAlt: () => runtime.commitDrop(sessionId, point, pointer, pointer.type, { altKey: true }),
         cancel: () => runtime.cancel('pointer_cancelled', pointer.type),
     };
 }
@@ -104,5 +105,16 @@ describe('DraggerRuntime host commit', () => {
 
         gate.resolve();
         await expect(first).resolves.toMatchObject({ kind: 'applied' });
+    });
+
+    it('executes a copy when alt modifier is held on commit', () => {
+        const apply = vi.fn();
+        const harness = createRuntime({ apply });
+
+        harness.commitWithAlt();
+
+        expect(apply).toHaveBeenCalledOnce();
+        // Across docs, copy only edits the target doc (1 edit instead of 2).
+        expect(apply.mock.calls[0]?.[0]).toHaveLength(1);
     });
 });

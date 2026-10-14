@@ -33,19 +33,21 @@ export function selectionFromOutputs(outputs: readonly PipelineOutput[]): BlockS
 export function dropSeamState(
     outputs: readonly PipelineOutput[],
     doc: Doc,
-): { position: DropPosition | null; invalid: boolean } {
+): { position: DropPosition | null; invalid: boolean; mode?: 'move' | 'copy' } {
     let position: DropPosition | null = null;
     let invalid = false;
+    let mode: 'move' | 'copy' | undefined;
     for (const output of outputs) {
         if (output.type === 'drag_over') {
             const onView = output.drop.position && output.drop.position.doc === doc ? output.drop.position : null;
             position = onView;
             invalid = onView !== null && output.drop.rejectReason != null;
+            mode = output.drop.mode;
         } else if (output.type === 'dropped' || output.type === 'cancelled' || output.type === 'terminal') {
             position = null;
         }
     }
-    return { position, invalid };
+    return { position, invalid, mode };
 }
 
 /**
