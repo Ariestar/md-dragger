@@ -1,5 +1,6 @@
 import type { editor } from 'monaco-editor';
 import {
+    ADAPTABLE_BLOCKS,
     type BlockSelection,
     BlockType,
     type DropPosition,
@@ -80,7 +81,7 @@ export function resolveDropPosition(
         source.type === BlockType.ListItem ? parseLine(doc.line(source.lines.startLine).text, tabSize).indent.width : 0;
 
     let targetIndentWidth = sourceIndentWidth;
-    if (source.type === BlockType.ListItem) {
+    if (source.type === BlockType.ListItem || ADAPTABLE_BLOCKS.has(source.type)) {
         const stepPx = resolveListIndentWidthPx(options, editor);
         const contentLeft = rect.left + editor.getLayoutInfo().contentLeft - editor.getScrollLeft();
         const horizontalSteps = Math.max(0, Math.round((point.x - contentLeft) / stepPx));

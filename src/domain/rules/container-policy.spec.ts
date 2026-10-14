@@ -11,6 +11,7 @@ const paragraph: Block = { type: BlockType.Paragraph, lines: { startLine: 1, end
 const callout: Block = { type: BlockType.Callout, lines: { startLine: 1, endLine: 1 } };
 const listItem: Block = { type: BlockType.ListItem, lines: { startLine: 1, endLine: 1 } };
 const blockquote: Block = { type: BlockType.Blockquote, lines: { startLine: 1, endLine: 1 } };
+const codeBlock: Block = { type: BlockType.CodeBlock, lines: { startLine: 1, endLine: 1 } };
 
 function drop(docText: string, source: Block, line: number) {
     return canDropAt(stringDoc(docText), source, line, { tabSize: TAB_SIZE });
@@ -80,10 +81,11 @@ describe('domain/rules/container-policy', () => {
         expect(drop(doc, blockquote, 2).allowDrop).toBe(true);
     });
 
-    it('restricts the seam inside a list unless the source is a list item', () => {
+    it('allows adaptable blocks to drop inside a list, but restricts non-adaptable blocks', () => {
         const doc = '- one\n  - nested';
         expect(drop(doc, listItem, 2).allowDrop).toBe(true);
-        expect(drop(doc, paragraph, 2)).toEqual({ allowDrop: false, rejectReason: 'inside_list' });
+        expect(drop(doc, paragraph, 2).allowDrop).toBe(true);
+        expect(drop(doc, codeBlock, 2)).toEqual({ allowDrop: false, rejectReason: 'inside_list' });
     });
 
     it('treats the seam between sibling list items as outside the list', () => {
