@@ -325,3 +325,34 @@ describe('moveTx copy mode', () => {
         expect(copyAndApply('- item 1\n- item 2', 1, 2)).toBe('- item 1\n- item 1\n- item 2');
     });
 });
+
+describe('moveTx context adaptation', () => {
+    function nestAndApply(text: string, fromLine: number, toLine: number, parentLine: number): string {
+        const doc = stringDoc(text);
+        const block = detectBlock(doc, fromLine, { tabSize });
+        if (!block) throw new Error(`no block at line ${fromLine}`);
+        const parent = detectBlock(doc, parentLine, { tabSize });
+        const position: DropPosition = { doc, line: toLine, parent };
+        const planned = planMove({
+            sourceDoc: doc,
+            selection: selectOne(block),
+            position,
+            tabSize,
+            indentUnit,
+        });
+        if (planned.type !== 'ok') throw new Error(`plan rejected: ${planned.reason}`);
+        const edits = moveTx({ sourceDoc: doc, plan: planned.value });
+        if (!Array.isArray(edits)) throw new Error(`move rejected: ${edits.reason}`);
+        return applyEdits(text, edits);
+    }
+
+    it('adapts a paragraph into a child list item when nested under a list item', () => {
+        expect(nestAndApply('- item 1\n- item 2\n\nparagraph', 4, 2, 1)).toBe('- item 1\n    - paragraph\n- item 2\n');
+    });
+
+    it('adapts a heading into an ordered child list item and renumbers correctly', () => {
+        expect(nestAndApply('1. item 1\n2. item 2\n\n### Heading', 4, 2, 1)).toBe(
+            '1. item 1\n    1. Heading\n2. item 2\n',
+        );
+    });
+});
