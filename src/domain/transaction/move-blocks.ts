@@ -71,8 +71,8 @@ export function captureMoveSource(doc: Doc, selection: BlockSelection): Captured
  *                  coordinates and merge with the geometry: one simultaneous,
  *                  non-overlapping change set, no whole-document replace
  */
-export function moveTx(params: { sourceDoc: Doc; plan: MovePlan }): DocEdit[] | Reject {
-    const { sourceDoc, plan } = params;
+export function moveTx(params: { sourceDoc: Doc; plan: MovePlan; mode?: 'move' | 'copy' }): DocEdit[] | Reject {
+    const { sourceDoc, plan, mode } = params;
     const targetDoc = plan.position.doc;
     const parse = (text: string) => parseLine(text, plan.tabSize);
 
@@ -93,6 +93,11 @@ export function moveTx(params: { sourceDoc: Doc; plan: MovePlan }): DocEdit[] | 
 
     const insertText = project(plan.captured.payload.content);
     if (!insertText.length) return reject('no_insert_text');
+
+    if (mode === 'copy') {
+        const insert = geometryInsert(targetDoc, plan.position.line, insertText);
+        return [compileDocEdit(targetDoc, insert, parse)];
+    }
 
     if (sourceDoc !== targetDoc) {
         const insert = geometryInsert(targetDoc, plan.position.line, insertText);

@@ -43,6 +43,7 @@ export type MoveInput = {
     pointer: Pointer;
     /** Buttons held during the move. 0 means the press already ended. */
     buttons?: number;
+    modifiers?: Modifiers;
     native?: unknown;
     claim?: () => void;
 };
@@ -50,6 +51,7 @@ export type MoveInput = {
 export type ReleaseInput = {
     point: Point;
     pointer: Pointer;
+    modifiers?: Modifiers;
     native?: unknown;
     claim?: () => void;
     releaseCapture?: () => void;

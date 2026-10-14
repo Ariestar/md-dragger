@@ -264,3 +264,36 @@ describe('moveTx list re-levelling', () => {
         );
     });
 });
+
+describe('moveTx copy mode', () => {
+    function copyAndApply(text: string, fromLine: number, toLine: number): string {
+        const doc = stringDoc(text);
+        const block = detectBlock(doc, fromLine, { tabSize });
+        if (!block) throw new Error(`no block at line ${fromLine}`);
+        const position: DropPosition = { doc, line: toLine, parent: null };
+        const planned = planMove({
+            sourceDoc: doc,
+            selection: selectOne(block),
+            position,
+            tabSize,
+            indentUnit,
+            mode: 'copy',
+        });
+        if (planned.type !== 'ok') throw new Error(`plan rejected: ${planned.reason}`);
+        const edits = moveTx({ sourceDoc: doc, plan: planned.value, mode: 'copy' });
+        if (!Array.isArray(edits)) throw new Error(`copy rejected: ${edits.reason}`);
+        return applyEdits(text, edits);
+    }
+
+    it('duplicates a paragraph at the target position while keeping the source', () => {
+        expect(copyAndApply('first\n\nsecond', 1, 3)).toBe('first\n\nfirst\nsecond');
+    });
+
+    it('duplicates an ordered list item and renumbers correctly', () => {
+        expect(copyAndApply('1. a\n2. b', 1, 3)).toBe('1. a\n2. b\n3. a');
+    });
+
+    it('duplicates an item right below itself in place', () => {
+        expect(copyAndApply('- item 1\n- item 2', 1, 2)).toBe('- item 1\n- item 1\n- item 2');
+    });
+});

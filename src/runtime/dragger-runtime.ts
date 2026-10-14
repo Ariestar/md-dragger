@@ -10,6 +10,7 @@ import {
     DEFAULT_GESTURE_CONFIG,
     type DefaultUxConfig,
     isPromiseLike,
+    type Modifiers,
     type Point,
     type Pointer,
     type ResolvedConfig,
@@ -24,6 +25,7 @@ type ActiveDragSession = {
     pointer: Pointer;
     selection: BlockSelection;
     position: DropPosition | null;
+    modifiers?: Modifiers;
     releaseCapture?: () => void;
 };
 
@@ -45,13 +47,21 @@ export type RuntimeController = {
         pointer: Pointer,
         pointerType: string | null,
         releaseCapture?: () => void,
+        modifiers?: Modifiers,
     ): void;
-    moveDrag(sessionId: string, point: Point, pointer: Pointer, pointerType: string | null): void;
+    moveDrag(
+        sessionId: string,
+        point: Point,
+        pointer: Pointer,
+        pointerType: string | null,
+        modifiers?: Modifiers,
+    ): void;
     commitDrop(
         sessionId: string,
         point: Point,
         pointer: Pointer,
         pointerType: string | null,
+        modifiers?: Modifiers,
     ): CommitOutcome | undefined;
     /** Replace the persistent multi-select result. */
     setSelection(selection: BlockSelection): void;
@@ -131,28 +141,38 @@ export class DraggerRuntime implements RuntimeController {
         pointer: Pointer,
         pointerType: string | null,
         releaseCapture?: () => void,
+        modifiers?: Modifiers,
     ): void {
         if (this.isCommitPending()) return;
         this.endDragSession();
+        const mode = modifiers?.altKey ? 'copy' : 'move';
         const position = this.resolvePosition(point, selection);
-        this.activeDragSession = { sessionId, pointer, selection, position, releaseCapture };
+        this.activeDragSession = { sessionId, pointer, selection, position, releaseCapture, modifiers };
         this.pipeline.enter({
             type: 'drag_start',
             sessionId,
-            drop: this.buildDropSnapshot(selection, position),
+            drop: this.buildDropSnapshot(selection, position, mode),
             sourceDoc: this.options.document.getDoc(),
             pointerType,
         });
     }
 
-    moveDrag(sessionId: string, point: Point, pointer: Pointer, pointerType: string | null): void {
+    moveDrag(
+        sessionId: string,
+        point: Point,
+        pointer: Pointer,
+        pointerType: string | null,
+        modifiers?: Modifiers,
+    ): void {
         const drag = this.activeDragSession;
         if (!drag || drag.sessionId !== sessionId || !samePointer(drag.pointer, pointer)) return;
         drag.position = this.resolvePosition(point, drag.selection);
+        if (modifiers) drag.modifiers = modifiers;
+        const mode = drag.modifiers?.altKey ? 'copy' : 'move';
         this.pipeline.enter({
             type: 'drag_over',
             sessionId: drag.sessionId,
-            drop: this.buildDropSnapshot(drag.selection, drag.position),
+            drop: this.buildDropSnapshot(drag.selection, drag.position, mode),
             pointerType,
         });
     }
@@ -162,14 +182,17 @@ export class DraggerRuntime implements RuntimeController {
         point: Point,
         pointer: Pointer,
         pointerType: string | null,
+        modifiers?: Modifiers,
     ): CommitOutcome | undefined {
         if (this.isCommitPending()) return;
         const drag = this.activeDragSession;
         if (!drag || drag.sessionId !== sessionId || !samePointer(drag.pointer, pointer)) return;
 
+        if (modifiers) drag.modifiers = modifiers;
+        const mode = drag.modifiers?.altKey ? 'copy' : 'move';
         drag.position = this.resolvePosition(point, drag.selection);
-        const dropSnapshot = this.buildDropSnapshot(drag.selection, drag.position);
-        const planned = this.plan(drag.selection, drag.position);
+        const dropSnapshot = this.buildDropSnapshot(drag.selection, drag.position, mode);
+        const planned = this.plan(drag.selection, drag.position, mode);
 
         if (planned.type !== 'ok' || !drag.position) {
             this.pipeline.enter({
@@ -182,7 +205,7 @@ export class DraggerRuntime implements RuntimeController {
             return { kind: 'rejected' };
         }
 
-        const edits = moveTx({ sourceDoc: this.options.document.getDoc(), plan: planned.value });
+        const edits = moveTx({ sourceDoc: this.options.document.getDoc(), plan: planned.value, mode });
         if (!Array.isArray(edits)) {
             this.pipeline.enter({
                 type: 'drop',
@@ -303,7 +326,7 @@ export class DraggerRuntime implements RuntimeController {
         };
     }
 
-    private plan(selection: BlockSelection, position: DropPosition | null): MoveResult {
+    private plan(selection: BlockSelection, position: DropPosition | null, mode?: 'move' | 'copy'): MoveResult {
         if (position === null) return { type: 'reject', reason: 'no_target' };
         const { tabSize, listIndentUnit } = this.config();
         return planMove({
@@ -312,18 +335,28 @@ export class DraggerRuntime implements RuntimeController {
             position,
             tabSize,
             indentUnit: listIndentUnit,
+            mode,
         });
     }
 
-    private buildDropSnapshot(selection: BlockSelection, position: DropPosition | null): DragDropSnapshot {
+    private buildDropSnapshot(
+        selection: BlockSelection,
+        position: DropPosition | null,
+        mode?: 'move' | 'copy',
+    ): DragDropSnapshot {
         return {
             position,
-            rejectReason: position === null ? 'no_target' : this.dropRejectReason(selection, position),
+            mode,
+            rejectReason: position === null ? 'no_target' : this.dropRejectReason(selection, position, mode),
         };
     }
 
-    private dropRejectReason(selection: BlockSelection, position: DropPosition): DragCancelReason | null {
-        const planned = this.plan(selection, position);
+    private dropRejectReason(
+        selection: BlockSelection,
+        position: DropPosition,
+        mode?: 'move' | 'copy',
+    ): DragCancelReason | null {
+        const planned = this.plan(selection, position, mode);
         if (planned.type === 'ok') return null;
         return planned.reason;
     }

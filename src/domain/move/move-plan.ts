@@ -18,6 +18,7 @@ export type PlanMoveInput = {
     tabSize: number;
     indentUnit: number;
     captured?: CapturedMoveSource;
+    mode?: 'move' | 'copy';
 };
 
 /** Data-only plan. Only what moveTx needs. */
@@ -60,7 +61,9 @@ export function planMove(input: PlanMoveInput): MoveResult {
     }
 
     let allowIndent = false;
-    if (input.sourceDoc === targetDoc) {
+    if (input.mode === 'copy') {
+        allowIndent = false;
+    } else if (input.sourceDoc === targetDoc) {
         const parse = (text: string) => parseLine(text, input.tabSize);
         const self = selfDrop({
             doc: targetDoc,

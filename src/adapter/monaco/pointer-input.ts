@@ -72,6 +72,12 @@ export function pointerInput(editor: editor.ICodeEditor): InputSource & { cancel
             point: { x: event.clientX, y: event.clientY },
             pointer: { id: event.pointerId, type: event.pointerType },
             buttons: event.buttons,
+            modifiers: {
+                altKey: event.altKey,
+                ctrlKey: event.ctrlKey,
+                metaKey: event.metaKey,
+                shiftKey: event.shiftKey,
+            },
             native: event,
             claim: () => {
                 event.preventDefault();
@@ -93,6 +99,12 @@ export function pointerInput(editor: editor.ICodeEditor): InputSource & { cancel
         const input: ReleaseInput = {
             point: { x: event.clientX, y: event.clientY },
             pointer: { id: event.pointerId, type: event.pointerType },
+            modifiers: {
+                altKey: event.altKey,
+                ctrlKey: event.ctrlKey,
+                metaKey: event.metaKey,
+                shiftKey: event.shiftKey,
+            },
             native: event,
             claim: () => {
                 event.preventDefault();

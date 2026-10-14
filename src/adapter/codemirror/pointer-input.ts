@@ -1,6 +1,6 @@
 import type { EditorView } from '@codemirror/view';
 import { pointInViewport, type Viewport } from '../../domain/viewport';
-import type { InputSource } from '../../runtime';
+import type { InputSource, Point, Pointer } from '../../runtime';
 import { liveViewWindows, withPointerDocument } from './views';
 
 type WindowBinding = {
@@ -133,19 +133,53 @@ export function pointerInput(view: EditorView): InputSource {
             return () => view.dom.removeEventListener('pointerdown', listener, true);
         },
         onMove: (handler) => {
+            let lastPoint: Point | null = null;
+            let lastPointer: Pointer | null = null;
             const listener = (event: PointerEvent) => {
                 if (event.buttons === 0) pointerDown = false;
-                deliverPointer(event, (point) =>
+                deliverPointer(event, (point) => {
+                    lastPoint = point;
+                    lastPointer = { id: event.pointerId, type: event.pointerType };
                     handler({
                         point,
-                        pointer: { id: event.pointerId, type: event.pointerType },
+                        pointer: lastPointer,
                         buttons: event.buttons,
+                        modifiers: {
+                            altKey: event.altKey,
+                            ctrlKey: event.ctrlKey,
+                            metaKey: event.metaKey,
+                            shiftKey: event.shiftKey,
+                        },
                         native: event,
                         claim: () => claimPointerEvent(event),
-                    }),
-                );
+                    });
+                });
             };
-            return listen(theWindow, 'pointermove', listener, { capture: true, passive: false });
+            const keyListener = (event: KeyboardEvent) => {
+                if (!pointerDown || !lastPoint || !lastPointer) return;
+                if (event.key === 'Alt' || event.key === 'Control' || event.key === 'Meta' || event.key === 'Shift') {
+                    handler({
+                        point: lastPoint,
+                        pointer: lastPointer,
+                        buttons: 1,
+                        modifiers: {
+                            altKey: event.altKey,
+                            ctrlKey: event.ctrlKey,
+                            metaKey: event.metaKey,
+                            shiftKey: event.shiftKey,
+                        },
+                        native: event,
+                    });
+                }
+            };
+            const unlisten = [
+                listen(theWindow, 'pointermove', listener, { capture: true, passive: false }),
+                listen(theWindow, 'keydown', keyListener, true),
+                listen(theWindow, 'keyup', keyListener, true),
+            ];
+            return () => {
+                for (const off of unlisten) off();
+            };
         },
         onRelease: (handler) => {
             const listener = (event: PointerEvent) => {
@@ -154,6 +188,12 @@ export function pointerInput(view: EditorView): InputSource {
                     handler({
                         point,
                         pointer: { id: event.pointerId, type: event.pointerType },
+                        modifiers: {
+                            altKey: event.altKey,
+                            ctrlKey: event.ctrlKey,
+                            metaKey: event.metaKey,
+                            shiftKey: event.shiftKey,
+                        },
                         native: event,
                         claim: () => claimPointerEvent(event),
                         releaseCapture: () => releasePointerCapture(view.dom, event.pointerId),
