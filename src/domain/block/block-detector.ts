@@ -1,5 +1,5 @@
 import type { Doc } from '../markdown/document-types';
-import { findCodeBlockRange, findMathBlockRange } from '../markdown/fence-scanner';
+import { findFencedBlock } from '../markdown/fence-scanner';
 import { getLineMap, getLineMetaAt, peekCachedLineMap } from '../markdown/line-map';
 import { isListLine, parseLine } from '../parse/parse-line';
 import { isTableLine } from './block-guards';
@@ -14,7 +14,9 @@ function detectBlockType(lineText: string, tabSize: number): BlockType {
     if (p.marker?.kind === 'hr') return BlockType.HorizontalRule;
     if (p.marker?.kind === 'list') return BlockType.ListItem;
     if (p.marker?.kind === 'fence') {
-        return p.marker.fence === 'code' ? BlockType.CodeBlock : BlockType.MathBlock;
+        if (p.marker.fence === 'code') return BlockType.CodeBlock;
+        if (p.marker.fence === 'math') return BlockType.MathBlock;
+        if (p.marker.fence === 'comment') return BlockType.Comment;
     }
     if (p.marker?.kind === 'table-row') return BlockType.Table;
     if (p.marker?.kind === 'callout') return BlockType.Callout;
@@ -151,34 +153,22 @@ function detectBlockUncached(doc: Doc, lineNumber: number, tabSize: number): Blo
         return null;
     }
 
+    const fenced = findFencedBlock(doc, lineNumber);
+    if (fenced) {
+        return {
+            type: fenced.type,
+            lines: { startLine: fenced.range.startLine, endLine: fenced.range.endLine },
+        };
+    }
+
     const lineText = doc.line(lineNumber).text;
     let blockType = detectBlockType(lineText, tabSize);
-
-    const codeRange = findCodeBlockRange(doc, lineNumber);
-    const mathRange = findMathBlockRange(doc, lineNumber);
-    if (codeRange) {
-        blockType = BlockType.CodeBlock;
-    }
-    if (mathRange) {
-        blockType = BlockType.MathBlock;
-    }
-
     if (blockType === BlockType.Unknown) {
         return null;
     }
 
     let startLine = lineNumber;
     let endLine = lineNumber;
-
-    if (blockType === BlockType.CodeBlock && codeRange) {
-        startLine = codeRange.startLine;
-        endLine = codeRange.endLine;
-    }
-
-    if (blockType === BlockType.MathBlock && mathRange) {
-        startLine = mathRange.startLine;
-        endLine = mathRange.endLine;
-    }
 
     if (blockType === BlockType.ListItem) {
         let lineMap = peekCachedLineMap(doc, { tabSize });

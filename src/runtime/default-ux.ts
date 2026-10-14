@@ -16,6 +16,7 @@ import {
     type GestureConfig,
     type InputSource,
     isPromiseLike,
+    type Modifiers,
     type MoveInput,
     type Point,
     type Pointer,
@@ -255,7 +256,7 @@ export class DefaultUx implements Ux {
         }
 
         if (this.runtime().isGestureActive()) {
-            this.runtime().moveDrag(session.sessionId, input.point, input.pointer, input.pointer.type);
+            this.runtime().moveDrag(session.sessionId, input.point, input.pointer, input.pointer.type, input.modifiers);
             this.emitModule('onDragMove', session, input.point, input.pointer);
             return;
         }
@@ -269,7 +270,7 @@ export class DefaultUx implements Ux {
             if (state.type !== 'selecting' || state.selection.selection.blocks.length === 0) return;
             input.claim?.();
             this.clearTimers();
-            this.startDrag(session, state.selection.selection, input.point, input.pointer);
+            this.startDrag(session, state.selection.selection, input.point, input.pointer, input.modifiers);
             return;
         }
 
@@ -301,13 +302,19 @@ export class DefaultUx implements Ux {
         if (this.runtime().state.type === 'holding') {
             this.runtime().markHoldReady(session.sessionId, input.pointer.type);
         }
-        this.startDrag(session, session.selection, input.point, input.pointer);
+        this.startDrag(session, session.selection, input.point, input.pointer, input.modifiers);
     }
 
     private handleRelease(input: ReleaseInput): void {
         const session = this.pressSession;
         if (this.runtime().isGestureActive() && session && samePointer(session.pointer, input.pointer)) {
-            const result = this.runtime().commitDrop(session.sessionId, input.point, input.pointer, input.pointer.type);
+            const result = this.runtime().commitDrop(
+                session.sessionId,
+                input.point,
+                input.pointer,
+                input.pointer.type,
+                input.modifiers,
+            );
             if (isPromiseLike(result)) {
                 void result.then((resolved) => {
                     if (this.destroyed) return;
@@ -358,10 +365,24 @@ export class DefaultUx implements Ux {
         }
     }
 
-    private startDrag(session: PressSession, selection: BlockSelection, point: Point, pointer: Pointer): void {
+    private startDrag(
+        session: PressSession,
+        selection: BlockSelection,
+        point: Point,
+        pointer: Pointer,
+        modifiers?: Modifiers,
+    ): void {
         session.selection = selection;
         session.dragActive = true;
-        this.runtime().beginDrag(session.sessionId, selection, point, pointer, pointer.type, session.releaseCapture);
+        this.runtime().beginDrag(
+            session.sessionId,
+            selection,
+            point,
+            pointer,
+            pointer.type,
+            session.releaseCapture,
+            modifiers,
+        );
         // Pointer-capture ownership moves to the runtime's active drag session,
         // which releases it in endDragSession. Keep a single owner.
         session.releaseCapture = undefined;

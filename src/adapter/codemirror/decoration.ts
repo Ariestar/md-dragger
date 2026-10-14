@@ -13,6 +13,7 @@ export { listLevel } from '../../domain';
 export const DROP_SEAM_CLASS = 'md-dragger-drop-seam';
 export const DROP_SEAM_TOP_CLASS = 'md-dragger-drop-seam-top';
 export const DROP_SEAM_BELOW_CLASS = 'md-dragger-drop-seam-below';
+export const DROP_SEAM_COPY_CLASS = 'md-dragger-drop-seam-copy';
 export const INVALID_CLASS = 'is-invalid';
 export const DRAG_SOURCE_LINE_CLASS = 'md-dragger-drag-source';
 export const SOURCE_LEVEL_STYLE_VAR = '--d-source-level';
@@ -67,13 +68,14 @@ export function sourceHighlightDecoration(outputs: readonly PipelineOutput[], st
  * seam row (above the first line, or below the previous line), marked
  * invalid when the drop is rejected. */
 export function dropSeamDecoration(outputs: readonly PipelineOutput[], state: EditorState): DecorationSet {
-    const { position, invalid } = dropSeamState(outputs, state.doc);
+    const { position, invalid, mode } = dropSeamState(outputs, state.doc);
     if (position === null) return Decoration.none;
     const top = position.line <= 1;
     const seamRow = top ? 1 : Math.min(position.line - 1, state.doc.lines);
+    const modeClass = mode === 'copy' ? ` ${DROP_SEAM_COPY_CLASS}` : '';
     return Decoration.set([
         Decoration.line({
-            class: `${DROP_SEAM_CLASS} ${top ? DROP_SEAM_TOP_CLASS : DROP_SEAM_BELOW_CLASS}${invalid ? ` ${INVALID_CLASS}` : ''}`,
+            class: `${DROP_SEAM_CLASS} ${top ? DROP_SEAM_TOP_CLASS : DROP_SEAM_BELOW_CLASS}${invalid ? ` ${INVALID_CLASS}` : ''}${modeClass}`,
         }).range(state.doc.line(seamRow).from),
     ]);
 }

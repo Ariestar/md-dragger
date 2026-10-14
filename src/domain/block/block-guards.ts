@@ -35,3 +35,20 @@ export function isCodeFenceLine(text: string | null): boolean {
     if (!text) return false;
     return text.trimStart().startsWith('```');
 }
+
+export function isCommentFenceLine(text: string | null): boolean {
+    if (!text) return false;
+    return text.trimStart().startsWith('%%');
+}
+
+export function isSingleLineFence(text: string, marker: string): boolean {
+    const trimmed = text.trimStart();
+    if (!trimmed.startsWith(marker)) return false;
+    return trimmed.slice(marker.length).includes(marker);
+}
+
+export function singleLineFenceBody(text: string, marker: string): string | null {
+    const trimmed = text.trim();
+    if (!trimmed.startsWith(marker) || !trimmed.endsWith(marker) || trimmed.length < marker.length * 2) return null;
+    return trimmed.slice(marker.length, -marker.length).trim();
+}

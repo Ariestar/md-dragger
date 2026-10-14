@@ -1,7 +1,7 @@
 import type { Doc, MarkerType } from '../markdown/document-types';
 import type { LineRange } from '../markdown/line-range-types';
 import type { TextChange } from '../transaction/block-transaction';
-import { isCodeFenceLine, isMathFenceLine } from './block-guards';
+import { isCodeFenceLine, singleLineFenceBody } from './block-guards';
 import type { Block } from './block-types';
 import { BlockType } from './block-types';
 
@@ -23,6 +23,7 @@ export type ConvertTo =
     | { type: BlockType.Blockquote }
     | { type: BlockType.CodeBlock }
     | { type: BlockType.MathBlock }
+    | { type: BlockType.Comment }
     | BlockTemplate;
 
 /**
@@ -55,6 +56,8 @@ export function resolveBlockTemplate(to: ConvertTo): BlockTemplate {
             return { template: '```\n${content}\n```' };
         case BlockType.MathBlock:
             return { template: '$$\n${content}\n$$' };
+        case BlockType.Comment:
+            return { template: '%%\n${content}\n%%' };
     }
 }
 
@@ -114,6 +117,7 @@ function planConvertLines(doc: Doc, startLine: number, endLine: number, to: Conv
     if (!('template' in to)) {
         if (to.type === BlockType.CodeBlock && fenced?.type === BlockType.CodeBlock) return [];
         if (to.type === BlockType.MathBlock && fenced?.type === BlockType.MathBlock) return [];
+        if (to.type === BlockType.Comment && fenced?.type === BlockType.Comment) return [];
     }
 
     const target = resolveBlockTemplate(to);
@@ -139,11 +143,16 @@ function formatBlockContent(contentLines: ExtractedLine[], target: BlockTemplate
     );
 }
 
+const DELIMITED_TYPES = [
+    { type: BlockType.MathBlock, marker: '$$' },
+    { type: BlockType.Comment, marker: '%%' },
+] as const;
+
 function readFencedContent(
     doc: Doc,
     startLine: number,
     endLine: number,
-): { type: BlockType.CodeBlock | BlockType.MathBlock; contentLines: string[] } | null {
+): { type: BlockType.CodeBlock | BlockType.MathBlock | BlockType.Comment; contentLines: string[] } | null {
     const startText = doc.line(startLine).text;
     const endText = doc.line(endLine).text;
 
@@ -151,15 +160,14 @@ function readFencedContent(
         return { type: BlockType.CodeBlock, contentLines: innerLines(doc, startLine, endLine) };
     }
 
-    if (isMathFenceLine(startText)) {
+    for (const { type, marker } of DELIMITED_TYPES) {
+        if (!startText.trimStart().startsWith(marker)) continue;
         if (startLine === endLine) {
-            const content = singleLineMathBody(startText);
-            if (content !== null) {
-                return { type: BlockType.MathBlock, contentLines: [content] };
-            }
+            const content = singleLineFenceBody(startText, marker);
+            return content !== null ? { type, contentLines: [content] } : null;
         }
-        if (startLine < endLine && isMathFenceLine(endText)) {
-            return { type: BlockType.MathBlock, contentLines: innerLines(doc, startLine, endLine) };
+        if (startLine < endLine && endText.trimStart().startsWith(marker)) {
+            return { type, contentLines: innerLines(doc, startLine, endLine) };
         }
     }
     return null;
@@ -169,12 +177,6 @@ function innerLines(doc: Doc, startLine: number, endLine: number): string[] {
     const out: string[] = [];
     for (let n = startLine + 1; n < endLine; n++) out.push(doc.line(n).text);
     return out;
-}
-
-function singleLineMathBody(text: string): string | null {
-    const trimmed = text.trim();
-    if (!trimmed.startsWith('$$') || !trimmed.endsWith('$$') || trimmed.length < 4) return null;
-    return trimmed.slice(2, -2).trim();
 }
 
 /** Strip quote, callout, heading, list markers; keep indent. */

@@ -1,6 +1,7 @@
 import {
     isCalloutLine,
     isCodeFenceLine,
+    isCommentFenceLine,
     isHorizontalRuleLine,
     isMathFenceLine,
     isTableLine,
@@ -67,6 +68,13 @@ function parseMarkerAndBody(rest: string): { indent: Indent; marker: LineMarker 
         return {
             indent: { raw: indentRaw, width: 0 },
             marker: { kind: 'fence', text: afterIndent, fence: 'math' },
+            body: '',
+        };
+    }
+    if (isCommentFenceLine(afterIndent)) {
+        return {
+            indent: { raw: indentRaw, width: 0 },
+            marker: { kind: 'fence', text: afterIndent, fence: 'comment' },
             body: '',
         };
     }
