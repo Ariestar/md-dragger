@@ -30,8 +30,8 @@ importers:
         specifier: ^1.2.5
         version: 1.2.5
       '@lezer/markdown':
-        specifier: ^1.7.1
-        version: 1.7.2
+        specifier: ^1.8.0
+        version: 1.8.0
       '@tailwindcss/vite':
         specifier: ^4.3.0
         version: 4.3.3(vite@8.3.4(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
@@ -932,8 +932,8 @@ packages:
   '@lezer/lr@1.4.11':
     resolution: {integrity: sha512-UwgZcl1R66H2hDzBrA7kWyYmX6s8p5TQ+e/t7CuvgCtBEPxbEPaHYHu+pJBvTvDotEJpuQkJjbXuHiw5Cixxgw==}
 
-  '@lezer/markdown@1.7.2':
-    resolution: {integrity: sha512-iTkYvoVcKt3WkeL7qUDyXHONZEwLio4wj8KTNi2dnjQEXBZKMV63BpQrPqfsM+OkvuRbiSTAcycYAsQzLhRNoQ==}
+  '@lezer/markdown@1.8.0':
+    resolution: {integrity: sha512-X6w3A2NpyhdtGqTWRJB8gR4QDXBaFMbTOs780ZdZ15KKCfBXOQTKcB3Vr+W6tqJHVlealt53tLmHRvOqPTQgYA==}
 
   '@lezer/php@1.0.5':
     resolution: {integrity: sha512-W7asp9DhM6q0W6DYNwIkLSKOvxlXRrif+UXBMxzsJUuqmhE7oVU+gS3THO4S/Puh7Xzgm858UNaFi6dxTP8dJA==}
@@ -3713,7 +3713,7 @@ snapshots:
       '@codemirror/state': 6.7.1
       '@codemirror/view': 6.43.7
       '@lezer/common': 1.5.2
-      '@lezer/markdown': 1.7.2
+      '@lezer/markdown': 1.8.0
 
   '@codemirror/lang-php@6.0.2':
     dependencies:
@@ -4212,9 +4212,9 @@ snapshots:
     dependencies:
       '@lezer/common': 1.5.3
 
-  '@lezer/markdown@1.7.2':
+  '@lezer/markdown@1.8.0':
     dependencies:
-      '@lezer/common': 1.5.2
+      '@lezer/common': 1.5.3
       '@lezer/highlight': 1.2.5
 
   '@lezer/php@1.0.5':
@@ -5330,7 +5330,7 @@ snapshots:
       '@codemirror/view': 6.43.7
       '@lezer/common': 1.5.2
       '@lezer/highlight': 1.2.5
-      '@lezer/markdown': 1.7.2
+      '@lezer/markdown': 1.8.0
       '@replit/codemirror-vim': 6.4.0(@codemirror/commands@6.10.4)(@codemirror/language@6.13.1)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/view@6.43.7)
       katex: 0.16.47
       solid-js: 1.9.14
