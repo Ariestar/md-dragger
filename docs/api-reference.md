@@ -145,7 +145,7 @@ Compose them yourself instead of `mdDragger()` when you need a custom mix:
 | `lineAtPoint(view, point)` / `lineAtScreenPoint(point)` / `sourceLineFromInput(view, input)` / `resolveDropPosition(…)` | Locate helpers. |
 | `seamOffset(view, position, options)` / `dropSeam(view, position, options)` / `lineBand(…)` | Geometry for painting the drop seam. |
 | `dropSeamDecoration(outputs, state)` / `sourceHighlightDecoration(outputs, state)` | Decoration builders for the drop seam and drag source. |
-| `snapDrop`, `listLevel`, deprecated `sourceListLevel` | Domain utilities re-exported for CodeMirror consumers. New hosts should import `snapDrop` and `listLevel` from `md-dragger/domain`; `sourceListLevel` is the same function as `listLevel` and is scheduled for removal in the next major release. |
+| `snapDrop`, `listLevel` | Domain utilities re-exported for CodeMirror consumers. New hosts should import them from `md-dragger/domain`. |
 | `dragTransitionEffect` | `StateEffect` carrying each pipeline output batch; visual plugins read it off `update.transactions`. |
 | `resolveConfig`, `resolveLocateOptions`, `resolveListIndentUnit`, `resolveListIndentWidthPx`, `resolveTabSize`, `isDraggerEnabled` | Config resolvers. |
 
