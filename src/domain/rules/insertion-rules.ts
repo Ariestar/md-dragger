@@ -24,6 +24,13 @@ export interface InsertionRuleDecision {
     rejectReason: RejectReason | null;
 }
 
+export const ADAPTABLE_BLOCKS = new Set<BlockType>([
+    BlockType.Paragraph,
+    BlockType.Heading,
+    BlockType.ListItem,
+    BlockType.Blockquote,
+]);
+
 export function resolveInsertionRule(input: InsertionRuleInput): InsertionRuleDecision {
     const { sourceType, slotContext } = input;
     switch (slotContext) {
@@ -35,7 +42,7 @@ export function resolveInsertionRule(input: InsertionRuleInput): InsertionRuleDe
         case 'hr_before':
             return { allowDrop: false, rejectReason: slotContext };
         case 'inside_list':
-            return sourceType === BlockType.ListItem
+            return ADAPTABLE_BLOCKS.has(sourceType)
                 ? { allowDrop: true, rejectReason: null }
                 : { allowDrop: false, rejectReason: 'inside_list' };
         case 'inside_quote_run':
