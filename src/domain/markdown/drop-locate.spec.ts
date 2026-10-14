@@ -88,9 +88,9 @@ describe('domain snapDrop', () => {
         expect(snapAt('a\n---\nb', 1, 2).line).toBe(3);
     });
 
-    it('snaps a non-list seam inside a nested list subtree to the boundary', () => {
-        const position = snapAt('p\n- a\n    - b\n    - c\nq', 1, 4);
-        expect(position.line).toBe(5);
+    it('snaps a non-adaptable block seam inside a nested list subtree to the boundary', () => {
+        const position = snapAt('```\ncode\n```\n- a\n    - b\n    - c\nq', 1, 6);
+        expect(position.line).toBe(7);
     });
 
     it('snaps a table_before seam to the nearest accepted seam', () => {

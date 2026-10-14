@@ -1,6 +1,7 @@
 import { EditorState } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import {
+    ADAPTABLE_BLOCKS,
     type BlockSelection,
     BlockType,
     type Doc,
@@ -116,7 +117,7 @@ export function resolveDropPositionAtPoint(
     const targetPoint = { x: targetHit.x, y: targetHit.y };
 
     let targetIndentWidth = sourceIndentWidth;
-    if (source.type === BlockType.ListItem) {
+    if (source.type === BlockType.ListItem || ADAPTABLE_BLOCKS.has(source.type)) {
         const stepPx = resolveListIndentWidthPx(options, targetHit.view);
         if (stepPx > 0) {
             const left = contentLeft(options, targetHit.view);

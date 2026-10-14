@@ -1,10 +1,14 @@
+import { detectBlock } from './block/block-detector';
+import { formatBlockContent, resolveBlockTemplate, stripPrefix } from './block/block-type-conversion';
 import type { Block } from './block/block-types';
 import { BlockType } from './block/block-types';
 import type { DropPosition } from './command/drop-position';
 import type { Doc } from './markdown/document-types';
 import { dropIndentWidth } from './markdown/drop-locate';
-import { formatIndent, isListLine, parseLine } from './parse/parse-line';
+import { getLineMap, getLineMetaAt } from './markdown/line-map';
+import { formatIndent, isListLine, listMarkerType, parseLine } from './parse/parse-line';
 import type { ParsedLine } from './parse/types';
+import { ADAPTABLE_BLOCKS } from './rules/insertion-rules';
 import type { TextChange } from './transaction/block-transaction';
 
 export function resolveInsertionChange(
@@ -122,6 +126,12 @@ export function relevelListText(params: {
  * Text to insert for a move: relevel list indent from DropPosition.parent only,
  * then ensure a trailing newline.
  */
+function isBetweenListItems(doc: Doc, line: number, tabSize: number): boolean {
+    if (line <= 1 || line > doc.lines) return false;
+    const lineMap = getLineMap(doc, { tabSize });
+    return !!getLineMetaAt(lineMap, line - 1)?.isList && !!getLineMetaAt(lineMap, line)?.isList;
+}
+
 export function insertTextForMove(params: {
     doc: Doc;
     sourceBlock: Block;
@@ -131,14 +141,27 @@ export function insertTextForMove(params: {
     tabSize: number;
     indentUnit: number;
 }): string {
-    const { sourceBlock, sourceContent, position, tabSize, indentUnit } = params;
+    const { doc, sourceBlock, sourceContent, position, tabSize, indentUnit } = params;
 
     const parse = (line: string) => parseLine(line, tabSize);
     let text = sourceContent;
 
-    // Structure only: parent list → target indent from dropIndentWidth(parent).
-    // No getListContextNearLine / listSampleLine side channel.
-    const nestList = sourceBlock.type === BlockType.ListItem || position.parent?.type === BlockType.ListItem;
+    const targetListBlock =
+        position.parent?.type === BlockType.ListItem
+            ? position.parent
+            : isBetweenListItems(doc, position.line, tabSize)
+              ? detectBlock(doc, position.line, { tabSize })
+              : null;
+
+    if (sourceBlock.type !== BlockType.ListItem && ADAPTABLE_BLOCKS.has(sourceBlock.type) && targetListBlock) {
+        const headText = doc.line(targetListBlock.lines.startLine).text;
+        const parsedMarker = listMarkerType(parse(headText));
+        const markerType = parsedMarker === 'ordered' ? 'ordered' : parsedMarker === 'task' ? 'task' : 'unordered';
+        const template = resolveBlockTemplate({ type: BlockType.ListItem, markerType });
+        text = formatBlockContent(text.split('\n').map(stripPrefix), template);
+    }
+
+    const nestList = sourceBlock.type === BlockType.ListItem || targetListBlock !== null;
     if (sourceBlock.type !== BlockType.Blockquote && nestList) {
         const targetIndentWidth = dropIndentWidth(position, { tabSize, indentUnit });
         text = relevelListText({

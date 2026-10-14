@@ -40,8 +40,9 @@ export {
     type ParsedLine,
     parseLine,
 } from './parse';
-// --- plan / edit ---
 export { isReject, type Reject, type RejectReason, reject } from './result';
+// --- plan / edit ---
+export { ADAPTABLE_BLOCKS } from './rules/insertion-rules';
 // --- selection ---
 export {
     addBlocks,
