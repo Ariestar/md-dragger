@@ -280,7 +280,7 @@ describe('moveTx copy mode', () => {
             mode: 'copy',
         });
         if (planned.type !== 'ok') throw new Error(`plan rejected: ${planned.reason}`);
-        const edits = moveTx({ sourceDoc: doc, plan: planned.value, mode: 'copy' });
+        const edits = moveTx({ sourceDoc: doc, plan: planned.value });
         if (!Array.isArray(edits)) throw new Error(`copy rejected: ${edits.reason}`);
         return applyEdits(text, edits);
     }

@@ -205,7 +205,7 @@ export class DraggerRuntime implements RuntimeController {
             return { kind: 'rejected' };
         }
 
-        const edits = moveTx({ sourceDoc: this.options.document.getDoc(), plan: planned.value, mode });
+        const edits = moveTx({ sourceDoc: this.options.document.getDoc(), plan: planned.value });
         if (!Array.isArray(edits)) {
             this.pipeline.enter({
                 type: 'drop',

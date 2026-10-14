@@ -26,6 +26,9 @@ export function pointerInput(view: EditorView): InputSource {
     // Held from press until release. Entering a pop-out blurs the source window
     // without ending the gesture, so blur must not cancel while the pointer is down.
     let pointerDown = false;
+    let activePointerId: number | null = null;
+    let lastPoint: Point | null = null;
+    let lastPointer: Pointer | null = null;
     const ownerWindow = (): Window => {
         const win = view.dom.ownerDocument.defaultView;
         if (!win) throw new Error('md-dragger: editor document has no window');
@@ -110,6 +113,9 @@ export function pointerInput(view: EditorView): InputSource {
         onPress: (handler) => {
             const listener = (event: PointerEvent) => {
                 pointerDown = true;
+                activePointerId = event.pointerId;
+                lastPoint = null;
+                lastPointer = null;
                 syncWindows();
                 deliver(event, () =>
                     handler({
@@ -133,16 +139,22 @@ export function pointerInput(view: EditorView): InputSource {
             return () => view.dom.removeEventListener('pointerdown', listener, true);
         },
         onMove: (handler) => {
-            let lastPoint: Point | null = null;
-            let lastPointer: Pointer | null = null;
             const listener = (event: PointerEvent) => {
-                if (event.buttons === 0) pointerDown = false;
+                if (event.buttons === 0) {
+                    pointerDown = false;
+                    activePointerId = null;
+                    lastPoint = null;
+                    lastPointer = null;
+                }
                 deliverPointer(event, (point) => {
-                    lastPoint = point;
-                    lastPointer = { id: event.pointerId, type: event.pointerType };
+                    const pointer = { id: event.pointerId, type: event.pointerType };
+                    if (pointerDown && activePointerId === event.pointerId) {
+                        lastPoint = point;
+                        lastPointer = pointer;
+                    }
                     handler({
                         point,
-                        pointer: lastPointer,
+                        pointer,
                         buttons: event.buttons,
                         modifiers: {
                             altKey: event.altKey,
@@ -184,6 +196,9 @@ export function pointerInput(view: EditorView): InputSource {
         onRelease: (handler) => {
             const listener = (event: PointerEvent) => {
                 pointerDown = false;
+                activePointerId = null;
+                lastPoint = null;
+                lastPointer = null;
                 deliverPointer(event, (point) =>
                     handler({
                         point,
@@ -214,6 +229,9 @@ export function pointerInput(view: EditorView): InputSource {
                     pointerDown && (!!win?.frameElement || liveViewWindows().some((other) => other !== win));
                 if (retarget) return;
                 pointerDown = false;
+                activePointerId = null;
+                lastPoint = null;
+                lastPointer = null;
                 handler({
                     pointer: { id: event.pointerId, type: event.pointerType },
                     reason: 'pointer_cancelled',
@@ -226,6 +244,9 @@ export function pointerInput(view: EditorView): InputSource {
             // drag state and the host's grabbing cursor stuck. Force-cancel then.
             const cancelFallback = () => {
                 pointerDown = false;
+                activePointerId = null;
+                lastPoint = null;
+                lastPointer = null;
                 handler({
                     pointer: { id: -1, type: null },
                     reason: 'pointer_cancelled',

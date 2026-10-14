@@ -25,6 +25,7 @@ export type PlanMoveInput = {
 export type MovePlan = {
     position: DropPosition;
     captured: CapturedMoveSource;
+    mode: 'move' | 'copy';
     allowIndent: boolean;
     tabSize: number;
     indentUnit: number;
@@ -89,6 +90,7 @@ export function planMove(input: PlanMoveInput): MoveResult {
         value: {
             position,
             captured,
+            mode: input.mode ?? 'move',
             allowIndent,
             tabSize: input.tabSize,
             indentUnit: input.indentUnit,
