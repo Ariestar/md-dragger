@@ -104,6 +104,24 @@ describe('domain/block-type-conversion', () => {
             });
             expect(changes).toEqual([]);
         });
+
+        it('converts to comment block and unwraps comment block', () => {
+            const doc = stringDoc('hello\nworld');
+            const toComment = planConvert({
+                doc,
+                lines: { startLine: 1, endLine: 2 },
+                to: { type: BlockType.Comment },
+            });
+            expect(toComment).toEqual([{ from: 0, to: 11, insert: '%%\nhello\nworld\n%%' }]);
+
+            const commentDoc = stringDoc('%%\nhello\nworld\n%%');
+            const toParagraph = planConvert({
+                doc: commentDoc,
+                lines: { startLine: 1, endLine: 4 },
+                to: { type: BlockType.Paragraph },
+            });
+            expect(toParagraph).toEqual([{ from: 0, to: 17, insert: 'hello\nworld' }]);
+        });
     });
 
     describe('custom template conversions', () => {

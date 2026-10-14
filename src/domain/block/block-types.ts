@@ -10,6 +10,7 @@ export enum BlockType {
     Table = 'table',
     MathBlock = 'math-block',
     Callout = 'callout',
+    Comment = 'comment',
     HorizontalRule = 'hr',
     Unknown = 'unknown',
 }

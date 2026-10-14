@@ -1,40 +1,59 @@
-import { isCodeFenceLine, isMathFenceLine } from '../block/block-guards';
+import { isCodeFenceLine, isCommentFenceLine, isMathFenceLine, isSingleLineFence } from '../block/block-guards';
+import { BlockType } from '../block/block-types';
 import type { Doc } from './document-types';
 
 export type FenceRange = { startLine: number; endLine: number };
 
+export type FencedBlock = {
+    type: BlockType.CodeBlock | BlockType.MathBlock | BlockType.Comment;
+    range: FenceRange;
+};
+
+type FenceDef = {
+    type: FencedBlock['type'];
+    isMatch: (text: string | null) => boolean;
+    allowSingleLineMarker?: string;
+    keepUnclosed?: boolean;
+};
+
+const FENCE_DEFS: readonly FenceDef[] = [
+    { type: BlockType.CodeBlock, isMatch: isCodeFenceLine, keepUnclosed: true },
+    { type: BlockType.MathBlock, isMatch: isMathFenceLine, allowSingleLineMarker: '$$' },
+    { type: BlockType.Comment, isMatch: isCommentFenceLine, allowSingleLineMarker: '%%' },
+];
+
 type FenceLazyScanState = {
     scannedUntilLine: number;
-    openCodeStartLine: number;
-    openMathStartLine: number;
+    openFence: {
+        type: FencedBlock['type'];
+        startLine: number;
+        isMatch: (text: string | null) => boolean;
+        keepUnclosed?: boolean;
+    } | null;
     fullyScanned: boolean;
-    codeRangeByLine: Map<number, FenceRange>;
-    mathRangeByLine: Map<number, FenceRange>;
+    fenceByLine: Map<number, FencedBlock>;
 };
 
 const fenceLazyScanCache = new WeakMap<Doc, FenceLazyScanState>();
 
-function isSingleLineMathFence(lineText: string): boolean {
-    const trimmed = lineText.trimStart();
-    if (!trimmed.startsWith('$$')) return false;
-    return trimmed.slice(2).includes('$$');
-}
-
-function assignFenceRangeByLine(rangeByLine: Map<number, FenceRange>, startLine: number, endLine: number): void {
-    const range: FenceRange = { startLine, endLine };
+function assignFenceRangeByLine(
+    fenceByLine: Map<number, FencedBlock>,
+    type: FencedBlock['type'],
+    startLine: number,
+    endLine: number,
+): void {
+    const entry: FencedBlock = { type, range: { startLine, endLine } };
     for (let i = startLine; i <= endLine; i++) {
-        rangeByLine.set(i, range);
+        fenceByLine.set(i, entry);
     }
 }
 
 function createFenceLazyScanState(): FenceLazyScanState {
     return {
         scannedUntilLine: 0,
-        openCodeStartLine: 0,
-        openMathStartLine: 0,
+        openFence: null,
         fullyScanned: false,
-        codeRangeByLine: new Map<number, FenceRange>(),
-        mathRangeByLine: new Map<number, FenceRange>(),
+        fenceByLine: new Map<number, FencedBlock>(),
     };
 }
 
@@ -47,50 +66,40 @@ function getFenceLazyScanState(doc: Doc): FenceLazyScanState {
 }
 
 function scanFenceLine(state: FenceLazyScanState, lineNumber: number, text: string): void {
-    // When inside a code block, only look for closing code fence
-    if (state.openCodeStartLine !== 0) {
-        if (isCodeFenceLine(text)) {
-            assignFenceRangeByLine(state.codeRangeByLine, state.openCodeStartLine, lineNumber);
-            state.openCodeStartLine = 0;
+    if (state.openFence) {
+        if (state.openFence.isMatch(text)) {
+            assignFenceRangeByLine(state.fenceByLine, state.openFence.type, state.openFence.startLine, lineNumber);
+            state.openFence = null;
         }
-        // Ignore everything else (including $$) when inside code block
         return;
     }
 
-    // When inside a math block, only look for closing math fence
-    if (state.openMathStartLine !== 0) {
-        if (isMathFenceLine(text)) {
-            assignFenceRangeByLine(state.mathRangeByLine, state.openMathStartLine, lineNumber);
-            state.openMathStartLine = 0;
-        }
-        // Ignore everything else when inside math block
-        return;
-    }
-
-    // Not inside any block - check for opening fences
-    // Code fences take priority over math fences
-    if (isCodeFenceLine(text)) {
-        state.openCodeStartLine = lineNumber;
-        return;
-    }
-
-    if (isMathFenceLine(text)) {
-        if (isSingleLineMathFence(text)) {
-            assignFenceRangeByLine(state.mathRangeByLine, lineNumber, lineNumber);
+    for (const def of FENCE_DEFS) {
+        if (!def.isMatch(text)) continue;
+        if (def.allowSingleLineMarker && isSingleLineFence(text, def.allowSingleLineMarker)) {
+            assignFenceRangeByLine(state.fenceByLine, def.type, lineNumber, lineNumber);
         } else {
-            state.openMathStartLine = lineNumber;
+            state.openFence = {
+                type: def.type,
+                startLine: lineNumber,
+                isMatch: def.isMatch,
+                keepUnclosed: def.keepUnclosed,
+            };
         }
+        return;
     }
 }
 
 function finalizeFenceStateAtDocEnd(state: FenceLazyScanState): void {
-    if (state.openCodeStartLine !== 0) {
-        // Keep historical behavior for unclosed code fences.
-        assignFenceRangeByLine(state.codeRangeByLine, state.openCodeStartLine, state.openCodeStartLine);
-        state.openCodeStartLine = 0;
+    if (state.openFence?.keepUnclosed) {
+        assignFenceRangeByLine(
+            state.fenceByLine,
+            state.openFence.type,
+            state.openFence.startLine,
+            state.openFence.startLine,
+        );
     }
-    // Unclosed math fence intentionally remains unmatched.
-    state.openMathStartLine = 0;
+    state.openFence = null;
     state.fullyScanned = true;
 }
 
@@ -98,8 +107,6 @@ function ensureFenceScanComplete(doc: Doc): FenceLazyScanState {
     const state = getFenceLazyScanState(doc);
     if (state.fullyScanned) return state;
 
-    // Build fence ranges against the whole document once per doc snapshot.
-    // This avoids partial-range drift when users jump rapidly across long files.
     let cursor = state.scannedUntilLine + 1;
     while (cursor <= doc.lines) {
         scanFenceLine(state, cursor, doc.line(cursor).text);
@@ -110,14 +117,23 @@ function ensureFenceScanComplete(doc: Doc): FenceLazyScanState {
     return state;
 }
 
-export function findMathBlockRange(doc: Doc, lineNumber: number): FenceRange | null {
+export function findFencedBlock(doc: Doc, lineNumber: number): FencedBlock | null {
     if (lineNumber < 1 || lineNumber > doc.lines) return null;
     const state = ensureFenceScanComplete(doc);
-    return state.mathRangeByLine.get(lineNumber) ?? null;
+    return state.fenceByLine.get(lineNumber) ?? null;
+}
+
+export function findCommentBlockRange(doc: Doc, lineNumber: number): FenceRange | null {
+    const b = findFencedBlock(doc, lineNumber);
+    return b?.type === BlockType.Comment ? b.range : null;
+}
+
+export function findMathBlockRange(doc: Doc, lineNumber: number): FenceRange | null {
+    const b = findFencedBlock(doc, lineNumber);
+    return b?.type === BlockType.MathBlock ? b.range : null;
 }
 
 export function findCodeBlockRange(doc: Doc, lineNumber: number): FenceRange | null {
-    if (lineNumber < 1 || lineNumber > doc.lines) return null;
-    const state = ensureFenceScanComplete(doc);
-    return state.codeRangeByLine.get(lineNumber) ?? null;
+    const b = findFencedBlock(doc, lineNumber);
+    return b?.type === BlockType.CodeBlock ? b.range : null;
 }
