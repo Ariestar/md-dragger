@@ -17,9 +17,11 @@ export function registerView(view: EditorView): () => void {
 
 /** Apply an effect to every live view — the source view plus any other
  * open panes, so cross-pane drop feedback (seam, highlight) reaches the
- * view under the pointer. Consumers still filter by doc identity. */
+ * view under the pointer. Consumers still filter by doc identity.
+ * Iterates a copy: a view reset by its dispatch leaves and rejoins the set,
+ * and would otherwise be visited again. */
 export function broadcastToLiveViews(dispatch: (view: EditorView) => void): void {
-    for (const view of liveViews) dispatch(view);
+    for (const view of [...liveViews]) dispatch(view);
 }
 
 export function viewForDoc(doc: Doc): EditorView | null {

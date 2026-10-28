@@ -26,6 +26,7 @@ export function dragRuntime(options: MdDraggerCodeMirrorOptions): Extension {
         class {
             private readonly runtime: DraggerRuntime | null = null;
             private readonly unregisterView: (() => void) | null = null;
+            private destroyed = false;
 
             constructor(private readonly view: EditorView) {
                 // Views the host marks disabled (e.g. Obsidian's nested
@@ -89,7 +90,7 @@ export function dragRuntime(options: MdDraggerCodeMirrorOptions): Extension {
                         );
                         if (hasDragOutput) {
                             broadcastToLiveViews((v) => v.dispatch({ effects: dragTransitionEffect.of(output) }));
-                        } else {
+                        } else if (!this.destroyed) {
                             view.dispatch({ effects: dragTransitionEffect.of(output) });
                         }
                         options.onChange?.(output);
@@ -107,8 +108,15 @@ export function dragRuntime(options: MdDraggerCodeMirrorOptions): Extension {
             }
 
             destroy(): void {
-                this.runtime?.destroy();
+                // CodeMirror destroys plugins inside an update when the view is
+                // reset or reconfigured, and rejects any dispatch to the view
+                // until that update ends. So teardown sends nothing to this
+                // view: onChange skips it once destroyed, and leaving the live
+                // views first keeps it out of teardown's broadcast (and
+                // unregistered even if teardown throws).
+                this.destroyed = true;
                 this.unregisterView?.();
+                this.runtime?.destroy();
             }
         },
     );
