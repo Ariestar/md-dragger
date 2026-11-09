@@ -28,7 +28,9 @@ export function selectionFromOutputs(outputs: readonly PipelineOutput[]): BlockS
  * The active drop seam from one engine output batch, for the given document:
  * only the view that owns the drop doc paints it; a rejected drop
  * (re-inserting a block in place) still reports invalid so the host can show
- * it as forbidden.
+ * it as forbidden. mode reflects the last drag_over, even for another document.
+ * Drop, cancellation, and terminal outputs clear only position; invalid and mode
+ * may retain values from an earlier drag_over in the batch.
  */
 export function dropSeamState(
     outputs: readonly PipelineOutput[],

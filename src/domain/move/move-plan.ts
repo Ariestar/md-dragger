@@ -33,6 +33,13 @@ export type MovePlan = {
 
 export type MoveResult = { type: 'ok'; value: MovePlan } | { type: 'reject'; reason: RejectReason };
 
+/**
+ * Plan a move (the default) or copy before a target line, clamped to 1 through
+ * targetDoc.lines + 1. Copy mode skips self-drop checks and in-place indentation
+ * changes, but still obeys container rules. Returns a plan or a rejection without
+ * modifying either document; captured, when supplied, provides the source snapshot.
+ * Document access errors propagate.
+ */
 export function planMove(input: PlanMoveInput): MoveResult {
     const targetDoc = input.position.doc;
     const captured = input.captured ?? captureMoveSource(input.sourceDoc, input.selection);

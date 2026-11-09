@@ -61,7 +61,10 @@ export function captureMoveSource(doc: Doc, selection: BlockSelection): Captured
 }
 
 /**
- * Compile a move into DocEdit[].
+ * Compile a move or copy into edits without applying them. Copy mode edits only
+ * the target document; a cross-document move returns target then source edits.
+ * Rejects empty projected text or an insertion inside a deleted range.
+ * Errors from document access and text projection propagate.
  *
  *   1. Project   — insert string from source + DropPosition
  *   2. Geometry  — insert + delete (coordinates on original doc)

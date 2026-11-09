@@ -127,22 +127,42 @@ function ensureFenceScanComplete(doc: Doc): FenceLazyScanState {
     return state;
 }
 
+/**
+ * Find the code, math, or comment fence containing a 1-based line, including its
+ * delimiters. Ranges are inclusive; out-of-range or unmatched lines return null.
+ * Math and comment fences may close on their opening line. Unclosed math and
+ * comment fences are ignored; an unclosed code fence claims only its opener.
+ * Results are cached by document identity, so callers must use immutable snapshots.
+ * Errors from document access propagate.
+ */
 export function findFencedBlock(doc: Doc, lineNumber: number): FencedBlock | null {
     if (lineNumber < 1 || lineNumber > doc.lines) return null;
     const state = ensureFenceScanComplete(doc);
     return state.fenceByLine.get(lineNumber) ?? null;
 }
 
+/**
+ * Return the inclusive comment fence range containing the 1-based line, or null
+ * if findFencedBlock does not identify a comment block there.
+ */
 export function findCommentBlockRange(doc: Doc, lineNumber: number): FenceRange | null {
     const b = findFencedBlock(doc, lineNumber);
     return b?.type === BlockType.Comment ? b.range : null;
 }
 
+/**
+ * Return the inclusive math fence range containing the 1-based line, or null
+ * if findFencedBlock does not identify a math block there.
+ */
 export function findMathBlockRange(doc: Doc, lineNumber: number): FenceRange | null {
     const b = findFencedBlock(doc, lineNumber);
     return b?.type === BlockType.MathBlock ? b.range : null;
 }
 
+/**
+ * Return the inclusive code fence range containing the 1-based line, or null
+ * if findFencedBlock does not identify a code block there.
+ */
 export function findCodeBlockRange(doc: Doc, lineNumber: number): FenceRange | null {
     const b = findFencedBlock(doc, lineNumber);
     return b?.type === BlockType.CodeBlock ? b.range : null;

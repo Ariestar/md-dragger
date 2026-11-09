@@ -38,6 +38,7 @@ export function planConvert(params: { doc: Doc; block?: Block; lines?: LineRange
     return planConvertLines(params.doc, span.startLine, span.endLine, params.to);
 }
 
+/** Resolve a built-in conversion target to its template, or return a custom template unchanged. */
 export function resolveBlockTemplate(to: ConvertTo): BlockTemplate {
     if ('template' in to) return to;
     switch (to.type) {
@@ -68,6 +69,12 @@ type ExtractedContent = {
     callout?: { quotePrefix: string; calloutType: string; fold: string; rawHeader: string };
 };
 
+/**
+ * Extract content from an inclusive 1-based span, removing recognized fences or
+ * line prefixes. Callout titles become the first content line when nonempty;
+ * header metadata is retained for conversions that only change the callout type.
+ * Document access errors propagate.
+ */
 function unwrapBlock(doc: Doc, startLine: number, endLine: number): ExtractedContent {
     const fenced = readFencedContent(doc, startLine, endLine);
     if (fenced) {
@@ -100,6 +107,12 @@ function unwrapBlock(doc: Doc, startLine: number, endLine: number): ExtractedCon
     return { lines };
 }
 
+/**
+ * Plan edits for an inclusive 1-based span without modifying the document.
+ * Converting a callout to a template with a literal callout type changes only its
+ * type, preserving its title and fold marker. Matching fenced types and unchanged
+ * output return no edits. Document access errors propagate.
+ */
 function planConvertLines(doc: Doc, startLine: number, endLine: number, to: ConvertTo): TextChange[] {
     const extracted = unwrapBlock(doc, startLine, endLine);
 
@@ -129,6 +142,11 @@ function planConvertLines(doc: Doc, startLine: number, endLine: number, to: Conv
     return [{ from, to: toPos, insert: formatted }];
 }
 
+/**
+ * Apply prefixes after each line's indentation, replacing the first ${ordinal}
+ * in each prefix with its 1-based line index. Interpolate template variables once;
+ * ${content} uses the formatted lines and missing variables become empty strings.
+ */
 function formatBlockContent(contentLines: ExtractedLine[], target: BlockTemplate): string {
     const formattedLines = contentLines.map((line, index) => {
         if (!target.linePrefix) return `${line.indentRaw}${line.body}`;
@@ -148,6 +166,12 @@ const DELIMITED_TYPES = [
     { type: BlockType.Comment, marker: '%%' },
 ] as const;
 
+/**
+ * Read content enclosed by code, math, or comment delimiters at an inclusive
+ * 1-based span's endpoints, or return null. Single-line math and comment bodies
+ * must end with their closing marker and are trimmed; multiline bodies retain
+ * their text. Document access errors propagate.
+ */
 function readFencedContent(
     doc: Doc,
     startLine: number,

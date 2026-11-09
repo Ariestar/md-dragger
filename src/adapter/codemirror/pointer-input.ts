@@ -16,6 +16,12 @@ type WindowBinding = {
 const theWindow = (win: Window): EventTarget => win;
 const itsDocument = (win: Window): EventTarget => win.document;
 
+/**
+ * Adapt editor pointer events to subscribable input; each subscription returns
+ * an unsubscribe callback. Moves and releases carry modifier state. While pressed,
+ * modifier key changes replay the last active pointer move in its document.
+ * Subscriptions requiring window listeners throw if the editor document has no window.
+ */
 export function pointerInput(view: EditorView): InputSource {
     // Window-level listeners follow the window that currently owns the editor.
     // A host may build the editor in one document and move it into another
