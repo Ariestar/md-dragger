@@ -204,7 +204,7 @@ function innerLines(doc: Doc, startLine: number, endLine: number): string[] {
 }
 
 /** Strip quote, callout, heading, list markers; keep indent. */
-export function stripPrefix(text: string): { indentRaw: string; body: string } {
+function stripPrefix(text: string): { indentRaw: string; body: string } {
     const quoteMatch = text.match(/^(\s*>\s?)*/);
     const withoutQuote = text.slice(quoteMatch?.[0].length ?? 0);
     const { indentRaw, body } = splitIndent(withoutQuote);
