@@ -8,18 +8,15 @@ export type RejectReason =
     | 'no_insert_text'
     | 'self_range_blocked'
     | 'self_embedding'
-    | 'container_policy'
     | 'inside_code_block'
     | 'inside_list'
     | 'inside_math_block'
     | 'inside_comment_block'
     | 'inside_quote_run'
-    | 'quote_boundary'
-    | 'callout_after'
-    | 'table_before'
-    | 'hr_before'
+    | 'inside_table'
+    | 'inside_frontmatter'
+    | 'frontmatter_fence'
     | 'table_cell'
-    | 'insertion_inside_deleted_range'
     | 'unsupported_command';
 
 export type Reject = {

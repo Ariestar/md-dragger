@@ -19,6 +19,7 @@ export {
     type SnapDropInput,
     snapDrop,
 } from './markdown/drop-locate';
+export type { Gap } from './markdown/gap';
 // --- line ranges ---
 export { isLineNumberInRanges } from './markdown/line-range';
 export type { LineRange } from './markdown/line-range-types';
@@ -28,7 +29,6 @@ export {
     type PlanMoveInput,
     planMove,
 } from './move/move-plan';
-export { rebaseAppendChange, resolveInsertionChange } from './mutation';
 // --- structure parse (not DocLine / not Block) ---
 export {
     formatIndent,
@@ -42,7 +42,7 @@ export {
 } from './parse';
 export { isReject, type Reject, type RejectReason, reject } from './result';
 // --- plan / edit ---
-export { ADAPTABLE_BLOCKS } from './rules/insertion-rules';
+export { ADAPTABLE_BLOCKS } from './rules/container-policy';
 // --- selection ---
 export {
     addBlocks,

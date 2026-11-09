@@ -1,78 +1,411 @@
-import { detectBlock } from './block/block-detector';
-import { formatBlockContent, resolveBlockTemplate } from './block/block-type-conversion';
+import { detectBlock, frontmatterEndLine } from './block/block-detector';
+import { formatBlockContent } from './block/block-type-conversion';
 import type { Block } from './block/block-types';
 import { BlockType } from './block/block-types';
 import type { DropPosition } from './command/drop-position';
 import type { Doc } from './markdown/document-types';
 import { dropIndentWidth } from './markdown/drop-locate';
-import { getLineMap, getLineMetaAt } from './markdown/line-map';
-import { formatIndent, isListLine, listMarkerType, parseLine } from './parse/parse-line';
+import type { Gap } from './markdown/gap';
+import { type LineMap, listItemContaining, quoteRunAt } from './markdown/line-map';
+import type { LineRange } from './markdown/line-range-types';
+import { formatIndent, isListLine, listMarkerText, listMarkerType, parseLine } from './parse/parse-line';
 import type { ParsedLine } from './parse/types';
+import { calloutCovers, itemText } from './rules/container-policy';
+import { type Facing, facingAt, needsBlankLine, type RunKind, runKind } from './rules/separation';
 import type { TextChange } from './transaction/block-transaction';
 
-export function resolveInsertionChange(
+/** One end of a moved payload: the innermost block at its facing line, that line's run kind, and whether its
+ * block was kept apart at the source. */
+export type PayloadEnd = { type: BlockType; run: RunKind | null; standalone: boolean };
+
+type SpacingContext = { lineMap: LineMap; tabSize: number };
+
+/**
+ * Write the payload into a gap as one point insertion, with the blank lines
+ * on each side computed from the gap's own blank lines, needsBlankLine, the
+ * run kinds and the standalone property. The gap's blank lines are kept, and
+ * padding, frontmatter and the final newline stay where they are.
+ * `standalone` tells whether a gap neighbour was kept apart, in the document
+ * the user sees (not a temporary one with the moved blocks removed), and
+ * `fromQuote` whether the payload comes from the quote a quoted neighbour line
+ * belongs to.
+ */
+export function insertIntoGap(
     doc: Doc,
-    targetLineNumber: number,
-    insertText: string,
-    options?: {
-        lengthAfterDelete?: number;
+    gap: Gap,
+    payload: { text: string; first: PayloadEnd; last: PayloadEnd },
+    options: {
+        lineMap: LineMap;
+        tabSize: number;
+        parent: Block | null;
+        standalone: (neighbour: Block) => boolean;
+        fromQuote: (neighbourLine: number) => boolean;
     },
-): { pos: number; text: string } {
-    if (targetLineNumber <= doc.lines) {
-        return {
-            pos: doc.line(targetLineNumber).from,
-            text: insertText,
-        };
-    }
-    const normalized = insertText.endsWith('\n') ? insertText.slice(0, -1) : insertText;
-    if (!normalized.length) {
-        return { pos: doc.length, text: normalized };
-    }
-    const lengthAfterDelete = options?.lengthAfterDelete ?? doc.length;
-    if (lengthAfterDelete <= 0) {
-        return { pos: 0, text: normalized };
-    }
-    return {
-        pos: doc.length,
-        text: `\n${normalized}`,
+): TextChange {
+    const { lineMap, tabSize } = options;
+    const { text } = payload;
+    const textLines = text.split('\n');
+    const ends = {
+        top: { ...payload.first, facing: { type: payload.first.type, line: parseLine(textLines[0], tabSize) } },
+        bottom: {
+            ...payload.last,
+            facing: { type: payload.last.type, line: parseLine(textLines[textLines.length - 1], tabSize) },
+        },
     };
+    const aboveLine = gap.above ? lineMap.prevNonEmpty[gap.seam - 1] : 0;
+    const spacing = (side: 'top' | 'bottom', block: Block, line: number): number =>
+        sideSpacing(doc, gap, side, { block, line, facing: facingAt(doc, line, options) }, ends[side], options);
+
+    if (gap.above && gap.below) {
+        const k = gap.blankLines;
+        const sBot = spacing('bottom', gap.below, gap.seam);
+        // An ordered run written tight onto the ordered run below joins it and is renumbered from 1.
+        const head = ends.top.facing.line;
+        const joinsRunBelow =
+            sBot === 0 &&
+            continuesOrderedRun(head, facingAt(doc, gap.seam, options).line) &&
+            textLines.every((line) => continuesOrderedRun(head, parseLine(line, tabSize)));
+        if (joinsRunBelow) ends.top.facing = asRunHead(ends.top.facing);
+        const sTop = spacing('top', gap.above, aboveLine);
+        if (sTop + sBot < k) {
+            throw new Error(`md-dragger: ${sTop} + ${sBot} blank lines cannot hold a gap of ${k}`);
+        }
+        const kept = Math.min(sTop, k);
+        const at = doc.line(aboveLine + 1 + kept).from;
+        return insertAt(at, `${'\n'.repeat(sTop - kept)}${text}\n${'\n'.repeat(sBot - (k - kept))}`);
+    }
+    if (gap.below) {
+        return insertAt(doc.line(gap.seam).from, `${text}\n${'\n'.repeat(spacing('bottom', gap.below, gap.seam))}`);
+    }
+    if (gap.above) {
+        return insertAt(doc.line(aboveLine).to, `\n${'\n'.repeat(spacing('top', gap.above, aboveLine))}${text}`);
+    }
+    if (doc.length === 0) return insertAt(0, text);
+    const frontmatterEnd = frontmatterEndLine(doc);
+    if (frontmatterEnd === doc.lines) return insertAt(doc.length, `\n${text}`);
+    return insertAt(doc.line(frontmatterEnd + 1).from, `${text}\n`);
 }
 
-/** Rebase an end-of-document insertion planned against a stale snapshot. */
-export function rebaseAppendChange(
-    snapshotDoc: Doc,
-    change: TextChange,
-    currentDoc: Doc,
-): { pos: number; text: string } | null {
-    if (change.from !== snapshotDoc.length || change.to !== snapshotDoc.length || !change.insert.length) {
-        return null;
-    }
-    const payload = snapshotDoc.length > 0 && change.insert.startsWith('\n') ? change.insert.slice(1) : change.insert;
-    if (currentDoc.length > 0 && currentDoc.sliceString(currentDoc.length - 1, currentDoc.length) === '\n') {
-        return { pos: currentDoc.length, text: payload };
-    }
-    return resolveInsertionChange(currentDoc, currentDoc.lines + 1, payload);
+function insertAt(pos: number, insert: string): TextChange {
+    return { from: pos, to: pos, insert };
 }
 
-export function resolveDeleteRange(doc: Doc, sourceFrom: number, sourceTo: number): { from: number; to: number } {
-    if (sourceTo < doc.length) {
-        return {
-            from: sourceFrom,
-            to: Math.min(sourceTo + 1, doc.length),
-        };
-    }
+/**
+ * Blank lines between the payload end `end` and the gap neighbour `neighbour`
+ * on one side:
+ *   1. a list item next to a list takes the spacing of the list it joins,
+ *      per side, so a list it does not join stays tight or loose;
+ *   2. a quote line inside a tight quote run joins the run;
+ *   3. otherwise the gap's own blank lines, raised to one when the payload end
+ *      was standalone, when it would join a quote it did not come from, when
+ *      the two lines would not stay apart, or when they would join a
+ *      standalone neighbour of the same paragraph or quote kind.
+ */
+function sideSpacing(
+    doc: Doc,
+    gap: Gap,
+    side: 'top' | 'bottom',
+    neighbour: { line: number; block: Block; facing: Facing },
+    end: PayloadEnd & { facing: Facing },
+    options: SpacingContext & {
+        parent: Block | null;
+        standalone: (neighbour: Block) => boolean;
+        fromQuote: (neighbourLine: number) => boolean;
+    },
+): number {
+    const { lineMap } = options;
+    const interior = gap.above !== null && gap.below !== null;
+    const k = interior ? gap.blankLines : 0;
+    const upper = side === 'top' ? neighbour.facing : end.facing;
+    const lower = side === 'top' ? end.facing : neighbour.facing;
+    const neighbourRun = runKind(doc, neighbour.line, options);
 
-    if (sourceFrom > 0) {
-        return {
-            from: sourceFrom - 1,
-            to: sourceTo,
-        };
+    if (end.run === 'list' && neighbourRun === 'list') {
+        // Each side takes the spacing of the list it belongs to: a neighbour in the list the item joins (at its
+        // target level) sets the joined list's spacing, unless both are in it; the parent's own lines above an item
+        // that starts its sublist stay tight to it; a list line of another level keeps k.
+        const parentLine = options.parent?.lines.startLine ?? 0;
+        const otherLine = side === 'top' ? gap.seam : gap.seam - gap.blankLines - 1;
+        const both = interior && listItemOutsideQuote(lineMap, otherLine, parentLine) !== null;
+        const item = listItemOutsideQuote(lineMap, neighbour.line, parentLine);
+        const spacing =
+            item !== null && !both
+                ? listJoinSpacing(lineMap, item, side, parentLine)
+                : side === 'top' && options.parent && !both
+                  ? 0
+                  : k;
+        // A paragraph line of the list right under the payload's item line is content the item adopts: tight, as it
+        // was there.
+        const adopts = side === 'bottom' && upper.type === BlockType.ListItem && lower.type === BlockType.Paragraph;
+        return spacing === 0 && !adopts && needsBlankLine(upper, lower) ? 1 : spacing;
     }
+    if (
+        interior &&
+        k === 0 &&
+        lineMap.lineMeta[gap.seam - 1].quoteDepth > 0 &&
+        lineMap.lineMeta[gap.seam].quoteDepth > 0
+    ) {
+        return 0;
+    }
+    if (k > 0) return k;
+    // Two quoted lines written together are one quote.
+    if (upper.line.quote.depth > 0 && lower.line.quote.depth > 0 && !options.fromQuote(neighbour.line)) return 1;
+    if (end.standalone || needsBlankLine(upper, lower)) return 1;
+    const sameKind = end.run !== null && end.run !== 'list' && end.run === neighbourRun;
+    return sameKind && options.standalone(neighbour.block) ? 1 : 0;
+}
 
-    return {
-        from: sourceFrom,
-        to: sourceTo,
-    };
+/**
+ * Item spacing of the list the payload joins at its target level (under
+ * `parentLine`, or at the root), from the neighbour's `item` of it: the blank
+ * lines between that list's two items nearest the gap on the neighbour's
+ * side, or 0 when it has fewer than two.
+ */
+function listJoinSpacing(lineMap: LineMap, item: number, side: 'top' | 'bottom', parentLine: number): number {
+    if (side === 'top') {
+        const previous = lineMap.prevNonEmpty[item - 1];
+        return previous > 0 && listItemOutsideQuote(lineMap, previous, parentLine) !== null ? item - previous - 1 : 0;
+    }
+    const end = lineMap.listSubtreeEndLine[item];
+    const next = lineMap.nextNonEmpty[end + 1];
+    return next > 0 && listItemOutsideQuote(lineMap, next, parentLine) === next ? next - end - 1 : 0;
+}
+
+/** listItemContaining among lists outside any quote: a list inside a quote belongs to its quote, never the list a
+ * payload joins. */
+function listItemOutsideQuote(lineMap: LineMap, line: number, parentLine: number): number | null {
+    const outermost = listItemContaining(lineMap, line, 0);
+    if (outermost === null || lineMap.lineMeta[outermost].quoteDepth > 0) return null;
+    return listItemContaining(lineMap, line, parentLine);
+}
+
+/**
+ * Remove one segment (lines that move or are deleted together) as one pure
+ * deletion. Between two surviving neighbours U and L the two gaps collapse
+ * into one; at a document edge the segment goes with its blank lines on the
+ * inner side, and padding, frontmatter and the final newline stay.
+ * `renumbers`: the caller renumbers the ordered runs it touches (a move does,
+ * a delete does not), so L may inherit the head of its run. `blocks`: the
+ * removed blocks.
+ */
+export function removeSegment(
+    doc: Doc,
+    segment: LineRange,
+    options: SpacingContext & { renumbers: boolean; blocks: Block[] },
+): TextChange {
+    const { lineMap } = options;
+    const { startLine, endLine } = segment;
+    const line = (n: number) => doc.line(n);
+    const aboveLine = startLine > 1 ? lineMap.prevNonEmpty[startLine - 1] : 0;
+    const upper = aboveLine > frontmatterEndLine(doc) ? aboveLine : 0;
+    const lower = endLine < doc.lines ? lineMap.nextNonEmpty[endLine + 1] : 0;
+
+    if (upper > 0 && lower > 0) {
+        const blankAbove = startLine - upper - 1;
+        const blankBelow = lower - endLine - 1;
+        // Removing the head of an ordered run makes L the head, which a renumbering numbers 1.
+        const lowerFacing = facingAt(doc, lower, options);
+        const inheritsHead =
+            options.renumbers &&
+            continuesOrderedRun(parseLine(line(startLine).text, options.tabSize), lowerFacing.line);
+        const upperFacing = facingAt(doc, upper, options);
+        const collapsed = collapsedBlankLines(
+            doc,
+            {
+                upper: upperFacing,
+                lower: inheritsHead ? asRunHead(lowerFacing) : lowerFacing,
+                blankAbove,
+                blankBelow,
+                removed: segment,
+            },
+            options,
+        );
+        // A delete renumbers nothing: an ordered item that would start a list right under the list line above it
+        // keeps a blank line between them, unless it is quoted (a blank line would split the quote) or nested under
+        // that line. A move renumbers it from 1, which repairs it unless it is empty: no number lets an empty item
+        // interrupt a line, nested or not, so it keeps a blank line that lay between the two. On either path, so does
+        // an empty bullet item that would start a list right under the list line, when that blank line lay outside
+        // the removed blocks.
+        const blanks = Array.from({ length: lower - upper - 1 }, (_, i) => upper + 1 + i).filter(
+            (n) => lineMap.lineMeta[n].isEmpty,
+        );
+        const blankBetween = blanks.length > 0;
+        const blankOutsideBlocks = blanks.some((n) =>
+            options.blocks.every((block) => n < block.lines.startLine || n > block.lines.endLine),
+        );
+        const parse = (text: string) => parseLine(text, options.tabSize);
+        const startsOrderedList =
+            (options.renumbers
+                ? lowerFacing.line.body.trim().length === 0 && blankBetween
+                : lowerFacing.line.indent.width <= upperFacing.line.indent.width) &&
+            startsListUnderList(doc, upper, lowerFacing.line, parse);
+        const startsBulletList =
+            blankOutsideBlocks && startsEmptyBulletListUnderList(doc, upper, lowerFacing.line, parse);
+        const keepsApart = lowerFacing.line.quote.depth === 0 && (startsOrderedList || startsBulletList);
+        const kept = collapsed === 0 && keepsApart ? 1 : collapsed;
+        if (kept === 1 && blankAbove === 0 && blankBelow === 0) {
+            // Keep one terminator, so an empty line remains.
+            return deleteRange(line(startLine).from, line(endLine).to);
+        }
+        // `kept` is one side's blank lines (or 0): delete the other side's with the segment.
+        const keepBelow = kept === blankBelow;
+        const from = keepBelow ? startLine - blankAbove : startLine;
+        const to = keepBelow ? endLine : endLine + blankBelow;
+        return deleteRange(line(from).from, line(to + 1).from);
+    }
+    if (lower > 0) return deleteRange(line(startLine).from, line(lower).from);
+    if (upper > 0) {
+        return endLine < doc.lines
+            ? deleteRange(line(upper + 1).from, line(endLine + 1).from)
+            : deleteRange(line(upper).to, doc.length);
+    }
+    if (endLine < doc.lines) return deleteRange(line(startLine).from, line(endLine + 1).from);
+    return startLine > 1 ? deleteRange(line(startLine - 1).to, doc.length) : deleteRange(0, doc.length);
+}
+
+function deleteRange(from: number, to: number): TextChange {
+    return { from, to, insert: '' };
+}
+
+/**
+ * Blank lines left between U and L once the lines between them (`removed`
+ * and its blank lines) are gone: the larger of the two gaps; for two tight
+ * gaps, one blank line where U and L would not stay apart, or where they are
+ * lines of one paragraph or quote kind that something else separated.
+ * Removing from inside a callout keeps it whole: a blank line would end it,
+ * and removing lines of a list item's own paragraph keeps the rest of it
+ * joined to the item line.
+ */
+export function collapsedBlankLines(
+    doc: Doc,
+    hole: { upper: Facing; lower: Facing; blankAbove: number; blankBelow: number; removed: LineRange },
+    options: SpacingContext,
+): number {
+    const { blankAbove, blankBelow, removed } = hole;
+    const upper = removed.startLine - 1 - blankAbove;
+    const lower = removed.endLine + 1 + blankBelow;
+    const inList = runKind(doc, upper, options) === 'list' && runKind(doc, lower, options) === 'list';
+    if (blankAbove !== blankBelow && inList) {
+        // Inside a list the gap that remains is a list boundary: it keeps the blank lines of the original boundary
+        // of its kind (a parent before its first child, a subtree's end before the next item), so no list turns
+        // loose or tight. Between siblings either side is one, and the larger stays.
+        const { lineMap } = options;
+        const kind = listBoundary(lineMap, upper, lower);
+        const above = kind === listBoundary(lineMap, upper, removed.startLine);
+        const below = kind === listBoundary(lineMap, removed.endLine, lower);
+        if (above !== below) return above ? blankAbove : blankBelow;
+    }
+    if (blankAbove > 0 || blankBelow > 0) return Math.max(blankAbove, blankBelow);
+    if (calloutCovers(doc, upper, lower, options)) return 0;
+    // Two quoted lines written together are one quote: lines of two quotes stay apart.
+    const quoted = hole.upper.line.quote.depth > 0 && hole.lower.line.quote.depth > 0;
+    if (quoted && quoteRunAt(options.lineMap, upper).endLine < lower) return 1;
+    // A quote line without text (`>`) already keeps the blocks of its quote apart: a blank line would split it.
+    if (quoted && [hole.upper, hole.lower].some((f) => f.line.marker === null && f.line.body.trim().length === 0)) {
+        return 0;
+    }
+    // Lines removed from a list item's own paragraph: the item line and the rest of its paragraph stay one.
+    const ownParagraph = (line: number) =>
+        options.lineMap.lineMeta[line].indentWidth > hole.upper.line.indent.width &&
+        detectBlock(doc, line, options)?.type === BlockType.Paragraph;
+    const removedLines = Array.from(
+        { length: removed.endLine - removed.startLine + 1 },
+        (_, i) => removed.startLine + i,
+    );
+    if (hole.upper.type === BlockType.ListItem && [lower, ...removedLines].every(ownParagraph)) return 0;
+    if (needsBlankLine(hole.upper, hole.lower)) return 1;
+    const run = runKind(doc, upper, options);
+    if (run === null || run === 'list' || run !== runKind(doc, lower, options)) return 0;
+    for (let line = removed.startLine; line <= removed.endLine; line++) {
+        if (options.lineMap.lineMeta[line].isEmpty || runKind(doc, line, options) !== run) return 1;
+    }
+    return 0;
+}
+
+/**
+ * The kind of list boundary between two lines: the deepest list item whose
+ * subtree holds both (0 for none), and whether `upper` is that item's own line
+ * (a parent before a child) or not (siblings, or a subtree's end before the
+ * next item).
+ */
+function listBoundary(lineMap: LineMap, upper: number, lower: number): string {
+    let item = lineMap.lineMeta[upper].isList ? upper : lineMap.prevListLine[upper];
+    while (item > 0 && lineMap.listSubtreeEndLine[item] < lower) item = lineMap.listParentLine[item];
+    return `${item}:${item === upper}`;
+}
+
+/** Two ordered list lines of one renumbered run: the same indent and quote depth. */
+export function continuesOrderedRun(head: ParsedLine, line: ParsedLine): boolean {
+    const isOrdered = (p: ParsedLine) => p.marker?.kind === 'list' && p.marker.markerType === 'ordered';
+    return (
+        isOrdered(head) &&
+        isOrdered(line) &&
+        head.indent.width === line.indent.width &&
+        head.quote.depth === line.quote.depth
+    );
+}
+
+/**
+ * True when the ordered item `item`, written directly under line `above` of `doc`, starts a list under a list line.
+ * Outside an ordered list only a non-empty list starting at 1 can interrupt the line above: CodeMirror's parser
+ * reads any other item there as text of that line, and CommonMark does when the item is nested under it.
+ */
+export function startsListUnderList(
+    doc: Doc,
+    above: number,
+    item: ParsedLine,
+    parse: (line: string) => ParsedLine,
+): boolean {
+    if (above < 1) return false;
+    if (listMarkerType(item) !== 'ordered') return false;
+    if (Number.parseInt(listMarkerText(item), 10) === 1 && item.body.trim().length > 0) return false;
+    if (!isListLine(parse(doc.line(above).text))) return false;
+    // Lines indented past the item belong to an item above it: the first line at its indent or less decides
+    // whether it continues an ordered list.
+    for (let n = above; n >= 1; n--) {
+        const text = doc.line(n).text;
+        if (text.trim().length === 0) continue;
+        const line = parse(text);
+        if (line.quote.depth !== item.quote.depth) return false;
+        if (line.indent.width > item.indent.width) continue;
+        return !continuesOrderedRun(line, item);
+    }
+    return true;
+}
+
+/**
+ * True when the empty bullet item `item`, written directly under list line `above` of `doc`, starts a list there
+ * rather than continuing one. No empty item can interrupt the line above, so it joins that line as text or a heading
+ * underline: for CodeMirror's parser outside a bullet list, and for CommonMark when it is nested under the line.
+ */
+function startsEmptyBulletListUnderList(
+    doc: Doc,
+    above: number,
+    item: ParsedLine,
+    parse: (line: string) => ParsedLine,
+): boolean {
+    // A task's checkbox is content.
+    if (listMarkerType(item) !== 'unordered' || item.body.trim().length > 0) return false;
+    if (!isListLine(parse(doc.line(above).text))) return false;
+    // Lines indented past the item belong to an item above it: the first line at its indent or less decides
+    // whether it continues a bullet list.
+    for (let n = above; n >= 1; n--) {
+        const text = doc.line(n).text;
+        if (text.trim().length === 0) continue;
+        const line = parse(text);
+        if (line.quote.depth !== item.quote.depth) return true;
+        if (line.indent.width > item.indent.width) continue;
+        const type = listMarkerType(line);
+        return line.indent.width < item.indent.width || (type !== 'unordered' && type !== 'task');
+    }
+    return true;
+}
+
+/** An ordered item as the move's renumbering leaves the head of its run: numbered 1. */
+function asRunHead(facing: Facing): Facing {
+    const { marker } = facing.line;
+    if (marker?.kind !== 'list') return facing;
+    return { ...facing, line: { ...facing.line, marker: { ...marker, text: '1. ' } } };
 }
 
 /** First list line's indent in a multi-line source blob. */
@@ -122,83 +455,46 @@ export function relevelListText(params: {
 }
 
 /**
- * Whether the 1-based insertion seam has list lines immediately above and below.
- * Returns false at the document boundaries; document access errors propagate.
+ * A payload of paragraphs, headings and plain quotes as list items at the
+ * root, each line with text one item taking `linePrefix` (listConversion),
+ * with no blank line between the items.
  */
-function isBetweenListItems(doc: Doc, line: number, tabSize: number): boolean {
-    if (line <= 1 || line > doc.lines) return false;
-    const lineMap = getLineMap(doc, { tabSize });
-    return !!getLineMetaAt(lineMap, line - 1)?.isList && !!getLineMetaAt(lineMap, line)?.isList;
-}
-
-/** Keep the text that belongs to the source block. A heading title may itself look like a list item. */
-function adaptedLine(
-    line: string,
-    type: BlockType,
-    parse: (line: string) => ParsedLine,
-): { indentRaw: string; body: string } {
-    const parsed = parse(line);
-    if (type === BlockType.Heading && parsed.marker?.kind === 'heading') {
-        return { indentRaw: parsed.indent.raw, body: parsed.body };
-    }
-    if (type === BlockType.Blockquote) {
-        return { indentRaw: parsed.indent.raw, body: `${parsed.marker?.text ?? ''}${parsed.body}` };
-    }
-    const rest = line.slice(parsed.quote.prefix.length);
-    return { indentRaw: parsed.indent.raw, body: rest.slice(parsed.indent.raw.length) };
+function asListItems(text: string, linePrefix: string, tabSize: number): string {
+    const lines = text
+        .split('\n')
+        .map((line) => itemText(line, tabSize))
+        .filter((body) => body.trim().length > 0)
+        .map((body) => ({ indentRaw: '', body }));
+    return formatBlockContent(lines, { template: '${content}', linePrefix });
 }
 
 /**
- * Prepare move text, ensuring a trailing newline without modifying the document.
- * When adaptToList is true, convert each source line to the marker type of the
- * list parent, or of the following item at a seam between adjacent list lines.
- * Relevel list text to the parent's indent plus indentUnit, or zero at the root.
- * tabSize and indentUnit are measured in text columns. Document access errors
- * propagate.
+ * Text to insert for a move: the payload as list items taking the `asItems`
+ * line prefix when it drops into a list (listConversion), then relevel list indent from
+ * DropPosition.parent only. Separators are the write step's (insertIntoGap),
+ * not part of the text.
  */
 export function insertTextForMove(params: {
-    doc: Doc;
     sourceBlock: Block;
-    adaptToList: boolean;
-    targetLineNumber: number;
     sourceContent: string;
     position: DropPosition;
+    asItems: string | null;
     tabSize: number;
     indentUnit: number;
 }): string {
-    const { doc, sourceBlock, adaptToList, sourceContent, position, tabSize, indentUnit } = params;
-
+    const { sourceBlock, sourceContent, position, asItems, tabSize, indentUnit } = params;
     const parse = (line: string) => parseLine(line, tabSize);
-    let text = sourceContent;
+    const text = asItems ? asListItems(sourceContent, asItems, tabSize) : sourceContent;
 
-    const targetListBlock =
-        position.parent?.type === BlockType.ListItem
-            ? position.parent
-            : isBetweenListItems(doc, position.line, tabSize)
-              ? detectBlock(doc, position.line, { tabSize })
-              : null;
-
-    if (adaptToList && targetListBlock) {
-        const headText = doc.line(targetListBlock.lines.startLine).text;
-        const parsedMarker = listMarkerType(parse(headText));
-        const markerType = parsedMarker === 'ordered' ? 'ordered' : parsedMarker === 'task' ? 'task' : 'unordered';
-        const template = resolveBlockTemplate({ type: BlockType.ListItem, markerType });
-        text = formatBlockContent(
-            text.split('\n').map((line) => adaptedLine(line, sourceBlock.type, parse)),
-            template,
-        );
-    }
-
-    const nestList = sourceBlock.type === BlockType.ListItem || targetListBlock !== null;
-    if (nestList) {
-        const targetIndentWidth = dropIndentWidth(position, { tabSize, indentUnit });
-        text = relevelListText({
-            sourceContent: text,
-            parse,
-            formatIndentFn: (sample, width) => formatIndent(width, tabSize, sample),
-            targetIndentWidth,
-        });
-    }
-
-    return text.endsWith('\n') ? text : `${text}\n`;
+    // Structure only: parent list → target indent from dropIndentWidth(parent).
+    // No getListContextNearLine / listSampleLine side channel.
+    const nestList =
+        asItems !== null || sourceBlock.type === BlockType.ListItem || position.parent?.type === BlockType.ListItem;
+    if ((asItems === null && sourceBlock.type === BlockType.Blockquote) || !nestList) return text;
+    return relevelListText({
+        sourceContent: text,
+        parse,
+        formatIndentFn: (sample, width) => formatIndent(width, tabSize, sample),
+        targetIndentWidth: dropIndentWidth(position, { tabSize, indentUnit }),
+    });
 }

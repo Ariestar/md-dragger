@@ -443,7 +443,7 @@ describe('adapter/monaco lifecycle', () => {
         pointer(host.domNode, 'pointerdown');
         pointer(host.win, 'pointermove');
         pointer(host.win, 'pointerup');
-        expect(model.getValue()).toBe('\ntwo\none');
+        expect(model.getValue()).toBe('two\n\none');
         expect(onDragEnd).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ kind: 'applied' }));
         expect(onCancel).not.toHaveBeenCalled();
         expect(config).toHaveBeenCalled();

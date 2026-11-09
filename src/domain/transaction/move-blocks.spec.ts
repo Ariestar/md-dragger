@@ -32,8 +32,38 @@ function blockAt(doc: Doc, line: number): Block {
     return block;
 }
 
+/** Plan moving the blocks at fromLines to the raw seam before toLine: the plan result. */
+function planBlocks(text: string, fromLines: number[], toLine: number) {
+    const doc = stringDoc(text);
+    const selection = selectBlocks(fromLines.map((line) => blockAt(doc, line)));
+    return planMove({ sourceDoc: doc, selection, position: { doc, line: toLine, parent: null }, tabSize, indentUnit });
+}
+
+/** Plan moving the blocks at fromLines of sourceText to the raw seam before toLine of targetText. */
+function planAcross(sourceText: string, fromLines: number[], targetText: string, toLine: number) {
+    const sourceDoc = stringDoc(sourceText);
+    const selection = selectBlocks(fromLines.map((line) => blockAt(sourceDoc, line)));
+    const position = { doc: stringDoc(targetText), line: toLine, parent: null };
+    return { sourceDoc, planned: planMove({ sourceDoc, selection, position, tabSize, indentUnit }) };
+}
+
+/** Move the blocks at fromLines of sourceText to the raw seam before toLine of targetText: [target, source]. */
+function moveAcross(sourceText: string, fromLines: number[], targetText: string, toLine: number): string[] {
+    const { sourceDoc, planned } = planAcross(sourceText, fromLines, targetText, toLine);
+    if (planned.type !== 'ok') throw new Error(`plan rejected: ${planned.reason}`);
+    const edits = moveTx({ sourceDoc, plan: planned.value });
+    if (!Array.isArray(edits)) throw new Error(`move rejected: ${edits.reason}`);
+    const docs = [planned.value.position.doc, sourceDoc];
+    return [targetText, sourceText].map((text, i) =>
+        applyEdits(
+            text,
+            edits.filter((e) => e.doc === docs[i]),
+        ),
+    );
+}
+
 /** Move the blocks at fromLines to the raw seam before toLine, nested under the list item at parentLine (or at the root). */
-function moveUnder(text: string, fromLines: number[], toLine: number, parentLine: number | null): string {
+function moveUnder(text: string, fromLines: number[], toLine: number, parentLine: number | null = null): string {
     const doc = stringDoc(text);
     const selection = selectBlocks(fromLines.map((line) => blockAt(doc, line)));
     const parent = parentLine === null ? null : blockAt(doc, parentLine);
@@ -76,8 +106,9 @@ describe('moveTx ordered-list renumber', () => {
 
     it('keeps geometry-only edits when the numbers are already sequential', () => {
         // Moving a paragraph after the list does not renumber (no spurious
-        // whole-document replace): the list stays 1., 2.
-        expect(moveAndApply('para\n1. a\n2. b', 1, 4)).toBe('1. a\n2. b\npara');
+        // whole-document replace): the list stays 1., 2. A paragraph after
+        // a list item needs a blank line, or it continues the item.
+        expect(moveAndApply('para\n1. a\n2. b', 1, 4)).toBe('1. a\n2. b\n\npara');
     });
 
     it('composes renumber as precise marker edits, not a document replace', () => {
@@ -108,34 +139,95 @@ describe('moveTx ordered-list renumber', () => {
     it('leaves an unrelated non-sequential run untouched', () => {
         // '3. c\n5. d' is a pre-existing non-sequential run, separated from
         // the moved paragraph by blank lines — the move must not rewrite it.
-        expect(moveAndApply('1. a\n2. b\n\npara\n\n3. c\n5. d', 4, 1)).toBe('para\n1. a\n2. b\n\n\n3. c\n5. d');
+        expect(moveAndApply('1. a\n2. b\n\npara\n\n3. c\n5. d', 4, 1)).toBe('para\n\n1. a\n2. b\n\n3. c\n5. d');
     });
 
     it('leaves a run untouched when a paragraph lands next to it', () => {
         // Moving 'para' to the top puts it before the run; a paragraph does
         // not join a list, so '3. c\n5. d' stays as-is.
-        expect(moveAndApply('3. c\n5. d\n\npara', 4, 1)).toBe('para\n3. c\n5. d\n');
+        expect(moveAndApply('3. c\n5. d\n\npara', 4, 1)).toBe('para\n\n3. c\n5. d');
     });
 
     it('renumbers a run the moved item joins, folding its new marker into the insert', () => {
         // '1. x' lands after the run (seam 5 = end of the 4-line doc) and
-        // joins it; the whole run renumbers and the moved item's own marker
-        // is rewritten inside the inserted text. The blank line that
-        // separated the blocks stays as the document's first line.
-        expect(moveAndApply('1. x\n\n2. a\n3. b', 1, 5)).toBe('\n1. a\n2. b\n3. x');
+        // joins it with the run's own spacing; the whole run renumbers and
+        // the moved item's own marker is rewritten inside the inserted text.
+        // Its blank line goes with it.
+        expect(moveAndApply('1. x\n\n2. a\n3. b', 1, 5)).toBe('1. a\n2. b\n3. x');
     });
 
     it('renumbers the run that merges across the deleted paragraph', () => {
         // Deleting the paragraph between two run segments joins them into one
         // non-sequential run, which the move must renumber.
-        expect(moveAndApply('1. a\npara\n3. c', 2, 4)).toBe('1. a\n2. c\npara');
+        expect(moveAndApply('1. a\npara\n3. c', 2, 4)).toBe('1. a\n2. c\n\npara');
     });
 
     it('renumbers no ordered run across a bullet item', () => {
         // `1. a` lands under `- x`: it starts a new ordered list, which is not `1. d`'s run.
         expect(moveAndApply('1. a\n2. d\n- x\n- y\n', 1, 4)).toBe('1. d\n- x\n1. a\n- y\n');
         expect(moveUnder('1. a\n    1. b\n    2. c\n2. d\n- x\n- y\n', [4], 6, 5)).toBe(
-            '1. a\n    1. b\n    2. c\n- x\n    2. d\n- y\n',
+            '1. a\n    1. b\n    2. c\n- x\n    1. d\n- y\n',
+        );
+    });
+
+    it('renumbers from 1 an ordered item the move leaves starting a list under a list line', () => {
+        // Only a list starting at 1 can interrupt the line above; any other number makes the item part of its text.
+        expect(moveAndApply('1. a\n2. b\n3. c\n\n- x', 5, 3)).toBe('1. a\n2. b\n- x\n1. c');
+        expect(moveAndApply('- x\n- y\n\n2. b', 4, 2)).toBe('- x\n1. b\n- y');
+        // Nested as a parent's first child.
+        expect(moveUnder('- x\n\n1. a\n2. b\n    1. c\n\nend', [4], 2, 1)).toBe(
+            '- x\n    1. b\n        1. c\n\n1. a\n\nend',
+        );
+        // Where the removed segment closes: its head left with a bullet.
+        expect(moveUnder('- p\n    - q\n        - r\n\n1. a\n2. b\n\nend', [3, 5], 9)).toBe(
+            '- p\n    - q\n1. b\n\nend\n- r\n\n1. a',
+        );
+        expect(moveUnder('- [ ] t\n    - [x] u\n\n1. a\n2. b\n\nend', [2, 4], 8)).toBe(
+            '- [ ] t\n1. b\n\nend\n- [x] u\n\n1. a',
+        );
+        // Where the payload's own segments meet.
+        expect(moveUnder('top\n\n- a\n- b\n\n1. x\n2. y', [3, 7], 1)).toBe('- a\n1. y\n\ntop\n\n- b\n\n1. x');
+    });
+
+    it('keeps a blank line above an empty ordered item left starting a list under a list line', () => {
+        // No number lets an empty item interrupt the line above: it keeps the blank line the removed lines held,
+        // and its run is renumbered from 1.
+        expect(moveUnder('- x\n- y\n\n1. a\n2. \n3. c\n\nend', [2, 4], 9)).toBe('- x\n\n1. \n2. c\n\nend\n- y\n\n1. a');
+        expect(moveUnder('- x\n- y\n\n1. a\n    - k\n2. \n3. c\n\nend', [2, 4], 10)).toBe(
+            '- x\n\n1. \n2. c\n\nend\n- y\n\n1. a\n    - k',
+        );
+        expect(moveUnder('- x\n- y\n\n0. a\n1. \n2. c\n\nend', [2, 4], 9)).toBe('- x\n\n1. \n2. c\n\nend\n- y\n\n0. a');
+        // Nested under the list line too.
+        expect(moveUnder('- x\n    - y\n\n    1. a\n    2. \n    3. c\n\nend', [2, 4], 9)).toBe(
+            '- x\n\n    1. \n    2. c\n\nend\n- y\n\n1. a',
+        );
+        // Without a blank line between them none is added: inside an ordered list the item interrupts the line,
+        // and where the payload lands in the hole the item continues its run.
+        expect(moveAndApply('1. p\n    - q\n    1. a\n    2. \n    3. c\n2. s\n\nend', 3, 9)).toBe(
+            '1. p\n    - q\n    1. \n    2. c\n2. s\n\nend\n1. a',
+        );
+        expect(moveUnder('- a\n1. b\n2. \n3. c\n\nend', [2, 4], 3)).toBe('- a\n1. b\n2. c\n3. \n\nend');
+    });
+
+    it('keeps a blank line above an empty bullet item left starting a list under a list line', () => {
+        // No empty item can interrupt the line above: one that does not continue a bullet list at its indent keeps
+        // the blank line the removed lines held.
+        expect(moveUnder('1. x\n2. y\n\n- a\n- \n- c\n\nend', [2, 4], 9)).toBe('1. x\n\n- \n- c\n\nend\n\n2. y\n\n- a');
+        // Nested under the list line too.
+        expect(moveUnder('1. x\n    1. y\n\n    - a\n    - \n    - c\n\nend', [2, 4], 9)).toBe(
+            '1. x\n\n    - \n    - c\n\nend\n1. y\n\n- a',
+        );
+        // One that continues its bullet list stays tight.
+        expect(moveUnder('- p\n- q\n\n- a\n- \n- c\n\nend', [2, 4], 9)).toBe('- p\n- \n- c\n\nend\n- q\n\n- a');
+    });
+
+    it('keeps the number of an ordered item that continues its list across a nested child', () => {
+        expect(moveAndApply('1. a\n    - n\n    - m\n2. b\n3. c\n\nend', 3, 8)).toBe(
+            '1. a\n    - n\n2. b\n3. c\n\nend\n- m',
+        );
+        // Across a blank line inside the item above.
+        expect(moveAndApply('1. a\n\n    - n\n    - m\n2. b\n3. c\n\nend', 4, 9)).toBe(
+            '1. a\n\n    - n\n2. b\n3. c\n\nend\n- m',
         );
     });
 
@@ -157,6 +249,14 @@ describe('moveTx ordered-list renumber', () => {
         const source = edits.find((e) => e.doc === sourceDoc);
         if (!source) throw new Error('missing source edit');
         expect(applyEdits('3. c\n5. d\npara', [source])).toBe('3. c\n5. d');
+    });
+
+    it('leaves the items of a loose ordered list that a moved item was blank-separated from untouched', () => {
+        expect(moveAndApply('# Top\n\n1. a\n\n2. b\n\n3. c\n', 7, 1)).toBe('3. c\n\n# Top\n\n1. a\n\n2. b\n');
+        expect(moveAndApply('# Top\n\n1. a\n\n2. b\n\n3. c', 7, 1)).toBe('3. c\n\n# Top\n\n1. a\n\n2. b');
+        expect(moveAndApply('# Top\n\n1. a\n\n\n2. b\n\n3. c', 6, 1)).toBe('2. b\n\n# Top\n\n1. a\n\n\n3. c');
+        // The item below a removed head becomes the head: numbered 1.
+        expect(moveAndApply('1. a\n\n2. b\n\n3. c', 1, 6)).toBe('1. b\n\n3. c\n\n1. a');
     });
 
     it('renumbers the target run when moving into another document', () => {
@@ -214,8 +314,8 @@ describe('moveTx in-place list indent change', () => {
         expect(moveUnder('- a\n- b\n- c', [2, 3], 2, 1)).toBe('- a\n    - b\n    - c');
         // Two segments: b and c are separated by the unselected x.
         expect(moveUnder('- a\n- b\n- x\n- c', [2, 4], 2, 1)).toBe('- a\n    - b\n- x\n    - c');
-        // Each segment once; the numbers are the renumberer's own (it numbers runs split by indent separately).
-        expect(moveUnder('1. a\n2. b\n3. x\n4. c\n', [2, 4], 2, 1)).toBe('1. a\n    2. b\n1. x\n    4. c\n');
+        // Each segment once; each nested item starts a list under its parent's line, so it is numbered 1.
+        expect(moveUnder('1. a\n2. b\n3. x\n4. c\n', [2, 4], 2, 1)).toBe('1. a\n    1. b\n1. x\n    1. c\n');
     });
 
     it('changes an ordered item’s level in place without duplicating it when renumbering fires', () => {
@@ -223,8 +323,8 @@ describe('moveTx in-place list indent change', () => {
         expect(moveUnder('1. a\n    1. b\n2. c', [2], 3, null)).toBe('1. a\n2. b\n3. c');
         expect(moveUnder('1. a\n    1. b\n2. c', [2], 2, null)).toBe('1. a\n2. b\n3. c');
         // Nest, at the gap below the source and at its own line.
-        expect(moveUnder('3. a\n4. b\n', [2], 3, 1)).toBe('1. a\n    4. b\n');
-        expect(moveUnder('3. a\n4. b\n', [2], 2, 1)).toBe('1. a\n    4. b\n');
+        expect(moveUnder('3. a\n4. b\n', [2], 3, 1)).toBe('1. a\n    1. b\n');
+        expect(moveUnder('3. a\n4. b\n', [2], 2, 1)).toBe('1. a\n    1. b\n');
     });
 
     it('renumbers an empty ordered item, and the sublist it leaves, when its level changes in place', () => {
@@ -265,6 +365,334 @@ describe('moveTx in-place list indent change', () => {
     });
 });
 
+/** The repro page: blank-separated callouts after an intro line, with a final newline. */
+const CALLOUT_PAGE = [
+    'Intro line.',
+    '',
+    '> [!note]+ First',
+    '> First body.',
+    '',
+    '> [!note]+ Second',
+    '> Second body.',
+    '> More second body.',
+    '',
+    '> [!note]- Third (folded)',
+    '> Hidden body.',
+    '',
+    '> [!note] Fourth (title only)',
+    '',
+].join('\n');
+
+const PAIR_PAGE = 'alpha\n\n> [!note] First\n> first body\n\nbravo\n\n> [!tip] Second\n> second body\n\ncharlie\n';
+
+describe('moveTx blank-line separation', () => {
+    it('keeps a quote whole when a quote line without text follows the removed lines', () => {
+        expect(moveAndApply('> - x\n> - y\n>\n> 1. a\n> 2. b\n\nend', 2, 8)).toBe(
+            '> - x\n>\n> 1. a\n> 2. b\n\nend\n> - y',
+        );
+    });
+
+    it.each([
+        {
+            drag: 'Third onto Second (R1)',
+            from: 10,
+            seam: 6,
+            after: 'Intro line.\n\n> [!note]+ First\n> First body.\n\n> [!note]- Third (folded)\n> Hidden body.\n\n> [!note]+ Second\n> Second body.\n> More second body.\n\n> [!note] Fourth (title only)\n',
+        },
+        {
+            drag: "First onto Third's lower half (R2)",
+            from: 3,
+            seam: 12,
+            after: 'Intro line.\n\n> [!note]+ Second\n> Second body.\n> More second body.\n\n> [!note]- Third (folded)\n> Hidden body.\n\n> [!note]+ First\n> First body.\n\n> [!note] Fourth (title only)\n',
+        },
+        {
+            drag: 'Fourth onto First (R3)',
+            from: 13,
+            seam: 3,
+            after: 'Intro line.\n\n> [!note] Fourth (title only)\n\n> [!note]+ First\n> First body.\n\n> [!note]+ Second\n> Second body.\n> More second body.\n\n> [!note]- Third (folded)\n> Hidden body.\n',
+        },
+        {
+            drag: 'Second onto First (R4)',
+            from: 6,
+            seam: 3,
+            after: 'Intro line.\n\n> [!note]+ Second\n> Second body.\n> More second body.\n\n> [!note]+ First\n> First body.\n\n> [!note]- Third (folded)\n> Hidden body.\n\n> [!note] Fourth (title only)\n',
+        },
+    ])('drops $drag into the indicated gap with one blank line on each side', ({ from, seam, after }) => {
+        expect(moveAndApply(CALLOUT_PAGE, from, seam)).toBe(after);
+    });
+
+    it("rejects Second onto Third's upper half: its own gap below (R5)", () => {
+        expect(planBlocks(CALLOUT_PAGE, [6], 10)).toEqual({ type: 'reject', reason: 'self_range_blocked' });
+        expect(planBlocks(CALLOUT_PAGE, [6], 9)).toEqual({ type: 'reject', reason: 'self_range_blocked' });
+    });
+
+    it("lands a callout between two paragraphs from either side's half", () => {
+        const after = 'alpha\n\nbravo\n\n> [!note] First\n> first body\n\n> [!tip] Second\n> second body\n\ncharlie\n';
+        expect(moveAndApply(PAIR_PAGE, 3, 7)).toBe(after);
+        expect(moveAndApply(PAIR_PAGE, 3, 8)).toBe(after);
+        expect(moveAndApply(PAIR_PAGE, 6, 3)).toBe(after);
+    });
+
+    it('keeps a paragraph moved below a callout from continuing it', () => {
+        expect(moveAndApply('move me\n\n> [!note] Q\n> body\n\nTail', 1, 5)).toBe(
+            '> [!note] Q\n> body\n\nmove me\n\nTail',
+        );
+    });
+
+    it('splits a loose list around a paragraph dropped between its items', () => {
+        expect(moveAndApply('- a\n\n- b\n\npara', 5, 3)).toBe('- a\n\npara\n\n- b');
+    });
+
+    it('separates a standalone paragraph dropped under a heading from its neighbours', () => {
+        expect(moveAndApply('# H\npara\n\nother', 4, 2)).toBe('# H\n\nother\n\npara');
+    });
+
+    it('reorders the lines of one paragraph tight', () => {
+        expect(moveAndApply('l1\nl2\nl3\n\nnext', 3, 1)).toBe('l3\nl1\nl2\n\nnext');
+    });
+
+    it('moves a paragraph line into another paragraph tight', () => {
+        expect(moveAndApply('p1\np2\n\nq1\nq2', 2, 5)).toBe('p1\n\nq1\np2\nq2');
+    });
+
+    it('never merges a standalone paragraph into a paragraph', () => {
+        expect(moveAndApply('x\n\nl1\nl2', 1, 4)).toBe('l1\n\nx\n\nl2');
+    });
+
+    it('reorders the lines of one quote tight', () => {
+        expect(moveAndApply('# H\n> a\n> b\n> c', 4, 2)).toBe('# H\n> c\n> a\n> b');
+    });
+
+    it('lets one stack of quote lines into a tight quote run, not two separate quotes', () => {
+        expect(planBlocks('> a\n> b\n\n> x\n\n---\n\n> y', [4, 8], 2)).toEqual({
+            type: 'reject',
+            reason: 'inside_quote_run',
+        });
+        expect(moveUnder('> a\n> b\n\n> x\n> y', [4, 5], 2)).toBe('> a\n> x\n> y\n> b');
+    });
+
+    it('lets a quote line of the same depth join a quote, and no other depth', () => {
+        expect(moveAndApply('> a\n> b\n\n> z', 4, 2)).toBe('> a\n> z\n> b');
+        expect(planBlocks('> a\n> b\n\n> > z', [4], 2)).toEqual({ type: 'reject', reason: 'inside_quote_run' });
+    });
+
+    it('joins a list item to a tight list after it', () => {
+        expect(moveAndApply('- a\n- b\n\npara\n\n- x', 6, 4)).toBe('- a\n- b\n- x\n\npara');
+    });
+
+    it('joins a list item to a loose list after it, keeping it loose', () => {
+        expect(moveAndApply('- a\n\n- b\n\npara\n\n- x', 7, 5)).toBe('- a\n\n- b\n\n- x\n\npara');
+    });
+
+    it('keeps a two-line gap two lines on both sides', () => {
+        expect(moveAndApply('A\n\n\nB\n\nC', 6, 2)).toBe('A\n\n\nC\n\n\nB');
+        expect(moveAndApply('A\n\n\nB\n\nC', 6, 4)).toBe('A\n\n\nC\n\n\nB');
+    });
+
+    it('writes no blank line below a table or next to math', () => {
+        expect(moveAndApply('| a | b |\n|---|---|\n- x\n- y', 4, 3)).toBe('| a | b |\n|---|---|\n- y\n- x');
+        expect(moveAndApply('- a\n- b\n$$\nx\n$$', 1, 3)).toBe('- b\n- a\n$$\nx\n$$');
+    });
+
+    it('keeps a paragraph dropped above a table out of the table', () => {
+        expect(moveAndApply('x\n\n| a | b |\n|---|---|\n\npara', 6, 3)).toBe('x\n\npara\n\n| a | b |\n|---|---|');
+    });
+
+    it('never writes a setext heading', () => {
+        expect(moveAndApply('# Head\n---\n\np', 4, 2)).toBe('# Head\n\np\n\n---');
+    });
+
+    it('never writes an empty item under a paragraph, where it would be a setext underline', () => {
+        expect(moveAndApply('- x\n- \n\n# H\npara\n# H2', 2, 6)).toBe('- x\n\n# H\npara\n\n- \n# H2');
+    });
+
+    it('moves a fence with an inner blank line to the end, unchanged', () => {
+        const fence = '```\nx\n\ny\n```';
+        expect(moveAndApply(`a\n\n${fence}\n\nb`, 3, 10)).toBe(`a\n\nb\n\n${fence}`);
+    });
+
+    it('separates the paragraphs a removed heading stood between', () => {
+        expect(moveAndApply('p1\n# H\np2\n\nend', 2, 6)).toBe('p1\n\np2\n\nend\n# H');
+    });
+
+    it('moves a callout to the top edge, separated from the paragraph below', () => {
+        expect(moveAndApply('Intro\n\n> [!note] A\n> a', 3, 1)).toBe('> [!note] A\n> a\n\nIntro');
+    });
+
+    it('moves two blank-separated callouts as one group', () => {
+        expect(moveUnder('intro\n\n> [!a] A\n> a body\n\n> [!b] B\n> b body\n\nend', [3, 6], 10)).toBe(
+            'intro\n\nend\n\n> [!a] A\n> a body\n\n> [!b] B\n> b body',
+        );
+    });
+
+    it('moves two separated blocks into a gap one of them borders', () => {
+        expect(moveUnder('A\n\nB\n\nC\n\nD', [1, 5], 2)).toBe('A\n\nC\n\nB\n\nD');
+    });
+
+    it('closes the hole between selected segments the way it closes at the source', () => {
+        expect(moveUnder('A\n\nB\n\nC\n\nD', [1, 5], 8)).toBe('B\n\nD\n\nA\n\nC');
+        // a1 and a2 rejoin as one paragraph, which stays apart from the standalone `end`.
+        expect(moveUnder('a1\nh\na2\n\nend', [1, 3], 6)).toBe('h\n\nend\n\na1\na2');
+        expect(moveUnder('# H\np1\n# I\np2\n\nend', [2, 4], 7)).toBe('# H\n# I\n\nend\n\np1\n\np2');
+    });
+
+    it('keeps an ordered list tight under a paragraph when its head moves', () => {
+        expect(moveAndApply('intro:\n1. a\n2. b\n3. c', 2, 4)).toBe('intro:\n1. b\n2. a\n3. c');
+        expect(moveAndApply('intro:\n1. a\n2. b\n3. c', 3, 2)).toBe('intro:\n1. b\n2. a\n3. c');
+        expect(moveAndApply('intro:\n1. a\n2. b\n3. c', 2, 5)).toBe('intro:\n1. b\n2. c\n3. a');
+    });
+
+    it('moves an outer callout once when its nested callout is selected too', () => {
+        const text = 'top\n\n> [!outer]\n> > [!note] A\n> > a\n\nend';
+        expect(moveUnder(text, [3, 4], 8)).toBe('top\n\nend\n\n> [!outer]\n> > [!note] A\n> > a');
+    });
+
+    it('snaps nothing into frontmatter and never writes inside it', () => {
+        expect(planBlocks('---\nt: x\n---\n\n# H\n\npara\n', [7], 2)).toEqual({
+            type: 'reject',
+            reason: 'inside_frontmatter',
+        });
+        expect(moveAndApply('---\nt: x\n---\n\n# H\n\npara\n', 7, 4)).toBe('---\nt: x\n---\n\npara\n\n# H\n');
+    });
+
+    it('rejects a move that would turn the top of a document into frontmatter', () => {
+        expect(planBlocks('Intro\n\n---\n\nA\n\n---\n\nB', [1], 10)).toEqual({
+            type: 'reject',
+            reason: 'frontmatter_fence',
+        });
+        expect(planBlocks('A\n\n---\n\nB\n\n---', [7], 1)).toEqual({ type: 'reject', reason: 'frontmatter_fence' });
+        expect(moveAndApply('A\n\n---\n\nB', 5, 1)).toBe('B\n\nA\n\n---');
+    });
+
+    it('rejects a move into or out of another document that would create frontmatter there', () => {
+        const crossPlan = (sourceText: string, lines: number[], targetText: string, seam: number) =>
+            planAcross(sourceText, lines, targetText, seam).planned;
+        const rejected = { type: 'reject', reason: 'frontmatter_fence' };
+        // A second `---` lands under a document that starts with one.
+        expect(crossPlan('---', [1], '---\n\nfoo', 4)).toEqual(rejected);
+        // A `---` lands on top of a document that has one further down.
+        expect(crossPlan('---', [1], 'foo\n\n---', 1)).toEqual(rejected);
+        // Removing the first block exposes a `---` with another below it.
+        expect(crossPlan('A\n\n---\n\nB\n\n---', [1], 'x', 2)).toEqual(rejected);
+        expect(crossPlan('A\n\n---\n\nB', [1], 'x', 2)).toMatchObject({ type: 'ok' });
+        // A note with no block takes the payload on its first line, above any padding.
+        const group = 'A\n\n---\n\nB\n\n---\n\nC\n';
+        expect(crossPlan(group, [3, 5, 7], '', 1)).toEqual(rejected);
+        expect(crossPlan(group, [3, 5, 7], '\n', 1)).toEqual(rejected);
+        expect(crossPlan(group, [3, 5, 7], '\n\n', 1)).toEqual(rejected);
+        expect(crossPlan(group, [3, 5, 7], '---\nt: x\n---\n', 4)).toMatchObject({ type: 'ok' });
+    });
+
+    it('moves two segments whose removal alone would read as frontmatter', () => {
+        expect(moveUnder('Intro\n\n---\n\nA\n\n---\n\nB', [1, 5], 3)).toBe('Intro\n\nA\n\n---\n\n---\n\nB');
+    });
+
+    it('reorders the lines of a two-line paragraph or quote tight', () => {
+        expect(moveAndApply('a\nb', 2, 1)).toBe('b\na');
+        expect(moveAndApply('a\nb', 1, 3)).toBe('b\na');
+        expect(moveAndApply('> a\n> b', 2, 1)).toBe('> b\n> a');
+        expect(moveUnder('l1\nl2\nl3\n\nnext', [2, 3], 1)).toBe('l2\nl3\nl1\n\nnext');
+    });
+
+    it('keeps a paragraph or quote bounded by headings apart from the one it lands next to', () => {
+        expect(moveAndApply('# A\nalpha\n# B\nbeta\n', 2, 4)).toBe('# A\n# B\n\nalpha\n\nbeta\n');
+        expect(moveAndApply('# A\nalpha\n# B\nbeta\n', 2, 6)).toBe('# A\n# B\nbeta\n\nalpha\n');
+        expect(moveAndApply('# A\n> qa\n# B\n> qb', 2, 4)).toBe('# A\n# B\n\n> qa\n\n> qb');
+        // A line of a larger paragraph stays apart from a heading-bounded paragraph it lands beside.
+        expect(moveAndApply('# A\nbeta\n## C\n\ngamma\ndelta', 6, 3)).toBe('# A\nbeta\n\ndelta\n## C\n\ngamma');
+    });
+
+    it('keeps a whole paragraph or quote moved as a unit apart from the one it lands next to', () => {
+        expect(moveUnder('l1\nl2\n\nx\ny', [1, 2], 5)).toBe('x\n\nl1\nl2\n\ny');
+        expect(moveUnder('l1\nl2\n\nx\ny', [1, 2], 6)).toBe('x\ny\n\nl1\nl2');
+        expect(moveUnder('> a\n> b\n\nx\n\n> c\n> d', [1, 2], 8)).toBe('x\n\n> c\n> d\n\n> a\n> b');
+    });
+
+    it('keeps a quoted line apart from a quote it does not come from, and in its own quote', () => {
+        // Quoted lines written directly under another quote would join it.
+        expect(moveAndApply('> - a\n> - b\n\n> [!todo] T\n> - x\n> - y', 1, 7)).toBe(
+            '> - b\n\n> [!todo] T\n> - x\n> - y\n\n> - a',
+        );
+        expect(moveAndApply('# A\n> [!note] N\n> # H\n# B\n> q\n\nend', 2, 5)).toBe(
+            '# A\n# B\n> [!note] N\n> # H\n\n> q\n\nend',
+        );
+        expect(moveAndApply('> - a\n> - b\n\n> q\n# H', 1, 5)).toBe('> - b\n\n> q\n\n> - a\n# H');
+        expect(moveUnder('> - a\n# H\n> - b\n\nend', [1, 3], 6)).toBe('# H\n\nend\n> - a\n\n> - b');
+        // A quoted item still reorders at the edges of its own quote.
+        expect(moveAndApply('> - a\n> - b\n# H', 1, 3)).toBe('> - b\n> - a\n# H');
+        expect(moveAndApply('> - a\n> - b\n> - c', 3, 1)).toBe('> - c\n> - a\n> - b');
+    });
+
+    it('keeps a quoted item dropped into another document apart from the quote it lands under', () => {
+        expect(moveAcross('> - a\n> - b', [1], '> [!todo] T\n> - x\n', 4)[0]).toBe('> [!todo] T\n> - x\n\n> - a\n');
+    });
+
+    it('rejects a move whose gap an unclosed fence it removes turns into a fence', () => {
+        // Without the unclosed ``` the math fences below pair up, and seam 4 lies inside them.
+        const planned = planBlocks('```\n\n$$\nx\n$$\n\nend', [1], 4);
+        if (planned.type !== 'ok') throw new Error(`plan rejected: ${planned.reason}`);
+        expect(moveTx({ sourceDoc: planned.value.position.doc, plan: planned.value })).toEqual({
+            type: 'reject',
+            reason: 'inside_math_block',
+        });
+    });
+
+    it('moves into an empty document and into a blank-separated one', () => {
+        const cross = (targetText: string, line: number) =>
+            moveAcross('keep\n\n> [!note] moved\n> body\n', [3], targetText, line);
+        expect(cross('', 1)).toEqual(['> [!note] moved\n> body', 'keep\n']);
+        expect(cross('one\n\ntwo\n', 3)).toEqual(['one\n\n> [!note] moved\n> body\n\ntwo\n', 'keep\n']);
+        expect(cross('one\n\ntwo\n', 5)).toEqual(['one\n\ntwo\n\n> [!note] moved\n> body\n', 'keep\n']);
+    });
+});
+
+describe('moveTx list spacing: an item takes the spacing of the list it joins', () => {
+    it('keeps a tight sublist tight and the root list loose when an item joins the sublist', () => {
+        expect(moveUnder('- a\n    - a1\n    - a2\n\n- b\n\n- x\n', [7], 5, 1)).toBe(
+            '- a\n    - a1\n    - a2\n    - x\n\n- b\n',
+        );
+    });
+
+    it('keeps a loose sublist loose and the root list tight when an item joins the sublist', () => {
+        expect(moveUnder('- a\n\n    - a1\n\n    - a2\n- b\n\n- x\n', [8], 6, 1)).toBe(
+            '- a\n\n    - a1\n\n    - a2\n\n    - x\n- b\n',
+        );
+    });
+
+    it('joins no list inside a quote or callout', () => {
+        const todo = '> [!todo] Today\n> - buy milk\n> - call mom\n\n- a\n- b';
+        expect(moveAndApply(todo, 6, 5)).toBe('> [!todo] Today\n> - buy milk\n> - call mom\n\n- b\n- a');
+        expect(moveAndApply('> [!todo] T\n> - m\n\npara\n\n1. a\n2. b', 7, 4)).toBe(
+            '> [!todo] T\n> - m\n\n2. b\n\npara\n\n1. a',
+        );
+        expect(moveAndApply('1. a\n2. b\n3. c\n\n> [!todo] T\n> - m\n> - n', 5, 2)).toBe(
+            '1. a\n\n> [!todo] T\n> - m\n> - n\n\n2. b\n3. c',
+        );
+    });
+
+    it('writes an item that starts a sublist tight under its parent', () => {
+        expect(moveUnder('- x\n- y\n- z\n\npara\n\n- a', [7], 4, 3)).toBe('- x\n- y\n- z\n    - a\n\npara');
+        expect(moveUnder('- z\n    child text\n\npara\n\n- a', [6], 4, 1)).toBe('- z\n    child text\n    - a\n\npara');
+    });
+
+    it('writes an item nested across its own blank line above with the spacing of the list it joins', () => {
+        // The usual gesture: the lower half of the item above, or the blank line, one step right.
+        expect(moveUnder('- a\n- b\n\n- x', [4], 4, 2)).toBe('- a\n- b\n    - x');
+        expect(moveUnder('- a\n- b\n    - b1\n\n- x', [5], 5, 2)).toBe('- a\n- b\n    - b1\n    - x');
+        expect(moveUnder('- a\n    - b\n    - c\n\n- x', [5], 5, 3)).toBe('- a\n    - b\n    - c\n        - x');
+        expect(moveUnder('- a\n- b\n\n- x\n- y', [4], 4, 2)).toBe('- a\n- b\n    - x\n\n- y');
+    });
+
+    it('keeps an item that adopts the continuation line under it tight', () => {
+        expect(moveAndApply('- a\n  child\n- c\n\n- x', 5, 2)).toBe('- a\n- x\n  child\n- c');
+    });
+
+    it('keeps the spacing of a list an item joins at its own level', () => {
+        expect(moveUnder('- a\n- b\n\npara\n\n- x', [6], 2, null)).toBe('- a\n- x\n- b\n\npara');
+        expect(moveUnder('- a\n\n- b\n\npara\n\n- x', [7], 3, null)).toBe('- a\n\n- x\n\n- b\n\npara');
+    });
+});
+
 describe('moveTx list re-levelling', () => {
     const fence = '```';
 
@@ -279,7 +707,7 @@ describe('moveTx list re-levelling', () => {
 
     it("keeps a nested item's table and math children when it nests", () => {
         expect(moveUnder('- a\n- b\n\n- x\n\n    | h |\n    |---|\n    | c |\n    tail', [4], 2, 1)).toBe(
-            '- a\n    - x\n\n        | h |\n        |---|\n        | c |\n        tail\n- b\n',
+            '- a\n    - x\n\n        | h |\n        |---|\n        | c |\n        tail\n- b',
         );
         expect(moveUnder('- a\n- c\n- b\n    $$\n    x^2\n    $$\n', [3], 2, 1)).toBe(
             '- a\n    - b\n        $$\n        x^2\n        $$\n- c\n',
@@ -314,7 +742,7 @@ describe('moveTx copy mode', () => {
     }
 
     it('duplicates a paragraph at the target position while keeping the source', () => {
-        expect(copyAndApply('first\n\nsecond', 1, 3)).toBe('first\n\nfirst\nsecond');
+        expect(copyAndApply('first\n\nsecond', 1, 3)).toBe('first\n\nfirst\n\nsecond');
     });
 
     it('duplicates an ordered list item and renumbers correctly', () => {
@@ -324,51 +752,104 @@ describe('moveTx copy mode', () => {
     it('duplicates an item right below itself in place', () => {
         expect(copyAndApply('- item 1\n- item 2', 1, 2)).toBe('- item 1\n- item 1\n- item 2');
     });
+
+    it('joins a quote line copied within its own quote', () => {
+        expect(copyAndApply('> a\n> b', 2, 1)).toBe('> b\n> a\n> b');
+    });
+
+    it('refuses a copy that would turn the top of the note into frontmatter', () => {
+        const doc = stringDoc('a\n\n---\n\nb');
+        const position: DropPosition = { doc, line: 1, parent: null };
+        const selection = selectOne(blockAt(doc, 3));
+        expect(planMove({ sourceDoc: doc, selection, position, tabSize, indentUnit, mode: 'copy' })).toEqual({
+            type: 'reject',
+            reason: 'frontmatter_fence',
+        });
+    });
 });
 
 describe('moveTx context adaptation', () => {
-    function nestAndApply(text: string, fromLine: number, toLine: number, parentLine: number): string {
-        const doc = stringDoc(text);
-        const block = detectBlock(doc, fromLine, { tabSize });
-        if (!block) throw new Error(`no block at line ${fromLine}`);
-        const parent = detectBlock(doc, parentLine, { tabSize });
-        const position: DropPosition = { doc, line: toLine, parent };
-        const planned = planMove({
-            sourceDoc: doc,
-            selection: selectOne(block),
-            position,
-            tabSize,
-            indentUnit,
-        });
-        if (planned.type !== 'ok') throw new Error(`plan rejected: ${planned.reason}`);
-        const edits = moveTx({ sourceDoc: doc, plan: planned.value });
-        if (!Array.isArray(edits)) throw new Error(`move rejected: ${edits.reason}`);
-        return applyEdits(text, edits);
-    }
-
     it('adapts a paragraph into a child list item when nested under a list item', () => {
-        expect(nestAndApply('- item 1\n- item 2\n\nparagraph', 4, 2, 1)).toBe('- item 1\n    - paragraph\n- item 2\n');
+        expect(moveUnder('- item 1\n- item 2\n\nparagraph', [4], 2, 1)).toBe('- item 1\n    - paragraph\n- item 2');
+    });
+
+    it('takes the marker of the child list it joins at the end of a note, with or without a final newline', () => {
+        const tasks = 'note\n\n- Project\n    - [ ] one\n    - [ ] two';
+        expect(moveUnder(`${tasks}\n`, [1], 7, 3)).toBe('- Project\n    - [ ] one\n    - [ ] two\n    - [ ] note\n');
+        expect(moveUnder(`${tasks}\n\n\n`, [1], 9, 3)).toBe(
+            '- Project\n    - [ ] one\n    - [ ] two\n    - [ ] note\n\n\n',
+        );
+        expect(moveUnder(tasks, [1], 6, 3)).toBe('- Project\n    - [ ] one\n    - [ ] two\n    - [ ] note');
+        expect(moveUnder('note\n\n- Project\n    1. one\n    2. two\n', [1], 7, 3)).toBe(
+            '- Project\n    1. one\n    2. two\n    3. note\n',
+        );
     });
 
     it('adapts a heading into an ordered child list item and renumbers correctly', () => {
-        expect(nestAndApply('1. item 1\n2. item 2\n\n### Heading', 4, 2, 1)).toBe(
-            '1. item 1\n    1. Heading\n2. item 2\n',
+        expect(moveUnder('1. item 1\n2. item 2\n\n### Heading', [4], 2, 1)).toBe(
+            '1. item 1\n    1. Heading\n2. item 2',
         );
     });
 
     it('keeps list-like text in a heading title', () => {
-        expect(nestAndApply('- parent\n\n# - [x] Keep', 3, 2, 1)).toBe('- parent\n    - - [x] Keep\n');
+        expect(moveUnder('- parent\n\n# - [x] Keep', [3], 2, 1)).toBe('- parent\n    - - [x] Keep');
     });
 
     it('indents a blockquote adapted into a child list item', () => {
-        expect(nestAndApply('- parent\n\n> quote', 3, 2, 1)).toBe('- parent\n    - quote\n');
+        expect(moveUnder('- parent\n\n> quote', [3], 2, 1)).toBe('- parent\n    - quote');
     });
 
     it('leaves a code block verbatim when a paragraph in the same selection is dropped into a list', () => {
-        const source = '- parent\n\nparagraph\n```\ncode\n```';
-        const moved = moveUnder(source, [3, 4], 2, 1);
-        expect(moved).toContain('```\ncode\n```');
+        const moved = moveUnder('- parent\n- next\n\nparagraph\n```\ncode\n```', [4, 5], 2, 1);
+        expect(moved).toMatch(/```\n *code\n *```/);
         expect(moved).not.toContain('- ```');
         expect(moved).not.toContain('- code');
+        expect(moved).not.toContain('- paragraph');
+    });
+
+    it('turns each block into one item of the root list between two tight items, with no blank line between them', () => {
+        expect(moveUnder('- a\n- b\n\n# H\n\n> q', [4, 6], 2)).toBe('- a\n- H\n- q\n- b');
+        expect(moveUnder('1. a\n2. b\n\np', [4], 2)).toBe('1. a\n2. p\n3. b');
+    });
+
+    it('turns a paragraph dropped inside an item’s subtree into an item of the root list', () => {
+        expect(moveUnder('- a\n    - b\n\np', [4], 2)).toBe('- a\n- p\n    - b');
+    });
+
+    it('keeps a paragraph a paragraph between the items of a loose list, and in a quoted list', () => {
+        expect(moveUnder('- a\n\n- b\n\np', [5], 3)).toBe('- a\n\np\n\n- b');
+        expect(planBlocks('> - a\n> - b\n\np', [4], 2)).toMatchObject({ type: 'reject', reason: 'inside_quote_run' });
+    });
+
+    it('takes the heading text of a quoted heading, and makes no item of a line without text', () => {
+        expect(moveUnder('- a\n- b\n\n> ## Title', [4], 2)).toBe('- a\n- Title\n- b');
+        expect(moveUnder('- a\n- b\n\n> x\n>\n> y', [5, 6], 2, 1)).toBe('- a\n    - y\n- b\n\n> x');
+        expect(moveUnder('- a\n- b\n\n> x\n>\n> y', [5], 2, 1)).not.toMatch(/^\s*- $/m);
+    });
+
+    it('takes the marker of the list the items join', () => {
+        expect(moveUnder('- a\n    1. b\n    2. c\n\npara', [5], 3, 1)).toBe('- a\n    1. b\n    2. para\n    3. c');
+        expect(moveUnder('- a\n    1. b\n    2. c\n\npara', [5], 3)).toBe('- a\n    1. b\n- para\n    1. c');
+        expect(moveUnder('* a\n* b\n\npara', [4], 2)).toBe('* a\n* para\n* b');
+        expect(moveUnder('1. a\n    > - q\n\npara', [4], 3, 1)).toBe('1. a\n    > - q\n\n    1. para');
+        expect(moveUnder('- [x] a\n- [ ] b\n\np', [4], 2)).toBe('- [x] a\n- [ ] p\n- [ ] b');
+        expect(moveUnder('* [x] a\n* [ ] b\n\np', [4], 2)).toBe('* [x] a\n* [ ] p\n* [ ] b');
+        expect(moveUnder('1) a\n2) b\n\np', [4], 2)).toBe('1. a\n2. p\n3. b');
+    });
+
+    it('turns a paragraph into an item between two tight items, whatever ends the item above', () => {
+        expect(moveUnder('- a\n    child\n- b\n\npara', [5], 3)).toBe('- a\n    child\n- para\n- b');
+    });
+
+    it('turns nothing into an item next to a quoted list line', () => {
+        expect(moveUnder('- a\n> - q\n\np', [4], 2)).not.toContain('- p');
+    });
+
+    it('turns nothing into an item under a quoted parent', () => {
+        expect(moveUnder('p\n\n> - a\n> - b', [1], 5, 4)).toBe('> - a\n> - b\n\np');
+    });
+
+    it('turns nothing into an item inside a quote under an item', () => {
+        expect(moveUnder('- a\n    > q1\n    > q2\n\n> x', [5], 3, 1)).not.toContain('- x');
     });
 });
