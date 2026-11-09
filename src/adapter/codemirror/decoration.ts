@@ -66,7 +66,7 @@ export function sourceHighlightDecoration(outputs: readonly PipelineOutput[], st
 
 /** Drop-seam line decoration derived from one engine output batch: on the
  * seam row (above the first line, or below the previous line), marked
- * invalid when the drop is rejected. */
+ * invalid when the drop is rejected and marked with the copy class in copy mode. */
 export function dropSeamDecoration(outputs: readonly PipelineOutput[], state: EditorState): DecorationSet {
     const { position, invalid, mode } = dropSeamState(outputs, state.doc);
     if (position === null) return Decoration.none;

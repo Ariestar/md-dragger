@@ -134,6 +134,11 @@ export class DraggerRuntime implements RuntimeController {
         this.pipeline.enter({ type: 'hold_ready', sessionId, pointerType });
     }
 
+    /**
+     * Start a drag, replacing any active session unless a commit is pending.
+     * Alt selects copy mode; releaseCapture is called when the session ends or
+     * an asynchronous commit begins. Locator, configuration, and planning errors propagate.
+     */
     beginDrag(
         sessionId: string,
         selection: BlockSelection,
@@ -157,6 +162,11 @@ export class DraggerRuntime implements RuntimeController {
         });
     }
 
+    /**
+     * Refresh the matching drag's target and drop feedback. Omitted modifiers
+     * retain their previous state; Alt selects copy mode. Other sessions or
+     * pointers are ignored. Locator, configuration, and planning errors propagate.
+     */
     moveDrag(
         sessionId: string,
         point: Point,
@@ -177,6 +187,14 @@ export class DraggerRuntime implements RuntimeController {
         });
     }
 
+    /**
+     * Resolve and commit the matching drag at the release point. Omitted modifiers
+     * retain their previous state; Alt selects copy mode. Returns undefined for
+     * a pending commit or a nonmatching session or pointer, otherwise a commit
+     * result or a promise that settles after the host's asynchronous apply.
+     * Planning and transaction rejections and host apply errors become rejected
+     * results. Locator, configuration, and transaction errors before apply propagate.
+     */
     commitDrop(
         sessionId: string,
         point: Point,

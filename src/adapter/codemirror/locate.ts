@@ -1,6 +1,7 @@
 import { EditorState } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import {
+    ADAPTABLE_BLOCKS,
     type BlockSelection,
     BlockType,
     type Doc,
@@ -89,8 +90,11 @@ export { type SnapDropInput, snapDrop } from '../../domain';
 /**
  * Default multi-doc drop locate — two independent axes:
  *   y → hit-test live views, seam on the target view
- *   x → horizontal drag distance from the source content band, in rendered
- *       list-indent steps → target indent width (domain clamps to structure)
+ *   x → distance from the target content's left edge, in rendered list-indent
+ *       steps, for paragraphs, headings, list items, and blockquotes
+ * Snaps the seam against container rules; indentation is clamped to structure.
+ * Returns null for an empty selection, an invalid source start line, or a failed
+ * editor/line hit test. Configuration and document access errors propagate.
  */
 export function resolveDropPositionAtPoint(
     sourceView: EditorView,
@@ -116,7 +120,7 @@ export function resolveDropPositionAtPoint(
     const targetPoint = { x: targetHit.x, y: targetHit.y };
 
     let targetIndentWidth = sourceIndentWidth;
-    if (source.type === BlockType.ListItem) {
+    if (source.type === BlockType.ListItem || ADAPTABLE_BLOCKS.has(source.type)) {
         const stepPx = resolveListIndentWidthPx(options, targetHit.view);
         if (stepPx > 0) {
             const left = contentLeft(options, targetHit.view);

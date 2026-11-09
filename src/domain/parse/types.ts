@@ -26,7 +26,7 @@ export type LineMarker =
     | {
           kind: 'fence';
           text: string;
-          fence: 'code' | 'math';
+          fence: 'code' | 'math' | 'comment';
           info?: string;
       }
     | { kind: 'table-row'; text: string }
