@@ -159,11 +159,17 @@ function slotAt(doc: Doc, targetLineNumber: number, options: ContainerPolicyReso
     const targetBlock = detectBlock(doc, clampedTarget, detectOptions);
     if (
         targetBlock &&
-        (targetBlock.type === BlockType.CodeBlock || targetBlock.type === BlockType.MathBlock) &&
+        (targetBlock.type === BlockType.CodeBlock ||
+            targetBlock.type === BlockType.MathBlock ||
+            targetBlock.type === BlockType.Comment) &&
         clampedTarget > targetBlock.lines.startLine &&
         clampedTarget <= targetBlock.lines.endLine
     ) {
-        return targetBlock.type === BlockType.MathBlock ? 'inside_math_block' : 'inside_code_block';
+        return targetBlock.type === BlockType.MathBlock
+            ? 'inside_math_block'
+            : targetBlock.type === BlockType.Comment
+              ? 'inside_comment_block'
+              : 'inside_code_block';
     }
 
     if (isCalloutAfterBoundary(doc, prevImmediateLine, nextIsQuoteLike, detectOptions)) {

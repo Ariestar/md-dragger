@@ -1,5 +1,6 @@
 import type { editor } from 'monaco-editor';
 import {
+    ADAPTABLE_BLOCKS,
     type BlockSelection,
     BlockType,
     type DropPosition,
@@ -49,8 +50,11 @@ export function lineAtPoint(editor: editor.ICodeEditor, point: Point): number | 
 }
 
 /**
- * Resolves the DropPosition for a pointer point, taking horizontal dragging
- * (list nesting / outdenting) into account and snapping against invalid containers.
+ * Resolve a drop seam from client coordinates and snap it against container rules.
+ * For paragraphs, headings, list items, and blockquotes, horizontal distance from
+ * the content's left edge sets list indentation in rendered indent steps.
+ * Returns null without a model, DOM node, selection, or line hit.
+ * Invalid configuration throws; document access errors propagate.
  */
 export function resolveDropPosition(
     editor: editor.ICodeEditor,
@@ -80,7 +84,7 @@ export function resolveDropPosition(
         source.type === BlockType.ListItem ? parseLine(doc.line(source.lines.startLine).text, tabSize).indent.width : 0;
 
     let targetIndentWidth = sourceIndentWidth;
-    if (source.type === BlockType.ListItem) {
+    if (source.type === BlockType.ListItem || ADAPTABLE_BLOCKS.has(source.type)) {
         const stepPx = resolveListIndentWidthPx(options, editor);
         const contentLeft = rect.left + editor.getLayoutInfo().contentLeft - editor.getScrollLeft();
         const horizontalSteps = Math.max(0, Math.round((point.x - contentLeft) / stepPx));

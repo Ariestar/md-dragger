@@ -89,6 +89,55 @@ describe('adapter/codemirror pointerInput across windows', () => {
         expect(seen).toEqual(['release']);
     });
 
+    it('keeps the active drag when another pointer moves with no buttons', () => {
+        const { view } = editorIn(fakeWindow());
+        const input = pointerInput(view);
+        const seen: string[] = [];
+        input.onPress(() => {});
+        input.onMove((event) => seen.push(`${event.pointer.id}:${event.buttons}`));
+
+        view.dom.dispatchEvent(pointer('pointerdown'));
+        const win = view.dom.ownerDocument.defaultView;
+        win?.dispatchEvent(Object.assign(pointer('pointermove'), { buttons: 1 }));
+        win?.dispatchEvent(Object.assign(pointer('pointermove'), { pointerId: 2, buttons: 0 }));
+        win?.dispatchEvent(Object.assign(new Event('keydown'), { key: 'Alt', altKey: true }));
+
+        expect(seen).toEqual(['1:1', '2:0', '1:1']);
+    });
+
+    it('resolves a modifier-key move in the document of the last pointer move', () => {
+        const main = fakeWindow();
+        Object.assign(main, { screenX: 0, screenY: 0, innerWidth: 800, innerHeight: 600 });
+        const popout = fakeWindow();
+        Object.assign(popout, { screenX: 900, screenY: 50, innerWidth: 800, innerHeight: 600 });
+        const { view } = editorIn(main);
+        const unregister = registerView({
+            dom: { ownerDocument: popout.document },
+        } as unknown as EditorView);
+        const input = pointerInput(view);
+        const seen: string[] = [];
+        input.onPress(() => {});
+        input.onMove(() => {
+            seen.push(pointerDocument() === popout.document ? 'popout' : 'other');
+        });
+
+        view.dom.dispatchEvent(pointer('pointerdown'));
+        main.dispatchEvent(
+            Object.assign(pointer('pointermove'), {
+                view: main,
+                clientX: 1100,
+                clientY: 90,
+                screenX: 1100,
+                screenY: 90,
+                buttons: 1,
+            }),
+        );
+        main.dispatchEvent(Object.assign(new Event('keydown'), { key: 'Alt', altKey: true }));
+        unregister();
+
+        expect(seen).toEqual(['popout', 'popout']);
+    });
+
     it('forwards buttons on a move and does not cancel from the adapter', () => {
         const { view } = editorIn(fakeWindow());
         const input = pointerInput(view);

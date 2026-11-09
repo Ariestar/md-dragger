@@ -1,9 +1,12 @@
+import { detectBlock } from './block/block-detector';
+import { formatBlockContent, resolveBlockTemplate } from './block/block-type-conversion';
 import type { Block } from './block/block-types';
 import { BlockType } from './block/block-types';
 import type { DropPosition } from './command/drop-position';
 import type { Doc } from './markdown/document-types';
 import { dropIndentWidth } from './markdown/drop-locate';
-import { formatIndent, isListLine, parseLine } from './parse/parse-line';
+import { getLineMap, getLineMetaAt } from './markdown/line-map';
+import { formatIndent, isListLine, listMarkerType, parseLine } from './parse/parse-line';
 import type { ParsedLine } from './parse/types';
 import type { TextChange } from './transaction/block-transaction';
 
@@ -119,27 +122,75 @@ export function relevelListText(params: {
 }
 
 /**
- * Text to insert for a move: relevel list indent from DropPosition.parent only,
- * then ensure a trailing newline.
+ * Whether the 1-based insertion seam has list lines immediately above and below.
+ * Returns false at the document boundaries; document access errors propagate.
+ */
+function isBetweenListItems(doc: Doc, line: number, tabSize: number): boolean {
+    if (line <= 1 || line > doc.lines) return false;
+    const lineMap = getLineMap(doc, { tabSize });
+    return !!getLineMetaAt(lineMap, line - 1)?.isList && !!getLineMetaAt(lineMap, line)?.isList;
+}
+
+/** Keep the text that belongs to the source block. A heading title may itself look like a list item. */
+function adaptedLine(
+    line: string,
+    type: BlockType,
+    parse: (line: string) => ParsedLine,
+): { indentRaw: string; body: string } {
+    const parsed = parse(line);
+    if (type === BlockType.Heading && parsed.marker?.kind === 'heading') {
+        return { indentRaw: parsed.indent.raw, body: parsed.body };
+    }
+    if (type === BlockType.Blockquote) {
+        return { indentRaw: parsed.indent.raw, body: `${parsed.marker?.text ?? ''}${parsed.body}` };
+    }
+    const rest = line.slice(parsed.quote.prefix.length);
+    return { indentRaw: parsed.indent.raw, body: rest.slice(parsed.indent.raw.length) };
+}
+
+/**
+ * Prepare move text, ensuring a trailing newline without modifying the document.
+ * When adaptToList is true, convert each source line to the marker type of the
+ * list parent, or of the following item at a seam between adjacent list lines.
+ * Relevel list text to the parent's indent plus indentUnit, or zero at the root.
+ * tabSize and indentUnit are measured in text columns. Document access errors
+ * propagate.
  */
 export function insertTextForMove(params: {
     doc: Doc;
     sourceBlock: Block;
+    adaptToList: boolean;
     targetLineNumber: number;
     sourceContent: string;
     position: DropPosition;
     tabSize: number;
     indentUnit: number;
 }): string {
-    const { sourceBlock, sourceContent, position, tabSize, indentUnit } = params;
+    const { doc, sourceBlock, adaptToList, sourceContent, position, tabSize, indentUnit } = params;
 
     const parse = (line: string) => parseLine(line, tabSize);
     let text = sourceContent;
 
-    // Structure only: parent list → target indent from dropIndentWidth(parent).
-    // No getListContextNearLine / listSampleLine side channel.
-    const nestList = sourceBlock.type === BlockType.ListItem || position.parent?.type === BlockType.ListItem;
-    if (sourceBlock.type !== BlockType.Blockquote && nestList) {
+    const targetListBlock =
+        position.parent?.type === BlockType.ListItem
+            ? position.parent
+            : isBetweenListItems(doc, position.line, tabSize)
+              ? detectBlock(doc, position.line, { tabSize })
+              : null;
+
+    if (adaptToList && targetListBlock) {
+        const headText = doc.line(targetListBlock.lines.startLine).text;
+        const parsedMarker = listMarkerType(parse(headText));
+        const markerType = parsedMarker === 'ordered' ? 'ordered' : parsedMarker === 'task' ? 'task' : 'unordered';
+        const template = resolveBlockTemplate({ type: BlockType.ListItem, markerType });
+        text = formatBlockContent(
+            text.split('\n').map((line) => adaptedLine(line, sourceBlock.type, parse)),
+            template,
+        );
+    }
+
+    const nestList = sourceBlock.type === BlockType.ListItem || targetListBlock !== null;
+    if (nestList) {
         const targetIndentWidth = dropIndentWidth(position, { tabSize, indentUnit });
         text = relevelListText({
             sourceContent: text,
