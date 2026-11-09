@@ -35,6 +35,13 @@ export type CapturedMoveSource = {
     adaptToList: boolean;
 };
 
+/**
+ * Capture selected text and deletion ranges without modifying the document.
+ * Adjacent or overlapping line ranges are merged; disjoint ranges are joined
+ * with a newline. Returns null when no ranges remain within the document.
+ * adaptToList is true only when every selected block is a paragraph, heading,
+ * or blockquote. Document access errors propagate.
+ */
 export function captureMoveSource(doc: Doc, selection: BlockSelection): CapturedMoveSource | null {
     const ranges = selectionLineRanges(doc.lines, selection);
     if (ranges.length === 0) return null;

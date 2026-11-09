@@ -90,8 +90,11 @@ export { type SnapDropInput, snapDrop } from '../../domain';
 /**
  * Default multi-doc drop locate — two independent axes:
  *   y → hit-test live views, seam on the target view
- *   x → horizontal drag distance from the source content band, in rendered
- *       list-indent steps → target indent width (domain clamps to structure)
+ *   x → distance from the target content's left edge, in rendered list-indent
+ *       steps, for paragraphs, headings, list items, and blockquotes
+ * Snaps the seam against container rules; indentation is clamped to structure.
+ * Returns null for an empty selection, an invalid source start line, or a failed
+ * editor/line hit test. Configuration and document access errors propagate.
  */
 export function resolveDropPositionAtPoint(
     sourceView: EditorView,
