@@ -129,10 +129,10 @@
   "packageManager": "pnpm@11.19.0",
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.2",
-    "@biomejs/biome": "^2.5.15",
+    "@biomejs/biome": "^2.6.2",
     "@codemirror/state": "^6.7.6",
-    "@codemirror/view": "^6.43.13",
-    "@types/node": "^26.6.4",
+    "@codemirror/view": "^6.43.15",
+    "@types/node": "^26.6.5",
     "esbuild": "^0.28.2",
     "husky": "^9.1.7",
     "lint-staged": "^17.6.0",
@@ -140,6 +140,6 @@
     "publint": "^0.3.25",
     "tslib": "^2.4.0",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.3"
+    "vitest": "^5.0.5"
   }
 }
