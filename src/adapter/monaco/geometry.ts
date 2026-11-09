@@ -85,9 +85,11 @@ export function dropSeam(
         left = domRect.left + layout.contentLeft - codeEditor.getScrollLeft();
     }
 
+    const top = codeEditor.getTopForLineNumber(row);
+    const bottom = codeEditor.getBottomForLineNumber(row);
     // Below a row is the top of the next one, past any view zone between them, where an insertion there shows.
-    const below = row < lineCount ? codeEditor.getTopForLineNumber(row + 1) : codeEditor.getBottomForLineNumber(row);
-    const y = domRect.top + (edge === 'top' ? codeEditor.getTopForLineNumber(row) : below) - scrollTop;
+    const below = row < lineCount ? codeEditor.getTopForLineNumber(row + 1) : bottom;
+    const y = domRect.top + (edge === 'top' ? top : edge === 'below' ? below : (top + bottom) / 2) - scrollTop;
 
     const right = Math.max(left, domRect.left + layout.contentLeft + layout.contentWidth);
 

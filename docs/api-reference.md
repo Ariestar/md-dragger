@@ -25,7 +25,7 @@ Pure functions and types — no I/O, no DOM.
 | `moveTx(targetDoc, geometry, parse?)` | Build the minimal `DocEdit[]` for a move (single doc → single edit/transaction). |
 | `locateDropPosition({ doc, selection, hitLine, belowMid, … })` | Structural drop position for a target line — where a block may legally land. |
 | `snapDrop(input: SnapDropInput)` | Snap a rejected seam to the nearest insertable seam, preserving source no-op seams. |
-| `seamRow(position)` | The row the drop indicator sits on for a position's line, and which edge of it (`top` / `below`). It maps the line and decides nothing: paint the position `planMove` returns, the boundary of the gap the write uses. |
+| `seamRow(position)` | The row the drop indicator sits on for a position's line and zone, and which edge of it (`top` / `below` / `center`). It maps them and decides nothing: paint the position `planMove` returns, the boundary of the gap the write uses. |
 | `SnapDropInput` | Raw seam (including its destination document), source document/selection, indentation widths, tab size, and indent unit. |
 | `listLevel(lineText, tabSize, indentUnit)` | 0-based list nesting level (0 for root or non-list). Requires a finite, positive indent unit; throws if the computed level is non-finite. |
 | `selectOne(block)`, `selectBlocks(…)`, `addBlocks/removeBlocks/hasBlock`, `selectionLineRanges` | Selection helpers. |
@@ -156,7 +156,7 @@ The adapter emits protocol classes; hosts style them:
 
 - `.md-dragger-gutter` / `.md-dragger-handle[data-block-start]` — handle gutter and markers.
 - `.md-dragger-drag-source` — line decoration on the dragged block rows (carries `--d-source-level` per row).
-- `.md-dragger-drop-seam` / `.md-dragger-drop-seam-top` / `.md-dragger-drop-seam-below` / `.is-invalid` — the drop indicator line, on the top or bottom edge of the row `seamRow` gives (`-top` also on a gap's first blank line).
+- `.md-dragger-drop-seam` / `.md-dragger-drop-seam-top` / `.md-dragger-drop-seam-below` / `.md-dragger-drop-seam-center` / `.is-invalid` — the drop indicator line, on the top or bottom edge of the row `seamRow` gives (`-top` also on a gap's first blank line), or across its middle (`-center`: a line payload landing apart in a gap's one blank line).
 - View-level CSS variables hosts fill from geometry: seam left/width (`--d-seam-left`, `--d-seam-width` in the Obsidian host), rendered list indent step (`--d-list-indent-step`).
 
 The Obsidian plugin's `styles.css` is the reference implementation of the whole protocol.

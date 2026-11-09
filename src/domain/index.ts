@@ -8,7 +8,7 @@ export { type BlockTemplate, type ConvertTo, planConvert, resolveBlockTemplate }
 // --- block identity ---
 export { type Block, BlockType } from './block/block-types';
 // --- drop ---
-export type { DropPosition } from './command/drop-position';
+export type { DropPosition, DropZone } from './command/drop-position';
 // --- document ---
 export type { Doc, DocLine, MarkerType } from './markdown/document-types';
 export {

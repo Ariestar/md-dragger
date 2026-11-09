@@ -84,9 +84,10 @@ export function dropSeam(
     }
 
     const block = view.lineBlockAt(doc.line(row).from);
+    const y = edge === 'top' ? block.top : edge === 'below' ? block.bottom : (block.top + block.bottom) / 2;
     return {
         left,
         right: Math.max(left, view.contentDOM.getBoundingClientRect().right),
-        y: view.documentTop + (edge === 'top' ? block.top : block.bottom),
+        y: view.documentTop + y,
     };
 }

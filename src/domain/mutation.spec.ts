@@ -43,7 +43,12 @@ describe('relevelListText', () => {
 const TAB = 4;
 
 describe('insertIntoGap', () => {
-    const paragraphEnd: PayloadEnd = { type: BlockType.Paragraph, run: 'paragraph@0', standalone: false };
+    const paragraphEnd: PayloadEnd = {
+        type: BlockType.Paragraph,
+        run: 'paragraph@0',
+        standalone: false,
+        selected: BlockType.Paragraph,
+    };
     const standaloneEnd: PayloadEnd = { ...paragraphEnd, standalone: true };
 
     /** Write `payload` into the gap at `seam`, at that boundary of its blank lines. */
@@ -61,6 +66,7 @@ describe('insertIntoGap', () => {
                 tabSize: TAB,
                 parent: null,
                 standalone: (block) => isStandalone(doc, block, { lineMap }),
+                zone: undefined,
                 line: seam,
             },
         );

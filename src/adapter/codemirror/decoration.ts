@@ -13,6 +13,7 @@ export { listLevel } from '../../domain';
 export const DROP_SEAM_CLASS = 'md-dragger-drop-seam';
 export const DROP_SEAM_TOP_CLASS = 'md-dragger-drop-seam-top';
 export const DROP_SEAM_BELOW_CLASS = 'md-dragger-drop-seam-below';
+export const DROP_SEAM_CENTER_CLASS = 'md-dragger-drop-seam-center';
 export const DROP_SEAM_COPY_CLASS = 'md-dragger-drop-seam-copy';
 export const INVALID_CLASS = 'is-invalid';
 export const DRAG_SOURCE_LINE_CLASS = 'md-dragger-drag-source';
@@ -64,7 +65,7 @@ export function sourceHighlightDecoration(outputs: readonly PipelineOutput[], st
     return Decoration.set(decorations);
 }
 
-const EDGE_CLASS = { top: DROP_SEAM_TOP_CLASS, below: DROP_SEAM_BELOW_CLASS };
+const EDGE_CLASS = { top: DROP_SEAM_TOP_CLASS, below: DROP_SEAM_BELOW_CLASS, center: DROP_SEAM_CENTER_CLASS };
 
 /** Drop-seam line decoration derived from one engine output batch: on the
  * seam row (seamRow), marked invalid when the drop is rejected and marked

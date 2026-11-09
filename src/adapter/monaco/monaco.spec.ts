@@ -1,5 +1,6 @@
 import type { editor } from 'monaco-editor';
 import { describe, expect, it, vi } from 'vitest';
+import type { DropZone } from '../../domain';
 import type { PressInput } from '../../runtime';
 import { applyCommit } from './commit';
 import { type MdDraggerMonacoOptions, resolveConfig, resolveListIndentWidthPx } from './config';
@@ -238,6 +239,18 @@ describe('adapter/monaco geometry and highlighting', () => {
         expect(at(2)).toBe(70);
         expect(at(3)).toBe(90);
         expect(at(4)).toBe(110);
+    });
+
+    it('paints the drop zone of a line payload where the line lands', () => {
+        const model = createMockModel('x\n\na\nb\n\ny');
+        const host = createMockEditor(model);
+        const at = (zone?: DropZone) =>
+            dropSeam(host.editor, { doc: monacoDoc(model), line: 3, parent: null, zone }, options)?.y;
+        // Rows are 20px from the editor top (50): the bottom of `x`, the middle of the blank line, the top of `a`.
+        expect(at('joinAbove')).toBe(70);
+        expect(at('apart')).toBe(80);
+        expect(at('joinBelow')).toBe(90);
+        expect(at()).toBe(90);
     });
 
     it('paints below a view zone, at the top of the line a drop lands before', () => {

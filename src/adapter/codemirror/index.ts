@@ -4,6 +4,7 @@ import { EDITOR_CLASS, type MdDraggerCodeMirrorOptions, resolveListIndentUnit } 
 import {
     DRAG_SOURCE_LINE_CLASS,
     DROP_SEAM_BELOW_CLASS,
+    DROP_SEAM_CENTER_CLASS,
     DROP_SEAM_CLASS,
     DROP_SEAM_COPY_CLASS,
     DROP_SEAM_TOP_CLASS,
@@ -73,6 +74,7 @@ export { pointerDocument, pointInTopDocument } from './views';
 export {
     DRAG_SOURCE_LINE_CLASS,
     DROP_SEAM_BELOW_CLASS,
+    DROP_SEAM_CENTER_CLASS,
     DROP_SEAM_CLASS,
     DROP_SEAM_COPY_CLASS,
     DROP_SEAM_TOP_CLASS,
