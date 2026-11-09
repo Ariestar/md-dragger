@@ -131,7 +131,11 @@ function isBetweenListItems(doc: Doc, line: number, tabSize: number): boolean {
     return !!getLineMetaAt(lineMap, line - 1)?.isList && !!getLineMetaAt(lineMap, line)?.isList;
 }
 
-/** Keep the text that belongs to the source block. A heading title may itself look like a list item. */
+/**
+ * Return indentation and body for list adaptation, removing quote prefixes and,
+ * for heading blocks, the heading marker. Preserve other markers as content;
+ * a heading title may itself look like a list item.
+ */
 function adaptedLine(
     line: string,
     type: BlockType,
@@ -152,6 +156,7 @@ function adaptedLine(
  * Prepare move text, ensuring a trailing newline without modifying the document.
  * When adaptToList is true, convert each source line to the marker type of the
  * list parent, or of the following item at a seam between adjacent list lines.
+ * New task items are unchecked; new ordered items are numbered from 1.
  * Relevel list text to the parent's indent plus indentUnit, or zero at the root.
  * tabSize and indentUnit are measured in text columns. Document access errors
  * propagate.
