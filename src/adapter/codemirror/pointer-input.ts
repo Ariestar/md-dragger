@@ -1,7 +1,7 @@
 import type { EditorView } from '@codemirror/view';
 import { pointInViewport, type Viewport } from '../../domain/viewport';
 import type { InputSource, Point, Pointer } from '../../runtime';
-import { liveViewWindows, withPointerDocument } from './views';
+import { liveViewWindows, pointerDocument, withPointerDocument } from './views';
 
 type WindowBinding = {
     /** Picks the event target from the owner window: the window itself or its document. */
@@ -16,6 +16,12 @@ type WindowBinding = {
 const theWindow = (win: Window): EventTarget => win;
 const itsDocument = (win: Window): EventTarget => win.document;
 
+/**
+ * Adapt editor pointer events to subscribable input; each subscription returns
+ * an unsubscribe callback. Moves and releases carry modifier state. While pressed,
+ * modifier key changes replay the last active pointer move in its document.
+ * Subscriptions requiring window listeners throw if the editor document has no window.
+ */
 export function pointerInput(view: EditorView): InputSource {
     // Window-level listeners follow the window that currently owns the editor.
     // A host may build the editor in one document and move it into another
@@ -29,6 +35,7 @@ export function pointerInput(view: EditorView): InputSource {
     let activePointerId: number | null = null;
     let lastPoint: Point | null = null;
     let lastPointer: Pointer | null = null;
+    let lastPointerDocument: Document | null = null;
     const ownerWindow = (): Window => {
         const win = view.dom.ownerDocument.defaultView;
         if (!win) throw new Error('md-dragger: editor document has no window');
@@ -116,6 +123,7 @@ export function pointerInput(view: EditorView): InputSource {
                 activePointerId = event.pointerId;
                 lastPoint = null;
                 lastPointer = null;
+                lastPointerDocument = null;
                 syncWindows();
                 deliver(event, () =>
                     handler({
@@ -140,17 +148,19 @@ export function pointerInput(view: EditorView): InputSource {
         },
         onMove: (handler) => {
             const listener = (event: PointerEvent) => {
-                if (event.buttons === 0) {
+                if (event.buttons === 0 && event.pointerId === activePointerId) {
                     pointerDown = false;
                     activePointerId = null;
                     lastPoint = null;
                     lastPointer = null;
+                    lastPointerDocument = null;
                 }
                 deliverPointer(event, (point) => {
                     const pointer = { id: event.pointerId, type: event.pointerType };
                     if (pointerDown && activePointerId === event.pointerId) {
                         lastPoint = point;
                         lastPointer = pointer;
+                        lastPointerDocument = pointerDocument();
                     }
                     handler({
                         point,
@@ -170,18 +180,22 @@ export function pointerInput(view: EditorView): InputSource {
             const keyListener = (event: KeyboardEvent) => {
                 if (!pointerDown || !lastPoint || !lastPointer) return;
                 if (event.key === 'Alt' || event.key === 'Control' || event.key === 'Meta' || event.key === 'Shift') {
-                    handler({
-                        point: lastPoint,
-                        pointer: lastPointer,
-                        buttons: 1,
-                        modifiers: {
-                            altKey: event.altKey,
-                            ctrlKey: event.ctrlKey,
-                            metaKey: event.metaKey,
-                            shiftKey: event.shiftKey,
-                        },
-                        native: event,
-                    });
+                    const point = lastPoint;
+                    const pointer = lastPointer;
+                    withPointerDocument(lastPointerDocument, () =>
+                        handler({
+                            point,
+                            pointer,
+                            buttons: 1,
+                            modifiers: {
+                                altKey: event.altKey,
+                                ctrlKey: event.ctrlKey,
+                                metaKey: event.metaKey,
+                                shiftKey: event.shiftKey,
+                            },
+                            native: event,
+                        }),
+                    );
                 }
             };
             const unlisten = [
@@ -199,6 +213,7 @@ export function pointerInput(view: EditorView): InputSource {
                 activePointerId = null;
                 lastPoint = null;
                 lastPointer = null;
+                lastPointerDocument = null;
                 deliverPointer(event, (point) =>
                     handler({
                         point,
@@ -232,6 +247,7 @@ export function pointerInput(view: EditorView): InputSource {
                 activePointerId = null;
                 lastPoint = null;
                 lastPointer = null;
+                lastPointerDocument = null;
                 handler({
                     pointer: { id: event.pointerId, type: event.pointerType },
                     reason: 'pointer_cancelled',
@@ -247,6 +263,7 @@ export function pointerInput(view: EditorView): InputSource {
                 activePointerId = null;
                 lastPoint = null;
                 lastPointer = null;
+                lastPointerDocument = null;
                 handler({
                     pointer: { id: -1, type: null },
                     reason: 'pointer_cancelled',
