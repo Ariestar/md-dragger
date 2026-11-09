@@ -1,5 +1,5 @@
 import { detectBlock } from './block/block-detector';
-import { formatBlockContent, resolveBlockTemplate, stripPrefix } from './block/block-type-conversion';
+import { formatBlockContent, resolveBlockTemplate } from './block/block-type-conversion';
 import type { Block } from './block/block-types';
 import { BlockType } from './block/block-types';
 import type { DropPosition } from './command/drop-position';
@@ -8,7 +8,6 @@ import { dropIndentWidth } from './markdown/drop-locate';
 import { getLineMap, getLineMetaAt } from './markdown/line-map';
 import { formatIndent, isListLine, listMarkerType, parseLine } from './parse/parse-line';
 import type { ParsedLine } from './parse/types';
-import { ADAPTABLE_BLOCKS } from './rules/insertion-rules';
 import type { TextChange } from './transaction/block-transaction';
 
 export function resolveInsertionChange(
@@ -132,16 +131,34 @@ function isBetweenListItems(doc: Doc, line: number, tabSize: number): boolean {
     return !!getLineMetaAt(lineMap, line - 1)?.isList && !!getLineMetaAt(lineMap, line)?.isList;
 }
 
+/** Keep the text that belongs to the source block. A heading title may itself look like a list item. */
+function adaptedLine(
+    line: string,
+    type: BlockType,
+    parse: (line: string) => ParsedLine,
+): { indentRaw: string; body: string } {
+    const parsed = parse(line);
+    if (type === BlockType.Heading && parsed.marker?.kind === 'heading') {
+        return { indentRaw: parsed.indent.raw, body: parsed.body };
+    }
+    if (type === BlockType.Blockquote) {
+        return { indentRaw: parsed.indent.raw, body: `${parsed.marker?.text ?? ''}${parsed.body}` };
+    }
+    const rest = line.slice(parsed.quote.prefix.length);
+    return { indentRaw: parsed.indent.raw, body: rest.slice(parsed.indent.raw.length) };
+}
+
 export function insertTextForMove(params: {
     doc: Doc;
     sourceBlock: Block;
+    adaptToList: boolean;
     targetLineNumber: number;
     sourceContent: string;
     position: DropPosition;
     tabSize: number;
     indentUnit: number;
 }): string {
-    const { doc, sourceBlock, sourceContent, position, tabSize, indentUnit } = params;
+    const { doc, sourceBlock, adaptToList, sourceContent, position, tabSize, indentUnit } = params;
 
     const parse = (line: string) => parseLine(line, tabSize);
     let text = sourceContent;
@@ -153,16 +170,19 @@ export function insertTextForMove(params: {
               ? detectBlock(doc, position.line, { tabSize })
               : null;
 
-    if (sourceBlock.type !== BlockType.ListItem && ADAPTABLE_BLOCKS.has(sourceBlock.type) && targetListBlock) {
+    if (adaptToList && targetListBlock) {
         const headText = doc.line(targetListBlock.lines.startLine).text;
         const parsedMarker = listMarkerType(parse(headText));
         const markerType = parsedMarker === 'ordered' ? 'ordered' : parsedMarker === 'task' ? 'task' : 'unordered';
         const template = resolveBlockTemplate({ type: BlockType.ListItem, markerType });
-        text = formatBlockContent(text.split('\n').map(stripPrefix), template);
+        text = formatBlockContent(
+            text.split('\n').map((line) => adaptedLine(line, sourceBlock.type, parse)),
+            template,
+        );
     }
 
     const nestList = sourceBlock.type === BlockType.ListItem || targetListBlock !== null;
-    if (sourceBlock.type !== BlockType.Blockquote && nestList) {
+    if (nestList) {
         const targetIndentWidth = dropIndentWidth(position, { tabSize, indentUnit });
         text = relevelListText({
             sourceContent: text,
