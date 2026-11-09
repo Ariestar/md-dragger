@@ -1,6 +1,12 @@
 import type { editor } from 'monaco-editor';
 import type { CancelInput, InputSource, MoveInput, Point, PressInput, ReleaseInput } from '../../runtime';
 
+/**
+ * Adapt editor pointer events to subscribable input with a cancel operation.
+ * Moves and releases carry modifier state; Alt changes replay the active pointer's
+ * last position. Listeners are removed when the last subscription is disposed.
+ * Throws if the editor has no DOM node or its document has no window.
+ */
 export function pointerInput(editor: editor.ICodeEditor): InputSource & { cancel(): void } {
     const pressHandlers = new Set<(input: PressInput) => void>();
     const moveHandlers = new Set<(input: MoveInput) => void>();
