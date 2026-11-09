@@ -90,4 +90,36 @@ describe('domain/block-detector', () => {
         expect(block?.lines.startLine).toBe(1);
         expect(block?.lines.endLine).toBe(1);
     });
+
+    it('detects a code block after an unclosed comment fence', () => {
+        const doc = stringDoc(['%% todo', '```js', 'const x = 1;', '```'].join('\n'));
+
+        const code = detectBlock(doc, 2, { tabSize: 4 });
+        expect(code?.type).toBe(BlockType.CodeBlock);
+        expect(code?.lines.startLine).toBe(2);
+        expect(code?.lines.endLine).toBe(4);
+
+        const inner = detectBlock(doc, 3, { tabSize: 4 });
+        expect(inner?.type).toBe(BlockType.CodeBlock);
+        expect(inner?.lines.startLine).toBe(2);
+        expect(inner?.lines.endLine).toBe(4);
+    });
+
+    it('detects a code block after an unclosed math fence', () => {
+        const doc = stringDoc(['$$', '```', 'code', '```'].join('\n'));
+
+        const code = detectBlock(doc, 2, { tabSize: 4 });
+        expect(code?.type).toBe(BlockType.CodeBlock);
+        expect(code?.lines.startLine).toBe(2);
+        expect(code?.lines.endLine).toBe(4);
+    });
+
+    it('keeps a code fence inside a closed comment inside the comment', () => {
+        const doc = stringDoc(['%%', '```', 'code', '```', '%%'].join('\n'));
+
+        const inner = detectBlock(doc, 3, { tabSize: 4 });
+        expect(inner?.type).toBe(BlockType.Comment);
+        expect(inner?.lines.startLine).toBe(1);
+        expect(inner?.lines.endLine).toBe(5);
+    });
 });

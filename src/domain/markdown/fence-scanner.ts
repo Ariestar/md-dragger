@@ -90,7 +90,17 @@ function scanFenceLine(state: FenceLazyScanState, lineNumber: number, text: stri
     }
 }
 
-function finalizeFenceStateAtDocEnd(state: FenceLazyScanState): void {
+function finalizeFenceStateAtDocEnd(state: FenceLazyScanState, doc: Doc): void {
+    // An unclosed comment or math fence is discarded. Lines after its opener
+    // were skipped while looking for the close, so scan them again. A code
+    // fence stays open to the end and only claims its opening line.
+    while (state.openFence && !state.openFence.keepUnclosed) {
+        const resumeFrom = state.openFence.startLine + 1;
+        state.openFence = null;
+        for (let cursor = resumeFrom; cursor <= doc.lines; cursor++) {
+            scanFenceLine(state, cursor, doc.line(cursor).text);
+        }
+    }
     if (state.openFence?.keepUnclosed) {
         assignFenceRangeByLine(
             state.fenceByLine,
@@ -113,7 +123,7 @@ function ensureFenceScanComplete(doc: Doc): FenceLazyScanState {
         cursor++;
     }
     state.scannedUntilLine = Math.max(state.scannedUntilLine, cursor - 1);
-    finalizeFenceStateAtDocEnd(state);
+    finalizeFenceStateAtDocEnd(state, doc);
     return state;
 }
 
