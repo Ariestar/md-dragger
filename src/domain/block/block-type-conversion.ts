@@ -147,7 +147,7 @@ function planConvertLines(doc: Doc, startLine: number, endLine: number, to: Conv
  * in each prefix with its 1-based line index. Interpolate template variables once;
  * ${content} uses the formatted lines and missing variables become empty strings.
  */
-function formatBlockContent(contentLines: ExtractedLine[], target: BlockTemplate): string {
+export function formatBlockContent(contentLines: ExtractedLine[], target: BlockTemplate): string {
     const formattedLines = contentLines.map((line, index) => {
         if (!target.linePrefix) return `${line.indentRaw}${line.body}`;
         const prefix = target.linePrefix.replace('${ordinal}', String(index + 1));

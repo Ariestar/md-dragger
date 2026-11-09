@@ -24,6 +24,19 @@ export interface InsertionRuleDecision {
     rejectReason: RejectReason | null;
 }
 
+export const ADAPTABLE_BLOCKS = new Set<BlockType>([
+    BlockType.Paragraph,
+    BlockType.Heading,
+    BlockType.ListItem,
+    BlockType.Blockquote,
+]);
+
+/**
+ * Decide whether a source type may enter an already classified insertion seam.
+ * List interiors accept paragraphs, headings, list items, and blockquotes;
+ * quote interiors accept only blockquotes. Returns a null reason on acceptance
+ * or the applicable rejection reason, without converting the source text.
+ */
 export function resolveInsertionRule(input: InsertionRuleInput): InsertionRuleDecision {
     const { sourceType, slotContext } = input;
     switch (slotContext) {
@@ -35,7 +48,7 @@ export function resolveInsertionRule(input: InsertionRuleInput): InsertionRuleDe
         case 'hr_before':
             return { allowDrop: false, rejectReason: slotContext };
         case 'inside_list':
-            return sourceType === BlockType.ListItem
+            return ADAPTABLE_BLOCKS.has(sourceType)
                 ? { allowDrop: true, rejectReason: null }
                 : { allowDrop: false, rejectReason: 'inside_list' };
         case 'inside_quote_run':
