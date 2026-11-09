@@ -355,4 +355,20 @@ describe('moveTx context adaptation', () => {
             '1. item 1\n    1. Heading\n2. item 2\n',
         );
     });
+
+    it('keeps list-like text in a heading title', () => {
+        expect(nestAndApply('- parent\n\n# - [x] Keep', 3, 2, 1)).toBe('- parent\n    - - [x] Keep\n');
+    });
+
+    it('indents a blockquote adapted into a child list item', () => {
+        expect(nestAndApply('- parent\n\n> quote', 3, 2, 1)).toBe('- parent\n    - quote\n');
+    });
+
+    it('leaves a code block verbatim when a paragraph in the same selection is dropped into a list', () => {
+        const source = '- parent\n\nparagraph\n```\ncode\n```';
+        const moved = moveUnder(source, [3, 4], 2, 1);
+        expect(moved).toContain('```\ncode\n```');
+        expect(moved).not.toContain('- ```');
+        expect(moved).not.toContain('- code');
+    });
 });

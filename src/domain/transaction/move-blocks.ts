@@ -1,4 +1,5 @@
 import type { Block } from '../block/block-types';
+import { BlockType } from '../block/block-types';
 import type { Doc } from '../markdown/document-types';
 import type { LineRange } from '../markdown/line-range-types';
 import type { MovePlan } from '../move/move-plan';
@@ -6,6 +7,7 @@ import { insertTextForMove, resolveDeleteRange, resolveInsertionChange } from '.
 import { parseLine } from '../parse/parse-line';
 import type { ParsedLine } from '../parse/types';
 import { type Reject, reject } from '../result';
+import { ADAPTABLE_BLOCKS } from '../rules/insertion-rules';
 import { type BlockSelection, selectionLineRanges } from '../selection/block-selection';
 import type { DocEdit, TextChange } from './block-transaction';
 import { renumberRunsNear } from './list-renumber';
@@ -29,6 +31,8 @@ export type MoveSourcePayload = {
 export type CapturedMoveSource = {
     block: Block;
     payload: MoveSourcePayload;
+    /** Every selected block can become a list item. A code block in the selection must stay verbatim. */
+    adaptToList: boolean;
 };
 
 export function captureMoveSource(doc: Doc, selection: BlockSelection): CapturedMoveSource | null {
@@ -57,6 +61,9 @@ export function captureMoveSource(doc: Doc, selection: BlockSelection): Captured
             lines: { startLine: first.startLine, endLine: last.endLine },
         },
         payload: { content, ranges, segments },
+        adaptToList: selection.blocks.every(
+            (block) => block.type !== BlockType.ListItem && ADAPTABLE_BLOCKS.has(block.type),
+        ),
     };
 }
 
@@ -83,6 +90,7 @@ export function moveTx(params: { sourceDoc: Doc; plan: MovePlan }): DocEdit[] | 
         insertTextForMove({
             doc: targetDoc,
             sourceBlock: plan.captured.block,
+            adaptToList: plan.captured.adaptToList,
             targetLineNumber: plan.position.line,
             sourceContent,
             position: plan.position,
