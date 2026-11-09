@@ -1,7 +1,7 @@
 import type { Doc, MarkerType } from '../markdown/document-types';
 import type { LineRange } from '../markdown/line-range-types';
 import type { TextChange } from '../transaction/block-transaction';
-import { isCodeFenceLine, isMathFenceLine } from './block-guards';
+import { isCodeFenceLine, singleLineFenceBody } from './block-guards';
 import type { Block } from './block-types';
 import { BlockType } from './block-types';
 
@@ -23,6 +23,7 @@ export type ConvertTo =
     | { type: BlockType.Blockquote }
     | { type: BlockType.CodeBlock }
     | { type: BlockType.MathBlock }
+    | { type: BlockType.Comment }
     | BlockTemplate;
 
 /**
@@ -37,6 +38,7 @@ export function planConvert(params: { doc: Doc; block?: Block; lines?: LineRange
     return planConvertLines(params.doc, span.startLine, span.endLine, params.to);
 }
 
+/** Resolve a built-in conversion target to its template, or return a custom template unchanged. */
 export function resolveBlockTemplate(to: ConvertTo): BlockTemplate {
     if ('template' in to) return to;
     switch (to.type) {
@@ -55,6 +57,8 @@ export function resolveBlockTemplate(to: ConvertTo): BlockTemplate {
             return { template: '```\n${content}\n```' };
         case BlockType.MathBlock:
             return { template: '$$\n${content}\n$$' };
+        case BlockType.Comment:
+            return { template: '%%\n${content}\n%%' };
     }
 }
 
@@ -65,6 +69,12 @@ type ExtractedContent = {
     callout?: { quotePrefix: string; calloutType: string; fold: string; rawHeader: string };
 };
 
+/**
+ * Extract content from an inclusive 1-based span, removing recognized fences or
+ * line prefixes. Callout titles become the first content line when nonempty;
+ * header metadata is retained for conversions that only change the callout type.
+ * Document access errors propagate.
+ */
 function unwrapBlock(doc: Doc, startLine: number, endLine: number): ExtractedContent {
     const fenced = readFencedContent(doc, startLine, endLine);
     if (fenced) {
@@ -97,6 +107,12 @@ function unwrapBlock(doc: Doc, startLine: number, endLine: number): ExtractedCon
     return { lines };
 }
 
+/**
+ * Plan edits for an inclusive 1-based span without modifying the document.
+ * Converting a callout to a template with a literal callout type changes only its
+ * type, preserving its title and fold marker. Matching fenced types and unchanged
+ * output return no edits. Document access errors propagate.
+ */
 function planConvertLines(doc: Doc, startLine: number, endLine: number, to: ConvertTo): TextChange[] {
     const extracted = unwrapBlock(doc, startLine, endLine);
 
@@ -114,6 +130,7 @@ function planConvertLines(doc: Doc, startLine: number, endLine: number, to: Conv
     if (!('template' in to)) {
         if (to.type === BlockType.CodeBlock && fenced?.type === BlockType.CodeBlock) return [];
         if (to.type === BlockType.MathBlock && fenced?.type === BlockType.MathBlock) return [];
+        if (to.type === BlockType.Comment && fenced?.type === BlockType.Comment) return [];
     }
 
     const target = resolveBlockTemplate(to);
@@ -125,6 +142,11 @@ function planConvertLines(doc: Doc, startLine: number, endLine: number, to: Conv
     return [{ from, to: toPos, insert: formatted }];
 }
 
+/**
+ * Apply prefixes after each line's indentation, replacing the first ${ordinal}
+ * in each prefix with its 1-based line index. Interpolate template variables once;
+ * ${content} uses the formatted lines and missing variables become empty strings.
+ */
 function formatBlockContent(contentLines: ExtractedLine[], target: BlockTemplate): string {
     const formattedLines = contentLines.map((line, index) => {
         if (!target.linePrefix) return `${line.indentRaw}${line.body}`;
@@ -139,11 +161,22 @@ function formatBlockContent(contentLines: ExtractedLine[], target: BlockTemplate
     );
 }
 
+const DELIMITED_TYPES = [
+    { type: BlockType.MathBlock, marker: '$$' },
+    { type: BlockType.Comment, marker: '%%' },
+] as const;
+
+/**
+ * Read content enclosed by code, math, or comment delimiters at an inclusive
+ * 1-based span's endpoints, or return null. Single-line math and comment bodies
+ * must end with their closing marker and are trimmed; multiline bodies retain
+ * their text. Document access errors propagate.
+ */
 function readFencedContent(
     doc: Doc,
     startLine: number,
     endLine: number,
-): { type: BlockType.CodeBlock | BlockType.MathBlock; contentLines: string[] } | null {
+): { type: BlockType.CodeBlock | BlockType.MathBlock | BlockType.Comment; contentLines: string[] } | null {
     const startText = doc.line(startLine).text;
     const endText = doc.line(endLine).text;
 
@@ -151,15 +184,14 @@ function readFencedContent(
         return { type: BlockType.CodeBlock, contentLines: innerLines(doc, startLine, endLine) };
     }
 
-    if (isMathFenceLine(startText)) {
+    for (const { type, marker } of DELIMITED_TYPES) {
+        if (!startText.trimStart().startsWith(marker)) continue;
         if (startLine === endLine) {
-            const content = singleLineMathBody(startText);
-            if (content !== null) {
-                return { type: BlockType.MathBlock, contentLines: [content] };
-            }
+            const content = singleLineFenceBody(startText, marker);
+            return content !== null ? { type, contentLines: [content] } : null;
         }
-        if (startLine < endLine && isMathFenceLine(endText)) {
-            return { type: BlockType.MathBlock, contentLines: innerLines(doc, startLine, endLine) };
+        if (startLine < endLine && endText.trimStart().startsWith(marker)) {
+            return { type, contentLines: innerLines(doc, startLine, endLine) };
         }
     }
     return null;
@@ -169,12 +201,6 @@ function innerLines(doc: Doc, startLine: number, endLine: number): string[] {
     const out: string[] = [];
     for (let n = startLine + 1; n < endLine; n++) out.push(doc.line(n).text);
     return out;
-}
-
-function singleLineMathBody(text: string): string | null {
-    const trimmed = text.trim();
-    if (!trimmed.startsWith('$$') || !trimmed.endsWith('$$') || trimmed.length < 4) return null;
-    return trimmed.slice(2, -2).trim();
 }
 
 /** Strip quote, callout, heading, list markers; keep indent. */

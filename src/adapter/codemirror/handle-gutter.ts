@@ -47,6 +47,7 @@ class BlockHandleMarker extends GutterMarker {
     }
 }
 
+/** Show handles at detected block starts while enabled, passing block metadata to custom renderers. */
 export function dragHandleGutter(options: MdDraggerCodeMirrorOptions): Extension {
     return gutter({
         class: 'md-dragger-gutter',
@@ -60,6 +61,7 @@ export function dragHandleGutter(options: MdDraggerCodeMirrorOptions): Extension
     });
 }
 
+/** Return block and opening-line marker metadata, or null for a continuation or non-block line. */
 function blockAtLine(view: EditorView, line: ViewBlockInfo, options: MdDraggerCodeMirrorOptions): GutterBlock | null {
     const docLine = view.state.doc.lineAt(line.from);
     if (docLine.from !== line.from) return null;

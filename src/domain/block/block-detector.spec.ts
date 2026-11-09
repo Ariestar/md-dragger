@@ -63,4 +63,63 @@ describe('domain/block-detector', () => {
         expect(row2?.lines.startLine).toBe(1);
         expect(row2?.lines.endLine).toBe(3);
     });
+
+    it('detects multi-line comment blocks as an atomic block over all lines', () => {
+        const doc = stringDoc(['%%', 'line 1', 'line 2', '%%'].join('\n'));
+
+        const head = detectBlock(doc, 1, { tabSize: 4 });
+        expect(head?.type).toBe(BlockType.Comment);
+        expect(head?.lines.startLine).toBe(1);
+        expect(head?.lines.endLine).toBe(4);
+
+        const inner = detectBlock(doc, 2, { tabSize: 4 });
+        expect(inner?.type).toBe(BlockType.Comment);
+        expect(inner?.lines.startLine).toBe(1);
+        expect(inner?.lines.endLine).toBe(4);
+
+        const tail = detectBlock(doc, 4, { tabSize: 4 });
+        expect(tail?.type).toBe(BlockType.Comment);
+        expect(tail?.lines.startLine).toBe(1);
+        expect(tail?.lines.endLine).toBe(4);
+    });
+
+    it('detects single-line comment blocks', () => {
+        const doc = stringDoc('%% inline comment %%');
+        const block = detectBlock(doc, 1, { tabSize: 4 });
+        expect(block?.type).toBe(BlockType.Comment);
+        expect(block?.lines.startLine).toBe(1);
+        expect(block?.lines.endLine).toBe(1);
+    });
+
+    it('detects a code block after an unclosed comment fence', () => {
+        const doc = stringDoc(['%% todo', '```js', 'const x = 1;', '```'].join('\n'));
+
+        const code = detectBlock(doc, 2, { tabSize: 4 });
+        expect(code?.type).toBe(BlockType.CodeBlock);
+        expect(code?.lines.startLine).toBe(2);
+        expect(code?.lines.endLine).toBe(4);
+
+        const inner = detectBlock(doc, 3, { tabSize: 4 });
+        expect(inner?.type).toBe(BlockType.CodeBlock);
+        expect(inner?.lines.startLine).toBe(2);
+        expect(inner?.lines.endLine).toBe(4);
+    });
+
+    it('detects a code block after an unclosed math fence', () => {
+        const doc = stringDoc(['$$', '```', 'code', '```'].join('\n'));
+
+        const code = detectBlock(doc, 2, { tabSize: 4 });
+        expect(code?.type).toBe(BlockType.CodeBlock);
+        expect(code?.lines.startLine).toBe(2);
+        expect(code?.lines.endLine).toBe(4);
+    });
+
+    it('keeps a code fence inside a closed comment inside the comment', () => {
+        const doc = stringDoc(['%%', '```', 'code', '```', '%%'].join('\n'));
+
+        const inner = detectBlock(doc, 3, { tabSize: 4 });
+        expect(inner?.type).toBe(BlockType.Comment);
+        expect(inner?.lines.startLine).toBe(1);
+        expect(inner?.lines.endLine).toBe(5);
+    });
 });
