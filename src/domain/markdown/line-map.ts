@@ -229,10 +229,16 @@ export function listLineAtOrAbove(lineMap: LineMap, lineNumber: number): number 
  */
 export function listItemContaining(lineMap: LineMap, line: number, parentLine: number): number | null {
     if (line < 1 || line > lineMap.doc.lines) return null;
-    let head = lineMap.lineMeta[line].isList ? line : lineMap.prevListLine[line];
-    while (head > 0 && lineMap.listSubtreeEndLine[head] < line) head = lineMap.listParentLine[head];
+    let head = innermostListItem(lineMap, line);
     while (head > 0 && lineMap.listParentLine[head] !== parentLine) head = lineMap.listParentLine[head];
     return head > 0 ? head : null;
+}
+
+/** Head line of the innermost list item whose subtree contains `line` (1-based, in the document), or 0 for none. */
+export function innermostListItem(lineMap: LineMap, line: number): number {
+    let head = lineMap.lineMeta[line].isList ? line : lineMap.prevListLine[line];
+    while (head > 0 && lineMap.listSubtreeEndLine[head] < line) head = lineMap.listParentLine[head];
+    return head;
 }
 
 /** The contiguous run of quoted lines containing `line`. */

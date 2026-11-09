@@ -20,6 +20,7 @@ Pure functions and types — no I/O, no DOM.
 | Export | Description |
 | --- | --- |
 | `detectBlock(doc, lineNumber, { tabSize })` | Block containing a line (`{ type, lines: { startLine, endLine } }` or `null`). Handles headings, lists (with subtree), tables, callouts, blockquotes, fences, math, hr. |
+| `referenceUnit(doc, lineNumber, { tabSize })` | The block a block reference to a line names (`{ block, text }` or `null`), which can only be a top-level block or a list item of a top-level list: the innermost such item holding the line (with the blocks Obsidian's list takes in right under it), or else its whole top-level paragraph, quote or callout, heading, table or other block, read as Obsidian's metadata parser reads them. `text` lists the paragraphs, headings and tables of the block's own text, a list item's own paragraph first. `null` for a line outside the note, in frontmatter or blank outside a fence; for any line of a footnote definition; for a bare list marker (`-`) and the blocks Obsidian takes into its item; and for a block that a fence md-dragger's fence scanner reads otherwise than Obsidian can change (tilde fences, closers CommonMark does not take, fences left open or opened on a list item's line, unclosed math or comments, fence lines in frontmatter), from the top of the note or the last line both read alike at its first column under a blank line. |
 | `parseLine(text, tabSize)` | Structural line parse: quote depth, indent, marker (heading/list/table-row/fence/callout/hr), body. |
 | `planMove(input)` | Compute a `MovePlan` for moving a `BlockSelection` to a `DropPosition` (respects container rules, indent, renumbering). |
 | `moveTx(targetDoc, geometry, parse?)` | Build the minimal `DocEdit[]` for a move (single doc → single edit/transaction). |
@@ -30,7 +31,7 @@ Pure functions and types — no I/O, no DOM.
 | `selectOne(block)`, `selectBlocks(…)`, `addBlocks/removeBlocks/hasBlock`, `selectionLineRanges` | Selection helpers. |
 | `planDelete`, `planConvert` | Block deletion and block-type conversion plans. |
 | `isLineNumberInRanges`, `formatIndent`, `isListLine`, `listMarkerType`, … | Utilities. |
-| `Doc`, `DocLine`, `Block`, `BlockType`, `DropPosition`, `DocEdit`, `TextChange`, `LineRange`, `ParsedLine`, `Reject` | Types. |
+| `Doc`, `DocLine`, `Block`, `BlockType`, `DropPosition`, `DocEdit`, `TextChange`, `LineRange`, `ParsedLine`, `Reject`, `ReferenceUnit` | Types. |
 
 ## runtime
 

@@ -7,6 +7,7 @@ export { type BlockTemplate, type ConvertTo, planConvert, resolveBlockTemplate }
 
 // --- block identity ---
 export { type Block, BlockType } from './block/block-types';
+export { type ReferenceUnit, referenceUnit } from './block/reference-unit';
 // --- drop ---
 export type { DropPosition, DropZone } from './command/drop-position';
 // --- document ---
