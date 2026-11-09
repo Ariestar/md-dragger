@@ -43,7 +43,12 @@ describe('relevelListText', () => {
 const TAB = 4;
 
 describe('insertIntoGap', () => {
-    const paragraphEnd: PayloadEnd = { type: BlockType.Paragraph, run: 'paragraph@0', standalone: false };
+    const paragraphEnd: PayloadEnd = {
+        type: BlockType.Paragraph,
+        run: 'paragraph@0',
+        standalone: false,
+        selected: BlockType.Paragraph,
+    };
     const standaloneEnd: PayloadEnd = { ...paragraphEnd, standalone: true };
 
     function insertion(text: string, seam: number, end: PayloadEnd, payload = 'X'): string {
@@ -60,6 +65,7 @@ describe('insertIntoGap', () => {
                 tabSize: TAB,
                 parent: null,
                 standalone: (block) => isStandalone(doc, block, { lineMap }),
+                zone: undefined,
             },
         );
         expect(change.from).toBe(change.to);

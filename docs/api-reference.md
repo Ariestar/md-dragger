@@ -155,7 +155,7 @@ The adapter emits protocol classes; hosts style them:
 
 - `.md-dragger-gutter` / `.md-dragger-handle[data-block-start]` — handle gutter and markers.
 - `.md-dragger-drag-source` — line decoration on the dragged block rows (carries `--d-source-level` per row).
-- `.md-dragger-drop-seam` / `.md-dragger-drop-seam-top` / `.md-dragger-drop-seam-below` / `.is-invalid` — the drop indicator line.
+- `.md-dragger-drop-seam` / `.md-dragger-drop-seam-top` / `.md-dragger-drop-seam-below` / `.md-dragger-drop-seam-center` / `.is-invalid` — the drop indicator line (`-center`: a line payload landing apart, centred on the gap's blank lines).
 - View-level CSS variables hosts fill from geometry: seam left/width (`--d-seam-left`, `--d-seam-width` in the Obsidian host), rendered list indent step (`--d-list-indent-step`).
 
 The Obsidian plugin's `styles.css` is the reference implementation of the whole protocol.

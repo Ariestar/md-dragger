@@ -7,6 +7,7 @@ import {
     listLevel,
     locateDropPosition,
     parseLine,
+    planMove,
     selectBlocks,
     selectOne,
     snapDrop,
@@ -221,6 +222,41 @@ describe('domain snapDrop', () => {
         expect(snapAt('- a\n    > - q\n    > - r\n- b', 2, 2).line).toBe(2);
     });
 
+    it('lands a snapped seam apart, and keeps a position without a zone without one', () => {
+        const text = 'a\nb\n\n```\n1\n```\n\nc\nd';
+        const doc = stringDoc(text);
+        const block = detectBlock(doc, 2, { tabSize });
+        if (!block) throw new Error('no block');
+        const selection = selectOne(block);
+        const input = { sourceDoc: doc, selection, sourceIndentWidth: 0, targetIndentWidth: 0, tabSize, indentUnit };
+        // The pointer on the closing fence's upper half snaps below the fence, apart from `c`.
+        const raw = locateDropPosition({ ...input, doc, hitLine: 6, belowMid: false });
+        expect(snapDrop({ ...input, raw })).toMatchObject({ line: 8, zone: 'apart' });
+        // Without a zone the snapped seam inside the source's own gap stays a no-op.
+        const snapped = snapDrop({ ...input, raw: { doc, line: 5, parent: null } });
+        expect(snapped).toMatchObject({ line: 4, zone: undefined });
+        expect(planMove({ sourceDoc: doc, selection, position: snapped, tabSize, indentUnit })).toEqual({
+            type: 'reject',
+            reason: 'self_range_blocked',
+        });
+    });
+
+    it('keeps a selection released over its own line a no-op when the seam snaps into its own gap', () => {
+        const doc = stringDoc('# H\n\n> a\n> b\n\nz');
+        const blocks = [1, 4].map((line) => detectBlock(doc, line, { tabSize }));
+        if (!blocks[0] || !blocks[1]) throw new Error('no block');
+        const selection = selectBlocks([blocks[0], blocks[1]]);
+        const input = { sourceDoc: doc, selection, sourceIndentWidth: 0, targetIndentWidth: 0, tabSize, indentUnit };
+        // The upper half of `> b`: a seam inside the quote run, which snaps below it, into the selection's own gap.
+        const raw = locateDropPosition({ ...input, doc, hitLine: 4, belowMid: false });
+        const snapped = snapDrop({ ...input, raw });
+        expect(snapped).toMatchObject({ line: 6, zone: undefined });
+        expect(planMove({ sourceDoc: doc, selection, position: snapped, tabSize, indentUnit })).toEqual({
+            type: 'reject',
+            reason: 'self_range_blocked',
+        });
+    });
+
     it('re-derives the parent when snapping a list seam', () => {
         const position = snapAt('- a\n    - b\n- x\n    - y\n```ts\nz\n```', 2, 6);
         expect(position.line).toBe(5);
@@ -255,6 +291,58 @@ describe('domain locateDropPosition', () => {
         expect(locate(text, 4, true).line).toBe(6);
         expect(locate(text, 5, true).line).toBe(6);
         expect(locate(text, 7, false).line).toBe(7);
+    });
+
+    it('reports the zone of the gap the pointer is over, for a line payload', () => {
+        const text = 'x\n\na\nb\n\ny';
+        const doc = stringDoc(text);
+        const block = detectBlock(doc, 4, { tabSize });
+        if (!block) throw new Error('no block');
+        const at = (hitLine: number, belowMid: boolean) =>
+            locateDropPosition({
+                doc,
+                selection: selectOne(block),
+                hitLine,
+                belowMid,
+                sourceIndentWidth: 0,
+                targetIndentWidth: 0,
+                tabSize,
+                indentUnit,
+            });
+        // Lower half of x, the blank line, upper half of a: one seam, three zones.
+        expect(at(1, true)).toMatchObject({ line: 3, zone: 'joinAbove' });
+        expect(at(2, false)).toMatchObject({ line: 3, zone: 'apart' });
+        expect(at(2, true)).toMatchObject({ line: 3, zone: 'apart' });
+        expect(at(3, false)).toMatchObject({ line: 3, zone: 'joinBelow' });
+        // Upper half of y joins it; the blank line below b is apart.
+        expect(at(6, false)).toMatchObject({ line: 6, zone: 'joinBelow' });
+        expect(at(5, false)).toMatchObject({ line: 6, zone: 'apart' });
+    });
+
+    it('reports a join only where it applies, and no zone for other payloads', () => {
+        const zoneOf = (text: string, source: number, hitLine: number, belowMid: boolean, targetIndentWidth = 0) => {
+            const doc = stringDoc(text);
+            const block = detectBlock(doc, source, { tabSize });
+            if (!block) throw new Error('no block');
+            return locateDropPosition({
+                doc,
+                selection: selectOne(block),
+                hitLine,
+                belowMid,
+                sourceIndentWidth: 0,
+                targetIndentWidth,
+                tabSize,
+                indentUnit,
+            }).zone;
+        };
+        // A paragraph line over a quote's upper half: another run kind, so apart.
+        expect(zoneOf('a\nb\n\n> q\n> r', 2, 4, false)).toBe('apart');
+        // A standalone paragraph and a callout take no zone.
+        expect(zoneOf('solo\n\nx\ny', 1, 3, false)).toBeUndefined();
+        expect(zoneOf('x\n\n> [!note] A\n> a\n\ny\nz', 3, 6, false)).toBeUndefined();
+        // A paragraph line a list turns into an item, between two items or under a parent, takes no zone.
+        expect(zoneOf('p1\np2\n\n- a\n- b', 1, 5, false)).toBeUndefined();
+        expect(zoneOf('p1\np2\n\n- a\n\n- b', 1, 4, true, indentUnit)).toBeUndefined();
     });
 
     it('derives the list parent across a loose list’s blank line', () => {

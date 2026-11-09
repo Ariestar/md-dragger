@@ -1,15 +1,18 @@
 import { frontmatterEndLine, YAML_FENCE_RE } from '../block/block-detector';
-import type { DropPosition } from '../command/drop-position';
+import type { Block } from '../block/block-types';
+import type { DropPosition, DropZone } from '../command/drop-position';
 import type { Doc } from '../markdown/document-types';
-import { type Gap, gapAt } from '../markdown/gap';
+import { canonicalSeam, type Gap, gapAt } from '../markdown/gap';
 import { getLineMap, type LineMap } from '../markdown/line-map';
 import type { LineRange } from '../markdown/line-range-types';
+import { isLinePayloadEnd, type PayloadEnd } from '../mutation';
 import { parseLine } from '../parse/parse-line';
 import type { RejectReason } from '../result';
-import { canDropAt, isNestedBlock, listConversion } from '../rules/container-policy';
+import { calloutCovers, canDropAt, isNestedBlock, listConversion } from '../rules/container-policy';
 import { selfDrop } from '../rules/self-drop';
+import { runKind } from '../rules/separation';
 import type { BlockSelection } from '../selection/block-selection';
-import { type CapturedMoveSource, captureMoveSource } from '../transaction/move-blocks';
+import { applyChanges, type CapturedMoveSource, captureMoveSource, moveTx } from '../transaction/move-blocks';
 
 export type { RejectReason };
 
@@ -65,14 +68,28 @@ export function planMove(input: PlanMoveInput): MoveResult {
     const at = gapAt(targetDoc, input.position.line, { lineMap, tabSize });
     if (at.type === 'interior') return { type: 'reject', reason: at.reason };
     const { gap } = at;
-    const position: DropPosition = { doc: targetDoc, line: gap.seam, parent: input.position.parent };
+    const mode = input.mode ?? 'move';
+    const moving = (line: number) =>
+        mode === 'move' &&
+        sourceDoc === targetDoc &&
+        captured.segments.some((s) => line >= s.startLine && line <= s.endLine);
+    const zone = effectiveZone(targetDoc, gap, input.position, captured, { lineMap, tabSize, moving });
+    const position: DropPosition = { doc: targetDoc, line: gap.seam, parent: input.position.parent, zone };
 
     const decision = canDropAt(captured, gap, { lineMap, tabSize, sourceDoc });
     if (!decision.allowDrop) return { type: 'reject', reason: decision.rejectReason };
     const asItems = listConversion(captured, gap, position.parent, { lineMap, tabSize });
 
-    const mode = input.mode ?? 'move';
-    let allowIndent = false;
+    const plan: MovePlan = {
+        position,
+        gap,
+        captured,
+        mode,
+        asItems,
+        allowIndent: false,
+        tabSize,
+        indentUnit: input.indentUnit,
+    };
     // A copy keeps its source, so it can land anywhere next to it and never changes a level in place.
     if (mode === 'move' && sourceDoc === targetDoc) {
         const self = selfDrop({
@@ -86,21 +103,67 @@ export function planMove(input: PlanMoveInput): MoveResult {
             tabSize,
             indentUnit: input.indentUnit,
         });
+        plan.allowIndent = self.allowInPlaceIndentChange;
         // A payload that turns into list items changes in its own gaps too.
         if (self.inSelfRange && !self.allowInPlaceIndentChange && asItems === null) {
-            return { type: 'reject', reason: self.rejectReason ?? 'self_range_blocked' };
+            const reason = self.rejectReason ?? 'self_range_blocked';
+            // A line payload in one of the source's own two gaps is a real move unless it reproduces the source:
+            // it can join the line on the far side, or stand apart as its own paragraph.
+            const ownGap =
+                gap.seam === captured.segments[0].startLine ||
+                gap.seam ===
+                    canonicalSeam(targetDoc, captured.segments[captured.segments.length - 1].endLine + 1, { lineMap });
+            if (zone === undefined || reason !== 'self_range_blocked' || !ownGap) return { type: 'reject', reason };
+            const edits = moveTx({ sourceDoc: targetDoc, plan });
+            if (!Array.isArray(edits)) return edits;
+            if (applyChanges(targetDoc, edits[0].changes) === targetDoc.sliceString(0, targetDoc.length)) {
+                return { type: 'reject', reason };
+            }
         }
-        allowIndent = self.allowInPlaceIndentChange;
     }
 
-    if (!allowIndent && createsFrontmatter({ sourceDoc, sourceLineMap, targetDoc, gap, captured, mode })) {
+    if (!plan.allowIndent && createsFrontmatter({ sourceDoc, sourceLineMap, targetDoc, gap, captured, mode })) {
         return { type: 'reject', reason: 'frontmatter_fence' };
     }
 
-    return {
-        type: 'ok',
-        value: { position, gap, captured, mode, asItems, allowIndent, tabSize, indentUnit: input.indentUnit },
-    };
+    return { type: 'ok', value: plan };
+}
+
+/**
+ * The zone a drop takes. A join applies only for a line payload — an
+ * end that is a line cut from a larger paragraph or quote — whose run kind
+ * matches the neighbour it joins, outside any callout, when the line written
+ * under the other is no setext heading underline, and never under a list
+ * parent, whose item takes the payload as its content; otherwise a line
+ * payload lands apart. Absent when nothing chose a zone, when neither payload
+ * end is a line payload, when the payload turns into list items, or when the
+ * pointer is over a line that moves itself: that is the source, so its own
+ * gaps stay a no-op.
+ */
+export function effectiveZone(
+    doc: Doc,
+    gap: Gap | null,
+    { zone, parent }: { zone?: DropZone; parent: Block | null },
+    captured: CapturedMoveSource,
+    options: { lineMap: LineMap; tabSize: number; moving: (line: number) => boolean },
+): DropZone | undefined {
+    // `lower` is the line the join writes under the other one: a line of `=` or `-` only would underline a heading.
+    const joins = (end: PayloadEnd, line: number, lower: string) =>
+        isLinePayloadEnd(end) &&
+        runKind(doc, line, options) === end.run &&
+        !calloutCovers(doc, line, line, options) &&
+        !/^(=+|-+)\s*$/.test(parseLine(lower, options.tabSize).body);
+    if (zone === undefined || (!isLinePayloadEnd(captured.first) && !isLinePayloadEnd(captured.last))) return undefined;
+    if (gap !== null && listConversion(captured, gap, parent, options) !== null) return undefined;
+    const above = gap?.above ? options.lineMap.prevNonEmpty[gap.seam - 1] : 0;
+    const below = gap?.below ? gap.seam : 0;
+    const target = zone === 'joinAbove' ? above : zone === 'joinBelow' ? below : 0;
+    if (target > 0 && options.moving(target)) return undefined;
+    if (parent !== null) return 'apart';
+    const firstLine = captured.content.split('\n', 1)[0];
+    if (zone === 'joinAbove' && above > 0 && joins(captured.first, above, firstLine)) return 'joinAbove';
+    if (zone === 'joinBelow' && below > 0 && joins(captured.last, below, doc.line(below).text)) return 'joinBelow';
+    return 'apart';
 }
 
 /**

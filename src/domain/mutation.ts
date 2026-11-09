@@ -2,7 +2,7 @@ import { detectBlock, frontmatterEndLine } from './block/block-detector';
 import { formatBlockContent } from './block/block-type-conversion';
 import type { Block } from './block/block-types';
 import { BlockType } from './block/block-types';
-import type { DropPosition } from './command/drop-position';
+import type { DropPosition, DropZone } from './command/drop-position';
 import type { Doc } from './markdown/document-types';
 import { dropIndentWidth } from './markdown/drop-locate';
 import type { Gap } from './markdown/gap';
@@ -14,9 +14,19 @@ import { calloutCovers, itemText } from './rules/container-policy';
 import { type Facing, facingAt, needsBlankLine, type RunKind, runKind } from './rules/separation';
 import type { TextChange } from './transaction/block-transaction';
 
-/** One end of a moved payload: the innermost block at its facing line, that line's run kind, and whether its
- * block was kept apart at the source. */
-export type PayloadEnd = { type: BlockType; run: RunKind | null; standalone: boolean };
+/** One end of a moved payload: the innermost block at its facing line, that line's run kind, whether its block
+ * was kept apart at the source, and the type of the selected block at that end. */
+export type PayloadEnd = { type: BlockType; run: RunKind | null; standalone: boolean; selected: BlockType };
+
+/**
+ * A line payload end: a paragraph or quote line cut from a larger paragraph or
+ * quote that partly stays. Only such an end can join the line the pointer
+ * chose (DropPosition.zone); a callout ending in a nested quote line is not one.
+ */
+export function isLinePayloadEnd(end: PayloadEnd): boolean {
+    const line = end.selected === BlockType.Paragraph || end.selected === BlockType.Blockquote;
+    return line && end.run !== null && end.run !== 'list' && !end.standalone;
+}
 
 type SpacingContext = { lineMap: LineMap; tabSize: number };
 
@@ -28,7 +38,8 @@ type SpacingContext = { lineMap: LineMap; tabSize: number };
  * `standalone` tells whether a gap neighbour was kept apart, in the document
  * the user sees (not a temporary one with the moved blocks removed), and
  * `fromQuote` whether the payload comes from the quote a quoted neighbour line
- * belongs to.
+ * belongs to. `zone` is the drop's effective zone: a join writes the payload
+ * tight to that side.
  */
 export function insertIntoGap(
     doc: Doc,
@@ -40,6 +51,7 @@ export function insertIntoGap(
         parent: Block | null;
         standalone: (neighbour: Block) => boolean;
         fromQuote: (neighbourLine: number) => boolean;
+        zone: DropZone | undefined;
     },
 ): TextChange {
     const { lineMap, tabSize } = options;
@@ -53,12 +65,26 @@ export function insertIntoGap(
         },
     };
     const aboveLine = gap.above ? lineMap.prevNonEmpty[gap.seam - 1] : 0;
-    const spacing = (side: 'top' | 'bottom', block: Block, line: number): number =>
-        sideSpacing(doc, gap, side, { block, line, facing: facingAt(doc, line, options) }, ends[side], options);
+    // A join writes the line tight to the neighbour it joins; the gap's blank lines stay on the far side. Apart at
+    // a document edge (the pointer over padding) writes a line payload as its own paragraph or quote.
+    const edge = gap.above === null || gap.below === null;
+    const spacing = (side: 'top' | 'bottom', block: Block, line: number): number => {
+        if (options.zone === (side === 'top' ? 'joinAbove' : 'joinBelow')) return 0;
+        const s = sideSpacing(
+            doc,
+            gap,
+            side,
+            { block, line, facing: facingAt(doc, line, options) },
+            ends[side],
+            options,
+        );
+        return options.zone === 'apart' && edge && isLinePayloadEnd(ends[side]) ? Math.max(s, 1) : s;
+    };
 
     if (gap.above && gap.below) {
         const k = gap.blankLines;
-        const sBot = spacing('bottom', gap.below, gap.seam);
+        // The side away from a join keeps the gap's blank lines.
+        const sBot = Math.max(spacing('bottom', gap.below, gap.seam), options.zone === 'joinAbove' ? k : 0);
         // An ordered run written tight onto the ordered run below joins it and is renumbered from 1.
         const head = ends.top.facing.line;
         const joinsRunBelow =
@@ -66,7 +92,7 @@ export function insertIntoGap(
             continuesOrderedRun(head, facingAt(doc, gap.seam, options).line) &&
             textLines.every((line) => continuesOrderedRun(head, parseLine(line, tabSize)));
         if (joinsRunBelow) ends.top.facing = asRunHead(ends.top.facing);
-        const sTop = spacing('top', gap.above, aboveLine);
+        const sTop = Math.max(spacing('top', gap.above, aboveLine), options.zone === 'joinBelow' ? k : 0);
         if (sTop + sBot < k) {
             throw new Error(`md-dragger: ${sTop} + ${sBot} blank lines cannot hold a gap of ${k}`);
         }

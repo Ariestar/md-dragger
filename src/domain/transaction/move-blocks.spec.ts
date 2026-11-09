@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { detectBlock } from '../block/block-detector';
 import type { Block } from '../block/block-types';
-import type { DropPosition } from '../command/drop-position';
+import type { DropPosition, DropZone } from '../command/drop-position';
 import type { Doc } from '../markdown/document-types';
 import { locateDropPosition, snapDrop } from '../markdown/drop-locate';
 import { planMove } from '../move/move-plan';
@@ -76,6 +76,37 @@ function moveUnder(text: string, fromLines: number[], toLine: number, parentLine
     });
     if (planned.type !== 'ok') throw new Error(`plan rejected: ${planned.reason}`);
     const edits = moveTx({ sourceDoc: doc, plan: planned.value });
+    if (!Array.isArray(edits)) throw new Error(`move rejected: ${edits.reason}`);
+    return applyEdits(text, edits);
+}
+
+/** Plan moving the blocks at fromLines to the raw seam before toLine (under the item at parentLine), landing in
+ * `zone` of the gap. */
+function planZone(text: string, fromLines: number[], toLine: number, zone: DropZone, parentLine: number | null = null) {
+    const doc = stringDoc(text);
+    const selection = selectBlocks(fromLines.map((line) => blockAt(doc, line)));
+    const parent = parentLine === null ? null : blockAt(doc, parentLine);
+    return planMove({
+        sourceDoc: doc,
+        selection,
+        position: { doc, line: toLine, parent, zone },
+        tabSize,
+        indentUnit,
+    });
+}
+
+/** Move the blocks at fromLines to the raw seam before toLine (under the item at parentLine), landing in `zone` of
+ * the gap, and apply the edits. */
+function moveZone(
+    text: string,
+    fromLines: number[],
+    toLine: number,
+    zone: DropZone,
+    parentLine: number | null = null,
+): string {
+    const planned = planZone(text, fromLines, toLine, zone, parentLine);
+    if (planned.type !== 'ok') throw new Error(`plan rejected: ${planned.reason}`);
+    const edits = moveTx({ sourceDoc: planned.value.position.doc, plan: planned.value });
     if (!Array.isArray(edits)) throw new Error(`move rejected: ${edits.reason}`);
     return applyEdits(text, edits);
 }
@@ -757,6 +788,126 @@ describe('moveTx list spacing: an item takes the spacing of the list it joins', 
     it('keeps the spacing of a list an item joins at its own level', () => {
         expect(moveUnder('- a\n- b\n\npara\n\n- x', [6], 2, null)).toBe('- a\n- x\n- b\n\npara');
         expect(moveUnder('- a\n\n- b\n\npara\n\n- x', [7], 3, null)).toBe('- a\n\n- x\n\n- b\n\npara');
+    });
+});
+
+describe('moveTx line drop zones: a line cut from a paragraph joins the line the pointer chose', () => {
+    const page = 'x\n\na\nb\n\ny';
+
+    it.each([
+        ['b onto the upper half of a', [4], 3, 'joinBelow', 'x\n\nb\na\n\ny'],
+        ['b onto the lower half of x', [4], 3, 'joinAbove', 'x\nb\n\na\n\ny'],
+        ['b onto the blank line between x and a', [4], 3, 'apart', 'x\n\nb\n\na\n\ny'],
+        ['a onto the upper half of y', [3], 6, 'joinBelow', 'x\n\nb\n\na\ny'],
+        ['a onto the lower half of b, its own gap below', [3], 6, 'joinAbove', 'x\n\nb\na\n\ny'],
+    ] as const)('moves %s', (_name, from, seam, zone, after) => {
+        expect(moveZone(page, [...from], seam, zone)).toBe(after);
+    });
+
+    it('joins quote lines the same way', () => {
+        const quotes = '> x\n\n> a\n> b\n\n> y';
+        expect(moveZone(quotes, [4], 3, 'joinBelow')).toBe('> x\n\n> b\n> a\n\n> y');
+        expect(moveZone(quotes, [4], 3, 'joinAbove')).toBe('> x\n> b\n\n> a\n\n> y');
+    });
+
+    it('joins nothing of another run kind', () => {
+        expect(moveZone('a\nb\n\n> q\n> r', [2], 4, 'joinBelow')).toBe('a\n\nb\n\n> q\n> r');
+        expect(planZone('a\nb\n\n> q\n> r', [2], 4, 'joinBelow')).toMatchObject({
+            value: { position: { zone: 'apart' } },
+        });
+    });
+
+    it('joins the only neighbour at a document edge', () => {
+        expect(moveZone('p\nq\n\nr\ns', [5], 1, 'joinBelow')).toBe('s\np\nq\n\nr');
+        expect(moveZone('p\nq\n\nr\ns', [1], 6, 'joinAbove')).toBe('q\n\nr\ns\np');
+        expect(moveZone('\np\nq\n\nr\ns\n', [6], 1, 'apart')).toBe('\ns\n\np\nq\n\nr\n');
+    });
+
+    it('joins no quote line inside a callout', () => {
+        const page = '> [!note] t\n> > q\n\n> > a\n> > b';
+        expect(planZone(page, [5], 4, 'joinAbove')).toMatchObject({ value: { position: { zone: 'apart' } } });
+        expect(moveZone(page, [5], 4, 'joinAbove')).toBe('> [!note] t\n> > q\n\n> > b\n\n> > a');
+    });
+
+    it('joins no line that would become a setext heading underline', () => {
+        expect(planZone('===\nb\n\nx', [1], 5, 'joinAbove')).toMatchObject({ value: { position: { zone: 'apart' } } });
+        expect(moveZone('===\nb\n\nx', [1], 5, 'joinAbove')).toBe('b\n\nx\n\n===');
+        expect(moveZone('a\nb\n\n===\n\nz', [1], 4, 'joinBelow')).toBe('b\n\na\n\n===\n\nz');
+        expect(moveZone('> a\n> b\n\n> --\n> y', [2], 4, 'joinBelow')).toBe('> a\n\n> b\n\n> --\n> y');
+    });
+
+    it('joins nothing under a list parent, whose item takes the payload as its content', () => {
+        const page = '- a\n\nx\ny\n\n- target\n\np\nq';
+        expect(planZone(page, [1, 3], 8, 'joinBelow', 6)).toMatchObject({ value: { position: { zone: 'apart' } } });
+        expect(moveZone(page, [1, 3], 8, 'joinBelow', 6)).toBe('y\n\n- target\n    - a\n\n    x\n\np\nq');
+    });
+
+    it('joins a two-line line payload by its facing end', () => {
+        expect(moveZone('x\n\na\nb\nc\n\ny', [4, 5], 3, 'joinAbove')).toBe('x\nb\nc\n\na\n\ny');
+        expect(moveZone('x\n\na\nb\nc\n\ny', [3, 4], 7, 'joinBelow')).toBe('x\n\nc\n\na\nb\ny');
+    });
+
+    it('keeps a line released over itself a no-op', () => {
+        const doc = stringDoc(page);
+        for (const line of [3, 4]) {
+            const selection = selectOne(blockAt(doc, line));
+            for (const belowMid of [false, true]) {
+                const position = locateDropPosition({
+                    doc,
+                    selection,
+                    hitLine: line,
+                    belowMid,
+                    sourceIndentWidth: 0,
+                    targetIndentWidth: 0,
+                    tabSize,
+                    indentUnit,
+                });
+                expect(planMove({ sourceDoc: doc, selection, position, tabSize, indentUnit })).toEqual({
+                    type: 'reject',
+                    reason: 'self_range_blocked',
+                });
+            }
+        }
+    });
+
+    it('makes a join or a split in the source’s own gap a real move, and a no-op only when nothing changes', () => {
+        expect(moveZone('x\n\na\nb', [3], 3, 'joinAbove')).toBe('x\na\n\nb');
+        expect(moveZone(page, [3], 3, 'apart')).toBe('x\n\na\n\nb\n\ny');
+        expect(moveZone('x\n\na\nb', [4], 5, 'apart')).toBe('x\n\na\n\nb');
+        expect(planZone('a\nb', [2], 2, 'joinAbove')).toEqual({ type: 'reject', reason: 'self_range_blocked' });
+        expect(planZone('x\n\na\nb', [4], 4, 'joinAbove')).toEqual({ type: 'reject', reason: 'self_range_blocked' });
+    });
+
+    it('rejects a move in the source’s own gap that cannot be written', () => {
+        // Removing the unclosed fence pairs the `$$` lines: `y` would lie inside a math block.
+        expect(planZone('```\n$$\nx\ny\n$$', [1, 3], 4, 'joinBelow')).toEqual({
+            type: 'reject',
+            reason: 'inside_math_block',
+        });
+    });
+
+    it('keeps the gap’s blank lines on the side away from a join, even next to a list', () => {
+        expect(moveZone('- a\n- b\n\nx1\nx2\n\n- m\n\np\nq', [7, 9], 4, 'joinBelow')).toBe(
+            '- a\n- b\n\n- m\n\np\nx1\nx2\n\nq',
+        );
+    });
+
+    it('ignores zones for a standalone payload or a whole paragraph', () => {
+        const solo = 'solo\n\nx\n\nl1\nl2';
+        expect(moveZone(solo, [1], 5, 'joinBelow')).toBe('x\n\nsolo\n\nl1\nl2');
+        expect(planZone(solo, [1], 5, 'joinBelow')).toMatchObject({ value: { position: { zone: undefined } } });
+        expect(moveZone('l1\nl2\n\nx\n\ny\nz', [1, 2], 6, 'joinBelow')).toBe('x\n\nl1\nl2\n\ny\nz');
+        const callout = 'x\n\n> [!note] A\n> body\n\ny';
+        for (const zone of ['joinAbove', 'apart', 'joinBelow'] as const) {
+            expect(moveZone(callout, [3], 7, zone)).toBe('x\n\ny\n\n> [!note] A\n> body');
+        }
+    });
+
+    it('ignores zones for a callout that ends in a nested quote line', () => {
+        const page = '# H\n> [!note] t\n> > q\n\nx\n\n> > a\n> > b';
+        expect(planZone(page, [2], 7, 'joinBelow')).toMatchObject({ value: { position: { zone: undefined } } });
+        expect(moveZone(page, [2], 7, 'joinBelow')).toBe('# H\n\nx\n\n> [!note] t\n> > q\n\n> > a\n> > b');
+        expect(planZone(page, [2], 5, 'apart')).toEqual({ type: 'reject', reason: 'self_range_blocked' });
     });
 });
 

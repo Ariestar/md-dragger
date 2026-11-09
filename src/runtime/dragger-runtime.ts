@@ -337,11 +337,7 @@ export class DraggerRuntime implements RuntimeController {
         if (!position) return null;
         const doc = position.doc;
         const line = Math.max(1, Math.min(doc.lines + 1, position.line));
-        return {
-            doc,
-            line,
-            parent: position.parent,
-        };
+        return { ...position, line };
     }
 
     private plan(selection: BlockSelection, position: DropPosition | null, mode?: 'move' | 'copy'): MoveResult {
