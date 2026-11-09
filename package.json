@@ -129,10 +129,10 @@
   "packageManager": "pnpm@11.19.0",
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.2",
-    "@biomejs/biome": "^2.6.2",
+    "@biomejs/biome": "^2.6.4",
     "@codemirror/state": "^6.7.6",
     "@codemirror/view": "^6.43.15",
-    "@types/node": "^26.6.5",
+    "@types/node": "^26.6.6",
     "esbuild": "^0.28.2",
     "husky": "^9.1.7",
     "lint-staged": "^17.6.0",
