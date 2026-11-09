@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { BlockType, type DropPosition, detectBlock, listLevel, parseLine, selectOne, snapDrop } from '../index';
+import {
+    type Block,
+    BlockType,
+    type DropPosition,
+    detectBlock,
+    listLevel,
+    locateDropPosition,
+    parseLine,
+    selectBlocks,
+    selectOne,
+    snapDrop,
+} from '../index';
 import { stringDoc } from '../transaction/string-doc';
 
 const tabSize = 4;
@@ -20,6 +31,24 @@ function snapAt(text: string, sourceLine: number, seam: number): DropPosition {
         selection,
         sourceIndentWidth,
         targetIndentWidth: sourceIndentWidth,
+        tabSize,
+        indentUnit,
+    });
+}
+
+/** Locate a drop of the item at sourceLine below hitLine, one indent step in. */
+function nestUnder(sourceText: string, sourceLine: number, hitLine: number, targetText?: string): DropPosition {
+    const sourceDoc = stringDoc(sourceText);
+    const block = detectBlock(sourceDoc, sourceLine, { tabSize });
+    if (!block) throw new Error(`no block at line ${sourceLine}`);
+    return locateDropPosition({
+        doc: targetText === undefined ? sourceDoc : stringDoc(targetText),
+        sourceDoc,
+        selection: selectOne(block),
+        hitLine,
+        belowMid: true,
+        sourceIndentWidth: 0,
+        targetIndentWidth: indentUnit,
         tabSize,
         indentUnit,
     });
@@ -61,13 +90,14 @@ describe('domain snapDrop', () => {
     });
 
     it('snaps a non-quote seam inside a short quote run to the run edge', () => {
+        // Edge 2 is the source's own gap at the same distance; ties go below.
         const position = snapAt('a\n> q1\n> q2\nb', 1, 3);
-        expect(position.line).toBe(2);
+        expect(position.line).toBe(4);
     });
 
-    it('snaps to the source-adjacent seam when no far seam is in reach', () => {
+    it('snaps to the far edge of a quote run when it is as near as the source-adjacent one', () => {
         const position = snapAt('p\n> q1\n> q2\n> q3\n> q4\n> q5\n> q6\n> q7\n> q8', 1, 6);
-        expect(position.line).toBe(2);
+        expect(position.line).toBe(10);
     });
 
     it('keeps the grey seam when hovering back over the source block', () => {
@@ -84,8 +114,8 @@ describe('domain snapDrop', () => {
         expect(snapAt(text, 2, 6).line).toBe(6);
     });
 
-    it('snaps past a rule even when the seam is right below the source', () => {
-        expect(snapAt('a\n---\nb', 1, 2).line).toBe(3);
+    it('keeps the seam right below the source grey even above a rule', () => {
+        expect(snapAt('a\n---\nb', 1, 2).line).toBe(2);
     });
 
     it('snaps a non-adaptable block seam inside a nested list subtree to the boundary', () => {
@@ -93,19 +123,89 @@ describe('domain snapDrop', () => {
         expect(position.line).toBe(7);
     });
 
-    it('snaps a table_before seam to the nearest accepted seam', () => {
+    it("keeps the gap above a table grey when it is the source's own gap below", () => {
         const position = snapAt('x\npara\n\n| a | b |\n|---|', 2, 4);
+        expect(position.line).toBe(4);
+    });
+
+    it('accepts the gap after a callout', () => {
+        const position = snapAt('para\n\n> [!note] Callout\n> body', 1, 5);
         expect(position.line).toBe(5);
     });
 
-    it('snaps a callout_after seam past the callout', () => {
-        const position = snapAt('para\n\n> [!note] Callout\n> body', 1, 5);
-        expect(position.line).toBe(3);
+    it('accepts the gap above a blank-separated rule', () => {
+        const position = snapAt('a\n\nb\n\n---\n\nc', 1, 5);
+        expect(position.line).toBe(5);
     });
 
-    it('snaps an hr_before seam after the rule', () => {
-        const position = snapAt('a\nb\n---\nc', 1, 3);
-        expect(position.line).toBe(4);
+    it('snaps out of a callout to its nearest edge', () => {
+        const text = 'intro\n\n> [!note] T\n> a\n> b\n> c\n\nmid\n\nend';
+        expect(snapAt(text, 10, 4).line).toBe(3);
+        expect(snapAt(text, 10, 6).line).toBe(8);
+    });
+
+    it('snaps out of a 12-line quote run with no radius limit', () => {
+        const quote = Array.from({ length: 12 }, (_, i) => `> q${i + 1}`).join('\n');
+        const text = `top\n\n${quote}\n\nend\n\nsrc`;
+        expect(snapAt(text, 18, 5).line).toBe(3);
+        expect(snapAt(text, 18, 9).line).toBe(16);
+        expect(snapAt(text, 18, 13).line).toBe(16);
+    });
+
+    it('snaps out of a long fence with no radius limit', () => {
+        const body = Array.from({ length: 10 }, (_, i) => `l${i + 1}`).join('\n');
+        const text = `top\n\n\`\`\`\n${body}\n\`\`\`\n\nend\n\nsrc`;
+        expect(snapAt(text, 18, 6).line).toBe(3);
+        expect(snapAt(text, 18, 11).line).toBe(16);
+    });
+
+    it('measures the nearer edge of a fence from a pointer on its blank lines', () => {
+        for (const fence of ['```', '$$']) {
+            const doc = stringDoc(`Intro\n\n${fence}\nx\n\n\nz\n${fence}\n\nend\n\nsrc`);
+            const block = detectBlock(doc, 12, { tabSize });
+            if (!block) throw new Error('no block');
+            const input = { sourceDoc: doc, selection: selectOne(block), sourceIndentWidth: 0, targetIndentWidth: 0 };
+            const raw = locateDropPosition({ ...input, doc, hitLine: 5, belowMid: false, tabSize, indentUnit });
+            expect(snapDrop({ ...input, raw, tabSize, indentUnit }).line).toBe(3);
+        }
+    });
+
+    it('snaps out of a comment block to its nearest edge', () => {
+        const text = 'x\n\n%%\nnote\nmore\n%%\n\nmid\n\npara';
+        expect(snapAt(text, 10, 4).line).toBe(3);
+        expect(snapAt(text, 10, 6).line).toBe(8);
+    });
+
+    it('snaps out of a table to its nearest edge', () => {
+        const text = 'x\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nmid\n\npara';
+        expect(snapAt(text, 9, 4).line).toBe(3);
+        expect(snapAt(text, 9, 5).line).toBe(7);
+    });
+
+    it('snaps out of a nested list to the outermost item’s edges', () => {
+        const text = 'p\n\n- a\n    - b\n        - c\n        - d\n    - e\n\nend\n\n```\nsrc\n```';
+        expect(snapAt(text, 11, 4).line).toBe(3);
+        expect(snapAt(text, 11, 6).line).toBe(9);
+    });
+
+    it('snaps out of a list inside a callout to the callout’s edges', () => {
+        expect(snapAt('para\n\n> [!note] T\n> - a\n>     - b\n> - c\n\nend', 1, 5).line).toBe(8);
+    });
+
+    it('snaps out of the list item a fence or table nested in it belongs to', () => {
+        expect(snapAt('$$\nm\n$$\n\n- a\n    ```\n    code\n    more\n    ```\n    tail\n- b\n\nend', 1, 8).line).toBe(
+            11,
+        );
+        expect(
+            snapAt('$$\nm\n$$\n\n- a\n    | x | y |\n    |---|---|\n    | 1 | 2 |\n    tail\n- b\n\nend', 1, 8).line,
+        ).toBe(10);
+    });
+
+    it('snaps frontmatter seams to the first gap below it', () => {
+        const text = '---\nt: x\n---\n\n# H\n\npara';
+        expect(snapAt(text, 7, 1).line).toBe(5);
+        expect(snapAt(text, 7, 2).line).toBe(5);
+        expect(snapAt(text, 7, 3).line).toBe(5);
     });
 
     it('re-derives the parent when snapping a list seam', () => {
@@ -113,6 +213,89 @@ describe('domain snapDrop', () => {
         expect(position.line).toBe(5);
         expect(position.parent?.type).toBe(BlockType.ListItem);
         expect(position.parent?.lines.startLine).toBe(3);
+    });
+});
+
+describe('domain locateDropPosition', () => {
+    function locate(text: string, hitLine: number, belowMid: boolean, targetIndentWidth = 0): DropPosition {
+        const sourceDoc = stringDoc('- source');
+        const block = detectBlock(sourceDoc, 1, { tabSize });
+        if (!block) throw new Error('missing source block');
+        return locateDropPosition({
+            doc: stringDoc(text),
+            sourceDoc,
+            selection: selectOne(block),
+            hitLine,
+            belowMid,
+            sourceIndentWidth: 0,
+            targetIndentWidth,
+            tabSize,
+            indentUnit,
+        });
+    }
+
+    it('returns the canonical seam of the gap under the pointer', () => {
+        const text = 'a\n\n> [!note] B\n> b\n\nc';
+        expect(locate(text, 1, true).line).toBe(3);
+        expect(locate(text, 2, false).line).toBe(3);
+        expect(locate(text, 3, false).line).toBe(3);
+        expect(locate(text, 4, true).line).toBe(6);
+        expect(locate(text, 5, true).line).toBe(6);
+        expect(locate(text, 7, false).line).toBe(7);
+    });
+
+    it('derives the list parent across a loose list’s blank line', () => {
+        const position = locate('- a\n\n- b\n\npara', 5, false, indentUnit);
+        expect(position.line).toBe(5);
+        expect(position.parent?.lines.startLine).toBe(3);
+    });
+
+    it('takes no list item of another quote as the parent', () => {
+        // Nesting under a callout's item would write `    - source` outside the callout: an indented code block.
+        expect(
+            locate('> [!todo] Today\n> - buy milk\n> - call mom\n\n- a\n- b', 5, false, indentUnit).parent,
+        ).toBeNull();
+        expect(locate('> [!todo] T\n> - m\n- a\n- b', 3, false, indentUnit).parent).toBeNull();
+        // A quoted item's quote ends at a blank line.
+        expect(nestUnder('> [!todo] T\n> - m\n\n> - q\n> - r', 4, 3).parent).toBeNull();
+    });
+});
+
+describe('domain locateDropPosition quoted parent', () => {
+    it('takes a quoted parent only in the quote the payload moves within', () => {
+        // Under another quote the payload is written apart from it: `>     - a` after a blank line is code.
+        expect(nestUnder('> - a\n> - b\n\n> [!todo] T\n> - x\n> - y', 1, 6).parent).toBeNull();
+        expect(nestUnder('> - move', 1, 2, '> - q\n> - r').parent).toBeNull();
+        expect(nestUnder('> - a\n> - b\n# H', 1, 2).parent?.lines.startLine).toBe(2);
+    });
+
+    it('lets a plain quote a list turns into an item take an unquoted parent, outside a quote', () => {
+        expect(nestUnder('- parent\n\n> quote', 3, 1).parent?.lines.startLine).toBe(1);
+        expect(nestUnder('> - parent\n\n> quote', 3, 1).parent).toBeNull();
+    });
+
+    it('offers a quoted parent only to list items, a nested block selected with its item included', () => {
+        expect(nestUnder('> x\n> - a\n> - b', 1, 3).parent).toBeNull();
+        // Between two quoted lines too, where the line would join the item's text.
+        expect(nestUnder('> x\n> - a\n> - b', 1, 2).parent).toBeNull();
+        const text = '> - b\n>     ```\n>     c\n>     ```\n> - a\n> - z';
+        const doc = stringDoc(text);
+        const blocks = [1, 2].map((line) => detectBlock(doc, line, { tabSize }) as Block);
+        const position = locateDropPosition({
+            doc,
+            selection: selectBlocks(blocks),
+            hitLine: 5,
+            belowMid: true,
+            sourceIndentWidth: 0,
+            targetIndentWidth: indentUnit,
+            tabSize,
+            indentUnit,
+        });
+        expect(position.parent?.lines.startLine).toBe(5);
+    });
+
+    it('turns nothing without text into an item, so it keeps its quote', () => {
+        expect(nestUnder('- a\n\n>', 3, 1).parent).toBeNull();
     });
 });
 

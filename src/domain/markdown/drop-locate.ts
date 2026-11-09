@@ -4,15 +4,19 @@ import type { DropPosition } from '../command/drop-position';
 import { planMove } from '../move/move-plan';
 import { parseLine } from '../parse/parse-line';
 import type { RejectReason } from '../result';
+import { canDropAt, convertsToItems } from '../rules/container-policy';
 import type { BlockSelection } from '../selection/block-selection';
 import { selectionLineRanges } from '../selection/block-selection';
+import { type CapturedMoveSource, captureMoveSource } from '../transaction/move-blocks';
 import type { Doc } from './document-types';
-import { getLineMap, getLineMetaAt, listLineAtOrAbove } from './line-map';
+import { canonicalSeam, gapAt } from './gap';
+import { getLineMap, getLineMetaAt, listLineAtOrAbove, quoteRunAt } from './line-map';
 import { isLineNumberInRanges } from './line-range';
+import type { LineRange } from './line-range-types';
 
 /**
  * Drop locate — two independent axes, no cross-null:
- *   y → insert-before seam line (always)
+ *   y → insert-before seam line (always), canonicalised to its gap's seam
  *   x → target indent → parent at that seam (clamp to structure, never kills y)
  */
 export type DropLocateInput = {
@@ -30,7 +34,8 @@ export type DropLocateInput = {
 export function locateDropPosition(input: DropLocateInput): DropPosition {
     const { doc, selection, hitLine, belowMid, sourceIndentWidth, targetIndentWidth, tabSize, indentUnit } = input;
 
-    const line = Math.max(1, Math.min(doc.lines + 1, belowMid ? hitLine + 1 : hitLine));
+    const lineMap = getLineMap(doc, { tabSize });
+    const line = canonicalSeam(doc, belowMid ? hitLine + 1 : hitLine, { lineMap });
 
     // x cannot veto y: root seam is always valid.
     if (indentUnit <= 0 || line <= 1) {
@@ -46,9 +51,9 @@ export function locateDropPosition(input: DropLocateInput): DropPosition {
         return { doc, line, parent: null };
     }
 
-    const lineMap = getLineMap(doc, { tabSize });
-    const above = line - 1;
-    let parentLine = listLineAtOrAbove(lineMap, above);
+    // The last non-blank line above the seam: nesting works across a loose list's blank line.
+    const above = lineMap.prevNonEmpty[line - 1];
+    let parentLine = above > 0 ? listLineAtOrAbove(lineMap, above) : null;
     if (parentLine === null || lineMap.listSubtreeEndLine[parentLine] < above) {
         return { doc, line, parent: null };
     }
@@ -58,6 +63,25 @@ export function locateDropPosition(input: DropLocateInput): DropPosition {
     const desiredParentIndent = want - indentUnit;
     const sameDoc = input.sourceDoc === undefined || input.sourceDoc === doc;
     const sourceLines = sameDoc ? selectionLineRanges(doc.lines, selection) : [];
+    // The engine writes no `>` prefix: a parent is an item of the payload's own quote depth, and a quoted parent
+    // only for list items in the quote they move within, directly above the seam: any other quote stays apart from
+    // it. A payload a list turns into items (a plain quote too) is unquoted where the seam is not between two quoted
+    // lines.
+    const sourceDoc = input.sourceDoc ?? doc;
+    const first = selection.blocks[0].lines.startLine;
+    const captured = captureMoveSource(sourceDoc, selection, { lineMap: getLineMap(sourceDoc, { tabSize }), tabSize });
+    const { lineMeta } = lineMap;
+    const inQuote =
+        above === line - 1 && lineMeta[above].quoteDepth > 0 && line <= doc.lines && lineMeta[line].quoteDepth > 0;
+    const converts = !inQuote && captured !== null && convertsToItems(captured, tabSize);
+    const depth = converts ? 0 : parseLine(sourceDoc.line(first).text, tabSize).quote.depth;
+    if (depth > 0) {
+        const run = quoteRunAt(lineMap, above);
+        const items = captured?.blocks.every((block) => block.type === BlockType.ListItem);
+        if (!items || !sameDoc || above !== line - 1 || first < run.startLine || first > run.endLine) {
+            return { doc, line, parent: null };
+        }
+    }
 
     while (parentLine > 0) {
         const meta = getLineMetaAt(lineMap, parentLine);
@@ -65,7 +89,7 @@ export function locateDropPosition(input: DropLocateInput): DropPosition {
             parentLine = 0;
             break;
         }
-        if (sameDoc && isLineNumberInRanges(parentLine, sourceLines)) {
+        if (meta.quoteDepth !== depth || (sameDoc && isLineNumberInRanges(parentLine, sourceLines))) {
             parentLine = lineMap.listParentLine[parentLine] ?? 0;
             continue;
         }
@@ -130,9 +154,6 @@ export function listLevel(lineText: string, tabSize: number, indentUnit: number)
  * container/seam-location rejection that snapping can resolve. */
 const NO_SNAP_REASONS: ReadonlySet<RejectReason> = new Set(['self_range_blocked', 'self_embedding']);
 
-/** How far the linear walk searches for a valid seam beyond container edges. */
-const SNAP_RADIUS = 4;
-
 export type SnapDropInput = {
     /** The rejected seam from locateDropPosition (parent already derived). */
     raw: DropPosition;
@@ -145,51 +166,36 @@ export type SnapDropInput = {
 };
 
 /**
- * Snap a rejected drop seam to the nearest insertable seam.
+ * Snap a rejected drop seam to an edge of the region it lies inside.
  *
- * Invalid seams are container/seam-location rejections (inside a fenced code
- * or math block, inside a list for non-list sources, table/hr adjacency, …).
- * Instead of painting a dead grey indicator, search outward:
- *   1. container edges — the block under the seam and the block ending right
- *      above it each contribute their boundaries (fence lines, list bounds);
- *   2. a short linear walk (±SNAP_RADIUS) for forbidden spans the edges do
- *      not cover (short quote runs, single-line callout-after seams).
- * Candidates are tried nearest-first; each re-derives its parent from the
- * seam line so the indent intent stays consistent with the paint geometry.
- * Self-range rejections and an exhausted search keep the original grey seam.
+ * Only interior rejections snap: a seam inside frontmatter, a fenced code or
+ * math block, a table, a tight quote run or a list item's subtree. The region
+ * comes from gapAt or from the container rule that rejected the seam, and its
+ * two edges — its first line and the line after its last — are tried nearest
+ * first (ties go below, so the indicator keeps up with a downward drag). Each
+ * re-derives its parent from the seam so the indent intent stays consistent
+ * with the paint geometry. The first edge whose plan is ok or a self no-op
+ * wins; otherwise, and for rejections without a region (self, nested block,
+ * frontmatter fence), the raw grey seam stays.
  */
 export function snapDrop(input: SnapDropInput): DropPosition {
     const { raw, sourceDoc, selection, sourceIndentWidth, targetIndentWidth, tabSize, indentUnit } = input;
     const doc = raw.doc;
-    const seam = raw.line;
-    const maxLine = doc.lines + 1;
+    const captured = captureMoveSource(sourceDoc, selection, { lineMap: getLineMap(sourceDoc, { tabSize }), tabSize });
+    if (!captured) return raw;
 
-    const plan = (position: DropPosition) => planMove({ sourceDoc, selection, position, tabSize, indentUnit });
+    const plan = (position: DropPosition) =>
+        planMove({ sourceDoc, selection, position, tabSize, indentUnit, captured });
     const rawPlan = plan(raw);
     if (rawPlan.type === 'ok' || NO_SNAP_REASONS.has(rawPlan.reason)) return raw;
 
-    const candidates: number[] = [];
-    const push = (line: number): void => {
-        if (line < 1 || line > maxLine || candidates.includes(line)) return;
-        candidates.push(line);
-    };
+    const region = rejectedRegion(raw, captured, sourceDoc, tabSize);
+    if (!region) return raw;
 
-    for (const probe of [seam, seam - 1]) {
-        const block = detectBlock(doc, probe, { tabSize });
-        if (!block) continue;
-        push(block.lines.startLine);
-        push(block.lines.endLine + 1);
-    }
-
-    for (let d = 1; d <= SNAP_RADIUS; d++) {
-        push(seam - d);
-        push(seam + d);
-    }
-
-    // Nearest first; equidistant candidates prefer the seam below (larger
-    // line) so the indicator keeps up with a downward drag.
-    const byDistance = [...candidates].sort((a, b) => Math.abs(a - seam) - Math.abs(b - seam) || b - a);
-    for (const line of byDistance) {
+    const edges = [region.startLine, region.endLine + 1].sort(
+        (a, b) => Math.abs(a - raw.line) - Math.abs(b - raw.line) || b - a,
+    );
+    for (const line of edges) {
         const position = locateDropPosition({
             doc,
             sourceDoc,
@@ -206,4 +212,26 @@ export function snapDrop(input: SnapDropInput): DropPosition {
     }
 
     return raw;
+}
+
+/**
+ * The protected region a rejected seam lies inside, or null when the rejection is not about the seam's place. A
+ * block whose interior is protected, inside a container that rejects the payload, lies inside the container's region.
+ */
+function rejectedRegion(
+    raw: DropPosition,
+    payload: CapturedMoveSource,
+    sourceDoc: Doc,
+    tabSize: number,
+): LineRange | null {
+    const lineMap = getLineMap(raw.doc, { tabSize });
+    const decide = (line: number): LineRange | null => {
+        const at = gapAt(raw.doc, line, { lineMap, tabSize });
+        if (at.type === 'interior') {
+            return (at.reason !== 'inside_frontmatter' && decide(at.region.startLine)) || at.region;
+        }
+        const decision = canDropAt(payload, at.gap, { lineMap, tabSize, sourceDoc });
+        return decision.allowDrop ? null : decision.region;
+    };
+    return decide(raw.line);
 }
