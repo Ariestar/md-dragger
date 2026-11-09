@@ -31,6 +31,12 @@ export const ADAPTABLE_BLOCKS = new Set<BlockType>([
     BlockType.Blockquote,
 ]);
 
+/**
+ * Decide whether a source type may enter an already classified insertion seam.
+ * List interiors accept paragraphs, headings, list items, and blockquotes;
+ * quote interiors accept only blockquotes. Returns a null reason on acceptance
+ * or the applicable rejection reason, without converting the source text.
+ */
 export function resolveInsertionRule(input: InsertionRuleInput): InsertionRuleDecision {
     const { sourceType, slotContext } = input;
     switch (slotContext) {

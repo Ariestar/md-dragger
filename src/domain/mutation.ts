@@ -122,8 +122,8 @@ export function relevelListText(params: {
 }
 
 /**
- * Text to insert for a move: relevel list indent from DropPosition.parent only,
- * then ensure a trailing newline.
+ * Whether the 1-based insertion seam has list lines immediately above and below.
+ * Returns false at the document boundaries; document access errors propagate.
  */
 function isBetweenListItems(doc: Doc, line: number, tabSize: number): boolean {
     if (line <= 1 || line > doc.lines) return false;
@@ -148,6 +148,14 @@ function adaptedLine(
     return { indentRaw: parsed.indent.raw, body: rest.slice(parsed.indent.raw.length) };
 }
 
+/**
+ * Prepare move text, ensuring a trailing newline without modifying the document.
+ * When adaptToList is true, convert each source line to the marker type of the
+ * list parent, or of the following item at a seam between adjacent list lines.
+ * Relevel list text to the parent's indent plus indentUnit, or zero at the root.
+ * tabSize and indentUnit are measured in text columns. Document access errors
+ * propagate.
+ */
 export function insertTextForMove(params: {
     doc: Doc;
     sourceBlock: Block;

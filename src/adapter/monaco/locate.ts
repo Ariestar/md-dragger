@@ -50,8 +50,11 @@ export function lineAtPoint(editor: editor.ICodeEditor, point: Point): number | 
 }
 
 /**
- * Resolves the DropPosition for a pointer point, taking horizontal dragging
- * (list nesting / outdenting) into account and snapping against invalid containers.
+ * Resolve a drop seam from client coordinates and snap it against container rules.
+ * For paragraphs, headings, list items, and blockquotes, horizontal distance from
+ * the content's left edge sets list indentation in rendered indent steps.
+ * Returns null without a model, DOM node, selection, or line hit.
+ * Invalid configuration throws; document access errors propagate.
  */
 export function resolveDropPosition(
     editor: editor.ICodeEditor,
