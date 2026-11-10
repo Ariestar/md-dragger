@@ -7,6 +7,8 @@ import {
     listLevel,
     locateDropPosition,
     parseLine,
+    planMove,
+    seamRow,
     selectBlocks,
     selectOne,
     snapDrop,
@@ -208,6 +210,68 @@ describe('domain snapDrop', () => {
         expect(snapAt(text, 7, 3).line).toBe(5);
     });
 
+    it('snaps to the lower edge of a region at the first blank line of a wider gap below it', () => {
+        const text = 'p\n\n```\na\n\nb\n```\n\n\nq\n\nr';
+        expect(snapAt(text, 12, 6).line).toBe(8);
+        expect(snapAt(text, 12, 4).line).toBe(3);
+    });
+
+    it('snaps to the upper edge of a region at the last boundary of a wider gap above it', () => {
+        expect(snapAt('p\n\n\n```\na\n\nb\n```\n\nq', 10, 5).line).toBe(4);
+    });
+
+    it('measures the nearer edge from the canonical seam of a wider gap, wherever the pointer is in it', () => {
+        // `- a`'s subtree (lines 1–4) rejects the table, which snaps below the subtree from every row of the gap.
+        const listText = '- a\n\n\n    - b\n\nP\n\n| t |\n|---|\n| 1 |';
+        const listDoc = stringDoc(listText);
+        const table = selectOne(detectBlock(listDoc, 8, { tabSize }) as Block);
+        const input = {
+            sourceDoc: listDoc,
+            selection: table,
+            sourceIndentWidth: 0,
+            targetIndentWidth: 0,
+            tabSize,
+            indentUnit,
+        };
+        for (const hitLine of [2, 3]) {
+            for (const belowMid of [false, true]) {
+                const raw = locateDropPosition({ ...input, doc: listDoc, hitLine, belowMid });
+                expect(snapDrop({ ...input, raw }).line).toBe(6);
+            }
+        }
+        // `1. i3`'s subtree rejects the fence: the edge below it is a real move, not the fence's own gap above.
+        const fenceText = '```\ncode1\n\n\ncode2\n```\n\n\n1. i3\n\n\n    2. i4';
+        const fenceDoc = stringDoc(fenceText);
+        const fence = selectOne(detectBlock(fenceDoc, 1, { tabSize }) as Block);
+        const fenceInput = { ...input, sourceDoc: fenceDoc, selection: fence };
+        for (const [hitLine, belowMid] of [
+            [9, true],
+            [10, false],
+        ] as const) {
+            const raw = locateDropPosition({ ...fenceInput, doc: fenceDoc, hitLine, belowMid });
+            const snapped = snapDrop({ ...fenceInput, raw });
+            expect(snapped.line).toBe(13);
+            expect(
+                planMove({ sourceDoc: fenceDoc, selection: fence, position: snapped, tabSize, indentUnit }),
+            ).toMatchObject({
+                type: 'ok',
+            });
+        }
+    });
+
+    it('measures the nearer edge from the seam of a gap of one blank line, wherever the pointer is in it', () => {
+        // `- a`'s subtree (lines 3–9) rejects the fence; the pointer is over the blank line between b1 and b2.
+        const text = 'p\n\n- a\n\n    b1\n\n    b2\n\n    b3\n\n```\nsrc\n```';
+        const doc = stringDoc(text);
+        const selection = selectOne(detectBlock(doc, 11, { tabSize }) as Block);
+        const input = { sourceDoc: doc, selection, sourceIndentWidth: 0, targetIndentWidth: 0, tabSize, indentUnit };
+        for (const belowMid of [false, true]) {
+            const raw = locateDropPosition({ ...input, doc, hitLine: 6, belowMid });
+            expect(raw.line).toBe(7);
+            expect(snapDrop({ ...input, raw }).line).toBe(11);
+        }
+    });
+
     it('re-derives the parent when snapping a list seam', () => {
         const position = snapAt('- a\n    - b\n- x\n    - y\n```ts\nz\n```', 2, 6);
         expect(position.line).toBe(5);
@@ -242,6 +306,38 @@ describe('domain locateDropPosition', () => {
         expect(locate(text, 4, true).line).toBe(6);
         expect(locate(text, 5, true).line).toBe(6);
         expect(locate(text, 7, false).line).toBe(7);
+    });
+
+    it('returns the boundary under the pointer in a gap of two or more blank lines', () => {
+        const text = 'a\n\n\nb\n\n\n\nc';
+        expect(locate(text, 1, true).line).toBe(2);
+        expect(locate(text, 2, false).line).toBe(2);
+        expect(locate(text, 2, true).line).toBe(3);
+        expect(locate(text, 3, true).line).toBe(4);
+        expect(locate(text, 4, false).line).toBe(4);
+        expect(locate(text, 4, true).line).toBe(5);
+        expect(locate(text, 6, false).line).toBe(6);
+        expect(locate(text, 7, true).line).toBe(8);
+        expect(locate(text, 8, false).line).toBe(8);
+    });
+
+    it('derives the parent from the gap’s seam, not the boundary under the pointer', () => {
+        // On the first blank line under a quoted list, one step in: no item across the blank lines is a parent, so
+        // the item is not written as indented code in a new quote.
+        const doc = stringDoc('> - s\n> - a\n\n\nP');
+        const position = locateDropPosition({
+            doc,
+            sourceDoc: doc,
+            selection: selectOne(detectBlock(doc, 1, { tabSize }) as Block),
+            hitLine: 2,
+            belowMid: true,
+            sourceIndentWidth: 0,
+            targetIndentWidth: indentUnit,
+            tabSize,
+            indentUnit,
+        });
+        expect(position.line).toBe(3);
+        expect(position.parent).toBeNull();
     });
 
     it('derives the list parent across a loose list’s blank line', () => {
@@ -296,6 +392,26 @@ describe('domain locateDropPosition quoted parent', () => {
 
     it('turns nothing without text into an item, so it keeps its quote', () => {
         expect(nestUnder('- a\n\n>', 3, 1).parent).toBeNull();
+    });
+});
+
+describe('domain seamRow', () => {
+    it('maps a drop line to the row the indicator sits on and its edge', () => {
+        // a · · b c · callout(7–8) · · d
+        const doc = stringDoc('a\n\n\nb\nc\n\n> [!note] C\n> c\n\n\nd');
+        const row = (line: number) => seamRow({ doc, line, parent: null });
+        expect(row(1)).toEqual({ row: 1, edge: 'top' });
+        // The first blank line of a gap: its top, not the block above.
+        expect(row(2)).toEqual({ row: 2, edge: 'top' });
+        expect(row(3)).toEqual({ row: 2, edge: 'below' });
+        expect(row(4)).toEqual({ row: 3, edge: 'below' });
+        expect(row(5)).toEqual({ row: 4, edge: 'below' });
+        expect(row(6)).toEqual({ row: 6, edge: 'top' });
+        expect(row(7)).toEqual({ row: 6, edge: 'below' });
+        // Under a callout, whose rows are hidden in its widget.
+        expect(row(9)).toEqual({ row: 9, edge: 'top' });
+        expect(row(11)).toEqual({ row: 10, edge: 'below' });
+        expect(row(12)).toEqual({ row: 11, edge: 'below' });
     });
 });
 

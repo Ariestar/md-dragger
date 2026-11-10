@@ -34,6 +34,7 @@ describe('insertIntoGap', () => {
     const paragraphEnd: PayloadEnd = { type: BlockType.Paragraph, run: 'paragraph@0', standalone: false };
     const standaloneEnd: PayloadEnd = { ...paragraphEnd, standalone: true };
 
+    /** Write `payload` into the gap at `seam`, at that boundary of its blank lines. */
     function insertion(text: string, seam: number, end: PayloadEnd, payload = 'X'): string {
         const doc = stringDoc(text);
         const lineMap = getLineMap(doc, { tabSize: TAB });
@@ -48,6 +49,7 @@ describe('insertIntoGap', () => {
                 tabSize: TAB,
                 parent: null,
                 standalone: (block) => isStandalone(doc, block, { lineMap }),
+                line: seam,
             },
         );
         expect(change.from).toBe(change.to);
@@ -59,9 +61,13 @@ describe('insertIntoGap', () => {
         expect(insertion('a\nb', 2, standaloneEnd)).toBe('a\n\nX\n\nb');
     });
 
-    it('keeps a one- or two-line gap on both sides', () => {
+    it('keeps the blank lines above the drop line above the payload and the rest below, at least one on a side', () => {
+        expect(insertion('a\n\nb', 2, paragraphEnd)).toBe('a\n\nX\n\nb');
         expect(insertion('a\n\nb', 3, paragraphEnd)).toBe('a\n\nX\n\nb');
-        expect(insertion('a\n\n\nb', 4, paragraphEnd)).toBe('a\n\n\nX\n\n\nb');
+        expect(insertion('a\n\n\nb', 2, paragraphEnd)).toBe('a\n\nX\n\n\nb');
+        expect(insertion('a\n\n\nb', 3, paragraphEnd)).toBe('a\n\nX\n\nb');
+        expect(insertion('a\n\n\nb', 4, paragraphEnd)).toBe('a\n\n\nX\n\nb');
+        expect(insertion('a\n\n\n\nb', 4, standaloneEnd)).toBe('a\n\n\nX\n\nb');
     });
 
     it('writes at the top edge below padding and frontmatter', () => {

@@ -110,21 +110,36 @@ export function moveTx(params: { sourceDoc: Doc; plan: MovePlan }): DocEdit[] | 
     const targetDoc = plan.position.doc;
     const { tabSize } = plan;
     const parse = (text: string) => parseLine(text, tabSize);
-    const project = (sourceContent: string) =>
-        insertTextForMove({
-            sourceBlock: plan.captured.blocks[0],
-            sourceContent,
-            position: plan.position,
-            asItems: plan.asItems,
-            tabSize,
-            indentUnit: plan.indentUnit,
-        });
 
     if (plan.allowIndent) {
-        return [compileDocEdit(sourceDoc, relevelInPlace(sourceDoc, plan.captured.segments, project), parse)];
+        const relevelled = relevelInPlace(sourceDoc, plan.captured.segments, (text) => project(plan, text));
+        return [compileDocEdit(sourceDoc, relevelled, parse)];
     }
 
-    const text = project(plan.captured.content);
+    const step = moveInsertion(sourceDoc, plan);
+    if (isReject(step)) return step;
+    const { insertion, removals } = step;
+    if (plan.mode === 'copy' || sourceDoc !== targetDoc) {
+        const inserted = compileDocEdit(targetDoc, [insertion], parse);
+        return plan.mode === 'copy' ? [inserted] : [inserted, compileDocEdit(sourceDoc, removals, parse)];
+    }
+    return [compileDocEdit(sourceDoc, [insertion, ...removals], parse)];
+}
+
+/**
+ * The geometry of a move or copy that is not an in-place indent change: the
+ * insertion into the target gap, on the original target document, and the
+ * removal of each segment from the source. planMove reads the line the
+ * insertion lands on. Rejects empty projected text, or a same-document gap
+ * that the removal puts inside a block.
+ */
+export function moveInsertion(
+    sourceDoc: Doc,
+    plan: MovePlan,
+): { insertion: TextChange; removals: TextChange[] } | Reject {
+    const targetDoc = plan.position.doc;
+    const { tabSize } = plan;
+    const text = project(plan, plan.captured.content);
     if (!text.length) return reject('no_insert_text');
     // A payload written as list items faces its neighbours as list items.
     const item: PayloadEnd = { type: BlockType.ListItem, run: 'list', standalone: false };
@@ -155,14 +170,26 @@ export function moveTx(params: { sourceDoc: Doc; plan: MovePlan }): DocEdit[] | 
                 const run = quoteRunAt(targetLineMap, line);
                 return run.startLine <= first && first <= run.endLine;
             },
+            line: plan.position.line,
         });
-        const inserted = compileDocEdit(targetDoc, [insertion], parse);
-        return plan.mode === 'copy' ? [inserted] : [inserted, compileDocEdit(sourceDoc, removals, parse)];
+        return { insertion, removals };
     }
 
     const insertion = insertAfterRemoval(sourceDoc, plan, payload, removals);
     if (isReject(insertion)) return insertion;
-    return [compileDocEdit(sourceDoc, [insertion, ...removals], parse)];
+    return { insertion, removals };
+}
+
+/** The text a move writes for `sourceContent`: as list items or relevelled for the drop position (insertTextForMove). */
+function project(plan: MovePlan, sourceContent: string): string {
+    return insertTextForMove({
+        sourceBlock: plan.captured.blocks[0],
+        sourceContent,
+        position: plan.position,
+        asItems: plan.asItems,
+        tabSize: plan.tabSize,
+        indentUnit: plan.indentUnit,
+    });
 }
 
 /** An in-place list indent change: each segment's lines are replaced by their relevelled text, separators unchanged. */
@@ -178,13 +205,18 @@ function relevelInPlace(doc: Doc, segments: LineRange[], project: (text: string)
     });
 }
 
+/** The source document with a move's deletions applied, kept per source document for the deletions it was built
+ * from: every frame of a drag plans the same removal. */
+const removedDocs = new WeakMap<Doc, { key: string; removed: Doc }>();
+
 /**
  * The insertion of a same-document move. The destination gap is resolved on
  * the document with the segments removed — a removed neighbour is replaced by
  * its surviving neighbour, and the gap's blank lines by the collapsed ones —
- * and the insertion offset is mapped back onto the original doc, at the far
- * boundary of any deleted range it touches. Rejected when that gap lies
- * inside a block.
+ * and so is the drop's boundary line, at the deletion point when the removal
+ * deletes it; the insertion offset is mapped back onto the original doc, at
+ * the far boundary of any deleted range it touches. Rejected when that gap
+ * lies inside a block.
  */
 function insertAfterRemoval(
     doc: Doc,
@@ -194,8 +226,15 @@ function insertAfterRemoval(
 ): TextChange | Reject {
     const { tabSize } = plan;
     const deletions = [...removals].sort((a, b) => a.from - b.from);
-    const removed = stringDoc(applyChanges(doc, deletions));
-    inheritFrontmatterEnd(removed, doc);
+    const key = deletions.map((d) => `${d.from}:${d.to}`).join(',');
+    let memo = removedDocs.get(doc);
+    if (memo?.key !== key) {
+        const fresh = stringDoc(applyChanges(doc, deletions));
+        inheritFrontmatterEnd(fresh, doc);
+        memo = { key, removed: fresh };
+        removedDocs.set(doc, memo);
+    }
+    const { removed } = memo;
     const lineMap = getLineMap(removed, { tabSize });
     const lineAfterRemoval = (line: number) =>
         removed.lineAt(offsetAfterRemoval(deletions, doc.line(line).from)).number;
@@ -220,7 +259,21 @@ function insertAfterRemoval(
         const first = plan.captured.segments[0].startLine;
         return run.startLine <= first && first <= run.endLine;
     };
-    const insertion = insertIntoGap(removed, at.gap, payload, { lineMap, tabSize, parent, standalone, fromQuote });
+    // The drop line maps to the deletion point when the removal deletes it; every other line read here survives.
+    const dropLine = (line: number) => {
+        const from = doc.line(line).from;
+        const cut = deletions.find((d) => d.from < from && from < d.to);
+        return removed.lineAt(offsetAfterRemoval(deletions, cut ? cut.from : from)).number;
+    };
+    const line = plan.position.line > doc.lines ? removed.lines + 1 : dropLine(plan.position.line);
+    const insertion = insertIntoGap(removed, at.gap, payload, {
+        lineMap,
+        tabSize,
+        parent,
+        standalone,
+        fromQuote,
+        line,
+    });
 
     const pos = offsetBeforeRemoval(deletions, insertion.from);
     return { from: pos, to: pos, insert: insertion.insert };

@@ -3,7 +3,7 @@ import { detectBlock } from '../block/block-detector';
 import type { Block } from '../block/block-types';
 import type { DropPosition } from '../command/drop-position';
 import type { Doc } from '../markdown/document-types';
-import { locateDropPosition, snapDrop } from '../markdown/drop-locate';
+import { locateDropPosition, seamRow, snapDrop } from '../markdown/drop-locate';
 import { planMove } from '../move/move-plan';
 import { selectBlocks, selectOne } from '../selection/block-selection';
 import type { DocEdit } from './block-transaction';
@@ -484,9 +484,9 @@ describe('moveTx blank-line separation', () => {
         expect(moveAndApply('- a\n\n- b\n\npara\n\n- x', 7, 5)).toBe('- a\n\n- b\n\n- x\n\npara');
     });
 
-    it('keeps a two-line gap two lines on both sides', () => {
-        expect(moveAndApply('A\n\n\nB\n\nC', 6, 2)).toBe('A\n\n\nC\n\n\nB');
-        expect(moveAndApply('A\n\n\nB\n\nC', 6, 4)).toBe('A\n\n\nC\n\n\nB');
+    it('splits a two-line gap at the drop line', () => {
+        expect(moveAndApply('A\n\n\nB\n\nC', 6, 2)).toBe('A\n\nC\n\n\nB');
+        expect(moveAndApply('A\n\n\nB\n\nC', 6, 4)).toBe('A\n\n\nC\n\nB');
     });
 
     it('writes no blank line below a table or next to math', () => {
@@ -643,6 +643,230 @@ describe('moveTx blank-line separation', () => {
         expect(cross('', 1)).toEqual(['> [!note] moved\n> body', 'keep\n']);
         expect(cross('one\n\ntwo\n', 3)).toEqual(['one\n\n> [!note] moved\n> body\n\ntwo\n', 'keep\n']);
         expect(cross('one\n\ntwo\n', 5)).toEqual(['one\n\ntwo\n\n> [!note] moved\n> body\n', 'keep\n']);
+    });
+});
+
+/**
+ * Move (or copy) the blocks at fromLines to boundary `line` of a gap, of `target` when given, nested under the item
+ * at `parent` of the target: the text written to the target and the line the plan reports, after checking that
+ * planning that line again gives the same line and the same edits.
+ */
+function dropAt(
+    text: string,
+    fromLines: number[],
+    line: number,
+    options: { target?: string; mode?: 'move' | 'copy'; parent?: number } = {},
+): { written: string; line: number } {
+    const sourceDoc = stringDoc(text);
+    const doc = options.target === undefined ? sourceDoc : stringDoc(options.target);
+    const selection = selectBlocks(fromLines.map((from) => blockAt(sourceDoc, from)));
+    const parent = options.parent === undefined ? null : blockAt(doc, options.parent);
+    const plan = (at: number) => {
+        const position = { doc, line: at, parent };
+        const planned = planMove({ sourceDoc, selection, position, tabSize, indentUnit, mode: options.mode });
+        if (planned.type !== 'ok') throw new Error(`plan rejected: ${planned.reason}`);
+        const edits = moveTx({ sourceDoc, plan: planned.value });
+        if (!Array.isArray(edits)) throw new Error(`move rejected: ${edits.reason}`);
+        return { line: planned.value.position.line, edits };
+    };
+    const first = plan(line);
+    const again = plan(first.line);
+    expect(again.line).toBe(first.line);
+    expect(again.edits.map((edit) => edit.changes)).toEqual(first.edits.map((edit) => edit.changes));
+    const written = applyEdits(
+        options.target ?? text,
+        first.edits.filter((edit) => edit.doc === doc),
+    );
+    return { written, line: first.line };
+}
+
+describe('moveTx gap split: the drop line picks where the payload lands among the blank lines', () => {
+    it('splits a gap of one, two or three blank lines between paragraphs, from above and from below', () => {
+        expect(dropAt('C\n\nA\n\nB', [1], 4)).toEqual({ written: 'A\n\nC\n\nB', line: 4 });
+        expect(dropAt('C\n\nA\n\nB', [1], 5)).toEqual({ written: 'A\n\nC\n\nB', line: 5 });
+        expect(dropAt('C\n\nA\n\n\nB', [1], 4)).toEqual({ written: 'A\n\nC\n\n\nB', line: 4 });
+        expect(dropAt('C\n\nA\n\n\nB', [1], 5)).toEqual({ written: 'A\n\nC\n\nB', line: 5 });
+        expect(dropAt('C\n\nA\n\n\nB', [1], 6)).toEqual({ written: 'A\n\n\nC\n\nB', line: 6 });
+        expect(dropAt('C\n\nA\n\n\n\nB', [1], 4).written).toBe('A\n\nC\n\n\n\nB');
+        expect(dropAt('C\n\nA\n\n\n\nB', [1], 6).written).toBe('A\n\n\nC\n\nB');
+        expect(dropAt('C\n\nA\n\n\n\nB', [1], 7).written).toBe('A\n\n\n\nC\n\nB');
+        expect(dropAt('A\n\n\n\nB\n\nC', [7], 2)).toEqual({ written: 'A\n\nC\n\n\n\nB', line: 2 });
+        expect(dropAt('A\n\n\n\nB\n\nC', [7], 4)).toEqual({ written: 'A\n\n\nC\n\nB', line: 4 });
+        expect(dropAt('A\n\n\n\nB\n\nC', [7], 5)).toEqual({ written: 'A\n\n\n\nC\n\nB', line: 5 });
+    });
+
+    it('splits a gap of one or three blank lines between callouts and between quotes, from above', () => {
+        const callouts = (k: number) => `y\n\n> [!note] A\n> a${'\n'.repeat(k + 1)}> [!note] B\n> b`;
+        expect(dropAt(callouts(1), [1], 5).written).toBe('> [!note] A\n> a\n\ny\n\n> [!note] B\n> b');
+        expect(dropAt(callouts(1), [1], 6).written).toBe('> [!note] A\n> a\n\ny\n\n> [!note] B\n> b');
+        expect(dropAt(callouts(3), [1], 5).written).toBe('> [!note] A\n> a\n\ny\n\n\n\n> [!note] B\n> b');
+        expect(dropAt(callouts(3), [1], 6).written).toBe('> [!note] A\n> a\n\ny\n\n\n> [!note] B\n> b');
+        expect(dropAt(callouts(3), [1], 7).written).toBe('> [!note] A\n> a\n\n\ny\n\n> [!note] B\n> b');
+        expect(dropAt(callouts(3), [1], 8).written).toBe('> [!note] A\n> a\n\n\n\ny\n\n> [!note] B\n> b');
+        const quotes = (k: number) => `z\n\n> q1${'\n'.repeat(k + 1)}> q2`;
+        expect(dropAt(quotes(1), [1], 4).written).toBe('> q1\n\nz\n\n> q2');
+        expect(dropAt(quotes(1), [1], 5).written).toBe('> q1\n\nz\n\n> q2');
+        expect(dropAt(quotes(3), [1], 4).written).toBe('> q1\n\nz\n\n\n\n> q2');
+        expect(dropAt(quotes(3), [1], 6).written).toBe('> q1\n\n\nz\n\n> q2');
+        expect(dropAt(quotes(3), [1], 7).written).toBe('> q1\n\n\n\nz\n\n> q2');
+    });
+
+    it('splits a gap between callouts and between quotes', () => {
+        const callouts = 'x\n\n> [!note] A\n> a\n\n\n> [!note] B\n> b\n\ny';
+        expect(dropAt(callouts, [10], 5).written).toBe('x\n\n> [!note] A\n> a\n\ny\n\n\n> [!note] B\n> b');
+        expect(dropAt(callouts, [10], 6).written).toBe('x\n\n> [!note] A\n> a\n\ny\n\n> [!note] B\n> b');
+        expect(dropAt(callouts, [10], 7).written).toBe('x\n\n> [!note] A\n> a\n\n\ny\n\n> [!note] B\n> b');
+        expect(dropAt('> q1\n\n\n> q2\n\nz', [6], 2).written).toBe('> q1\n\nz\n\n\n> q2');
+        expect(dropAt('> q1\n\n\n> q2\n\nz', [6], 4).written).toBe('> q1\n\n\nz\n\n> q2');
+    });
+
+    it('splits the gap of a move to another document and of a copy the same way', () => {
+        expect(dropAt('X', [1], 2, { target: 'A\n\n\nB' }).written).toBe('A\n\nX\n\n\nB');
+        expect(dropAt('X', [1], 3, { target: 'A\n\n\nB' }).written).toBe('A\n\nX\n\nB');
+        expect(dropAt('C\n\nA\n\n\nB', [1], 5, { mode: 'copy' }).written).toBe('C\n\nA\n\nC\n\nB');
+        expect(dropAt('C\n\nA\n\n\nB', [1], 5).written).toBe('A\n\nC\n\nB');
+    });
+
+    it('keeps the blank lines a list sets on its side, and gives the other side the rest of the gap', () => {
+        // A tight list above or below: the item is written tight to it, wherever the pointer is in the gap.
+        for (const line of [3, 4, 5]) {
+            expect(dropAt('- x', [1], line, { target: '- a\n- b\n\n\nP' })).toEqual({
+                written: '- a\n- b\n- x\n\n\nP',
+                line: 3,
+            });
+        }
+        for (const line of [2, 3, 4]) {
+            expect(dropAt('- x', [1], line, { target: 'P\n\n\n- a\n- b' })).toEqual({
+                written: 'P\n\n\n- x\n- a\n- b',
+                line: 4,
+            });
+        }
+        // A loose list: one blank line to it, the rest of the gap on the other side.
+        expect(dropAt('- x', [1], 4, { target: '- a\n\n- b\n\n\nP' })).toEqual({
+            written: '- a\n\n- b\n\n- x\n\nP',
+            line: 5,
+        });
+        expect(dropAt('- x', [1], 7, { target: '- a\n\n- b\n\n\n\nP' })).toEqual({
+            written: '- a\n\n- b\n\n- x\n\n\nP',
+            line: 5,
+        });
+        expect(dropAt('- x', [1], 2, { target: 'P\n\n\n\n- a\n\n- b' })).toEqual({
+            written: 'P\n\n\n- x\n\n- a\n\n- b',
+            line: 4,
+        });
+        // A gap of one blank line keeps its writes; the line is where the item is written.
+        expect(dropAt('- x', [1], 4, { target: '- a\n- b\n\nP' })).toEqual({ written: '- a\n- b\n- x\n\nP', line: 3 });
+        expect(dropAt('- x', [1], 6, { target: '- a\n\n\n- b\n\nP' })).toEqual({
+            written: '- a\n\n\n- b\n\n\n- x\n\nP',
+            line: 6,
+        });
+    });
+
+    it('lands an item that a list below sets after one of the gap’s own blank lines, and paints it there', () => {
+        // The item joins the list below with that list's spacing; the side above, left with none, takes the first of
+        // the gap's own blank lines, whatever the pointer's line. The text is as before.
+        const painted = (target: string, line: number) => seamRow({ doc: stringDoc(target), line, parent: null });
+        for (const [target, lines, written] of [
+            ['P\n\n- a\n\n- b', [2, 3], 'P\n\n- x\n\n- a\n\n- b'],
+            ['P\n\n- a\n\n\n- b', [2, 3], 'P\n\n- x\n\n\n- a\n\n\n- b'],
+            ['P\n\n\n- a\n\n- b', [2, 3, 4], 'P\n\n- x\n\n- a\n\n- b'],
+            ['P\n\n\n- a\n\n\n- b', [2, 3, 4], 'P\n\n- x\n\n\n- a\n\n\n- b'],
+        ] as const) {
+            for (const line of lines) {
+                expect(dropAt('- x', [1], line, { target })).toEqual({ written, line: 3 });
+            }
+            expect(painted(target, 3)).toEqual({ row: 2, edge: 'below' });
+        }
+        // A list above sets the top: the item lands below as many of the gap's blank lines as that list's spacing.
+        expect(dropAt('- x', [1], 4, { target: '- a\n\n- b\n\nP' })).toEqual({
+            written: '- a\n\n- b\n\n- x\n\nP',
+            line: 5,
+        });
+        expect(painted('- a\n\n- b\n\nP', 5)).toEqual({ row: 4, edge: 'below' });
+    });
+
+    it('keeps the blank lines of a sublist the item joins, and of a parent it starts one under', () => {
+        expect(dropAt('- a\n    - a1\n    - a2\n\n\n- b\n\n- x', [8], 5, { parent: 1 })).toEqual({
+            written: '- a\n    - a1\n    - a2\n    - x\n\n\n- b',
+            line: 4,
+        });
+        expect(dropAt('- a\n    - a1\n\n    - a2\n\n\n- b\n\n- x', [9], 7, { parent: 1 })).toEqual({
+            written: '- a\n    - a1\n\n    - a2\n\n    - x\n\n- b',
+            line: 6,
+        });
+        // A paragraph a list turns into an item under its parent (#125).
+        expect(dropAt('- a\n- b\n\n\nP\n\nQ', [7], 4, { parent: 2 })).toEqual({
+            written: '- a\n- b\n    - Q\n\n\nP',
+            line: 3,
+        });
+    });
+
+    it('keeps the spacing of a list on both sides of an item between two of its items', () => {
+        for (const line of [2, 3, 4]) {
+            expect(dropAt('- x', [1], line, { target: '- a\n\n\n- b' })).toEqual({
+                written: '- a\n\n\n- x\n\n\n- b',
+                line: 4,
+            });
+        }
+    });
+
+    it('reads the spacing of the list an item joins once the move removes it, and as it is for a copy', () => {
+        // Moving `- s` leaves `- a` and `- b` loose; copying it keeps `- s` and `- b` tight.
+        const text = '- a\n\n- s\n- b\n\n\nP';
+        expect(dropAt(text, [3], 7)).toEqual({ written: '- a\n\n- b\n\n- s\n\nP', line: 6 });
+        expect(dropAt(text, [3], 7, { mode: 'copy' })).toEqual({ written: '- a\n\n- s\n- b\n- s\n\n\nP', line: 5 });
+    });
+
+    it('lands at the deletion point where the move removes the drop line, and reports the gap’s last boundary', () => {
+        // Moving S1 deletes the blank lines of its gap with Y.
+        for (const line of [6, 7, 8]) {
+            expect(dropAt('X\n\n\n\nS1\n\n\nY\n\nS2', [5, 10], line)).toEqual({
+                written: 'X\n\n\n\nS1\n\n\nS2\n\nY',
+                line: 8,
+            });
+        }
+        // Nesting an item into its own upper gap deletes that gap's blank lines with it.
+        for (const line of [2, 3, 4]) {
+            expect(dropAt('- a\n\n\n- s\n\n\n\n- b', [4], line, { parent: 1 })).toEqual({
+                written: '- a\n    - s\n\n\n\n- b',
+                line: 4,
+            });
+        }
+    });
+
+    it('keeps the gap’s canonical seam for an in-place indent change, wherever the line is in the gap', () => {
+        for (const line of [3, 4, 5]) {
+            expect(dropAt('- a\n    - s\n\n\n- b', [2], line)).toEqual({ written: '- a\n- s\n\n\n- b', line: 5 });
+        }
+    });
+
+    it('reports the line under the last block at the note’s end, where the write puts the block above the padding', () => {
+        const painted = (text: string, line: number) => seamRow({ doc: stringDoc(text), line, parent: null });
+        const padded = 'C\n\nA\n\nB\n\n\n\n';
+        for (const line of [6, 7, 8, 9, 10]) {
+            expect(dropAt(padded, [1], line)).toEqual({ written: 'A\n\nB\n\nC\n\n\n\n', line: 6 });
+        }
+        expect(painted(padded, 6)).toEqual({ row: 6, edge: 'top' });
+        // One final newline: the empty last line. None: past the last line, as before.
+        expect(dropAt('C\n\nA\n\nB\n', [1], 7)).toEqual({ written: 'A\n\nB\n\nC\n', line: 6 });
+        expect(painted('C\n\nA\n\nB\n', 6)).toEqual({ row: 6, edge: 'top' });
+        expect(dropAt('C\n\nA\n\nB', [1], 6)).toEqual({ written: 'A\n\nB\n\nC', line: 6 });
+        expect(painted('C\n\nA\n\nB', 6)).toEqual({ row: 5, edge: 'below' });
+        // An item joining the list at the note's end is written tight under it, and painted there.
+        expect(dropAt('- x', [1], 5, { target: '- a\n- b\n\n\n' })).toEqual({
+            written: '- a\n- b\n- x\n\n\n',
+            line: 3,
+        });
+        expect(painted('- a\n- b\n\n\n', 3)).toEqual({ row: 3, edge: 'top' });
+    });
+
+    it('keeps edges and the top of a note under frontmatter as they were', () => {
+        expect(dropAt('---\nt: x\n---\n\n\nA\n\nC', [8], 4)).toEqual({
+            written: '---\nt: x\n---\n\n\nC\n\nA',
+            line: 6,
+        });
+        expect(dropAt('C\n\nA\n\n\n', [1], 6)).toEqual({ written: 'A\n\nC\n\n\n', line: 4 });
+        expect(dropAt('\n\nA\n\nC', [5], 1)).toEqual({ written: '\n\nC\n\nA', line: 3 });
     });
 });
 

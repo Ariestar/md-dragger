@@ -4,9 +4,10 @@ import type { Doc } from './document-types';
 import type { LineMap } from './line-map';
 import type { LineRange } from './line-range-types';
 
-/** The place between two consecutive Blocks, together with its blank lines. A drop targets a Gap. */
+/** The place between two consecutive Blocks, together with its blank lines. A drop targets a Gap: legality and the
+ * drop parent are the gap's, and DropPosition.line picks a boundary among its blank lines. */
 export type Gap = {
-    /** Canonical seam: first line of `below`, or doc.lines + 1. */
+    /** Canonical seam, the gap's key: first line of `below`, or doc.lines + 1. */
     seam: number;
     /** Innermost block at the last non-blank line above `seam`; null at the top edge (document start or frontmatter end). */
     above: Block | null;
@@ -35,11 +36,13 @@ const ATOMIC_INTERIOR = new Map<BlockType, AtomicInterior>([
 ]);
 
 /**
- * The one seam shared by every raw seam of a gap: the first non-blank line at
- * or after `line`, or doc.lines + 1. The lower half of a block's last line,
- * the gap's blank lines and the upper half of the next block's first line all
- * give the same seam. Seams inside frontmatter, and on blank lines inside a
- * fence, math or comment block (its content, not a gap), stay where they are.
+ * The one seam shared by every raw seam of a gap, which names the gap: the
+ * first non-blank line at or after `line`, or doc.lines + 1. The lower half of
+ * a block's last line, the gap's blank lines and the upper half of the next
+ * block's first line all give the same seam; which boundary among the blank
+ * lines a drop lands at is DropPosition.line's. Seams inside frontmatter, and on
+ * blank lines inside a fence, math or comment block (its content, not a gap),
+ * stay where they are.
  */
 export function canonicalSeam(doc: Doc, line: number, options: { lineMap: LineMap }): number {
     const { lineMap } = options;

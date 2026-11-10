@@ -5,11 +5,11 @@ import { type Gap, gapAt } from '../markdown/gap';
 import { getLineMap, type LineMap } from '../markdown/line-map';
 import type { LineRange } from '../markdown/line-range-types';
 import { parseLine } from '../parse/parse-line';
-import type { RejectReason } from '../result';
+import { isReject, type RejectReason } from '../result';
 import { canDropAt, listConversion } from '../rules/container-policy';
 import { selfDrop } from '../rules/self-drop';
 import type { BlockSelection } from '../selection/block-selection';
-import { type CapturedMoveSource, captureMoveSource } from '../transaction/move-blocks';
+import { type CapturedMoveSource, captureMoveSource, moveInsertion } from '../transaction/move-blocks';
 
 export type { RejectReason };
 
@@ -39,11 +39,14 @@ export type MovePlan = {
 export type MoveResult = { type: 'ok'; value: MovePlan } | { type: 'reject'; reason: RejectReason };
 
 /**
- * Plan a move (the default) or copy before a target line, clamped to 1 through
- * targetDoc.lines + 1. Copy mode skips self-drop checks and in-place indentation
- * changes, but still obeys container rules. Returns a plan or a rejection without
- * modifying either document; captured, when supplied, provides the source snapshot.
- * Document access errors propagate.
+ * Plan a move (the default) or copy into the gap at a target line, clamped to 1
+ * through targetDoc.lines + 1. The plan's position.line is the boundary of that
+ * gap the write uses: in an interior gap with blank lines, the line the
+ * insertion lands before, given the boundary the position chose and the sides a
+ * list sets; otherwise the gap's canonical seam. Copy mode skips self-drop
+ * checks and in-place indentation changes, but still obeys container rules.
+ * Returns a plan or a rejection without modifying either document; captured,
+ * when supplied, provides the source snapshot. Document access errors propagate.
  */
 export function planMove(input: PlanMoveInput): MoveResult {
     const { sourceDoc, tabSize } = input;
@@ -60,7 +63,10 @@ export function planMove(input: PlanMoveInput): MoveResult {
     const at = gapAt(targetDoc, input.position.line, { lineMap, tabSize });
     if (at.type === 'interior') return { type: 'reject', reason: at.reason };
     const { gap } = at;
-    const position: DropPosition = { doc: targetDoc, line: gap.seam, parent: input.position.parent };
+    // The boundary in an interior gap with blank lines, which the write turns into blank lines on each side.
+    const interior = gap.above !== null && gap.below !== null && gap.blankLines > 0;
+    const line = interior ? input.position.line : gap.seam;
+    const position: DropPosition = { doc: targetDoc, line, parent: input.position.parent };
 
     const decision = canDropAt(captured, gap, { lineMap, tabSize, sourceDoc });
     if (!decision.allowDrop) return { type: 'reject', reason: decision.rejectReason };
@@ -92,10 +98,32 @@ export function planMove(input: PlanMoveInput): MoveResult {
         return { type: 'reject', reason: 'frontmatter_fence' };
     }
 
-    return {
-        type: 'ok',
-        value: { position, gap, captured, mode, asItems, allowIndent, tabSize, indentUnit: input.indentUnit },
+    const plan: MovePlan = {
+        position,
+        gap,
+        captured,
+        mode,
+        asItems,
+        allowIndent,
+        tabSize,
+        indentUnit: input.indentUnit,
     };
+    // An in-place indent change writes nothing into the gap: it keeps the gap's canonical seam.
+    if (allowIndent) return { type: 'ok', value: { ...plan, position: { ...position, line: gap.seam } } };
+    // At the note's end the write puts the payload under the last block and keeps the padding below it: the line
+    // after that block, the gap's first boundary.
+    if (gap.above && !gap.below) {
+        const line = lineMap.prevNonEmpty[gap.seam - 1] + 1;
+        return { type: 'ok', value: { ...plan, position: { ...position, line } } };
+    }
+    if (!interior) return { type: 'ok', value: plan };
+    // The line the write puts the payload before, in the original document, kept inside the pointer's gap: where
+    // the move's removal deletes the pointer's blank lines, the insertion lands at an edge of the deleted range.
+    const step = moveInsertion(sourceDoc, plan);
+    if (isReject(step)) return { type: 'reject', reason: step.reason };
+    const written = targetDoc.lineAt(step.insertion.from).number;
+    const boundary = Math.max(gap.seam - gap.blankLines, Math.min(gap.seam, written));
+    return { type: 'ok', value: { ...plan, position: { ...position, line: boundary } } };
 }
 
 /**

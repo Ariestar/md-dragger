@@ -23,11 +23,14 @@ const indentUnit = 4;
  * Varied pages: blank-separated and tight callout runs, quote runs, lists
  * (nested ordered ones, and items with fence and table children), fences,
  * tables, rules used as section breaks, math, comments, frontmatter, paragraphs and
- * quotes bounded by headings, padding, and documents with and without a
- * final newline. Every line is unique within its page, so an output line
- * names its source line.
+ * quotes bounded by headings, gaps of two and three blank lines, padding, and
+ * documents with and without a final newline. Every line is unique within its
+ * page, so an output line names its source line.
  */
 const PAGES: Record<string, string> = {
+    gaps: '---\ntitle: g\n---\n\n\nAfter frontmatter.\n\n\nPara one.\n\n\n\n> [!note] Callout one\n> callout body\n\n\n> [!tip] Callout two\n> tip body\n\n\n> quote one\n\n\n\n> quote two\n\n\nTail paragraph.\n',
+    gaplists:
+        '- t1\n- t2\n\n\nAfter tight.\n\n\n- l1\n\n- l2\n\n\n\nAfter loose.\n\n\n- w1\n\n\n- w2\n\n\n- w3\n\n\n```\nfenced\n```\n\n\nEnd.',
     callouts:
         'Intro line.\n\n> [!note]+ First\n> First body.\n\n> [!note]+ Second\n> Second body.\n> More second body.\n\n> [!note]- Third (folded)\n> Hidden body.\n\n> [!note] Fourth (title only)\n',
     pair: 'alpha\n\n> [!note] First\n> first body\n\nbravo\n\n> [!tip] Second\n> second body\n\ncharlie\n',
@@ -359,6 +362,18 @@ function without(all: string[], removed: string[]): string[] {
     return rest.sort();
 }
 
+function lastNonBlank(lines: string[], from: number): number {
+    let i = from;
+    while (i >= 0 && !lines[i].trim()) i--;
+    return i;
+}
+
+function firstNonBlank(lines: string[], from: number): number {
+    let i = from;
+    while (i < lines.length && !lines[i].trim()) i++;
+    return i;
+}
+
 /** Line of each normalised non-blank text (lines are unique within a page). */
 function lineOfText(doc: Doc): Map<string, number> {
     const at = new Map<string, number>();
@@ -504,6 +519,17 @@ function sweepMove(
     const out = applyEdits(text, edits);
     const outDoc = stringDoc(out);
     const { gap, captured, allowIndent, asItems } = planned.value;
+    const problems: string[] = [];
+    // Planning the planned position again gives the same line and the same edits.
+    const again = planMove({ sourceDoc: doc, selection, position: planned.value.position, tabSize, indentUnit });
+    const againEdits = again.type === 'ok' ? moveTx({ sourceDoc: doc, plan: again.value }) : again;
+    if (
+        again.type !== 'ok' ||
+        again.value.position.line !== planned.value.position.line ||
+        !Array.isArray(againEdits) ||
+        JSON.stringify(againEdits.map((e) => e.changes)) !== JSON.stringify(edits.map((e) => e.changes))
+    )
+        problems.push(`planning line ${planned.value.position.line} again moves elsewhere`);
     // A payload a list turns into items lands as one list line per line with text, matched by the text after the
     // marker; everything else lands as it was.
     const converted = asItems !== null;
@@ -514,7 +540,6 @@ function sweepMove(
     if (converted) outcome.converted = (outcome.converted ?? 0) + 1;
     const sourceLines = linesIn(doc, captured.segments);
     const origins = originsOf([doc], sourceLines);
-    const problems: string[] = [];
     const outLines = out.split('\n');
     const parent = planned.value.position.parent;
     const parentText = parent ? doc.line(parent.lines.startLine).text : null;
@@ -565,6 +590,30 @@ function sweepMove(
                 neighbour(outLines, i + payload.length - 1, 1, fm) === expectedBelow,
         );
         if (start < 0 && !allowIndent) problems.push('not in the indicated gap');
+
+        // Where neither neighbour moves and no list sets a side, the drop line splits the gap's blank lines: those
+        // above it stay above the payload, the rest below, and a side left with none gets one.
+        const k = gap.blankLines;
+        const listSide = (end: typeof captured.first, line: number) =>
+            (asItems !== null || end.run === 'list') &&
+            runKind(doc, line, { lineMap: getLineMap(doc, { tabSize }), tabSize }) === 'list';
+        if (
+            start >= 0 &&
+            !allowIndent &&
+            gap.above &&
+            gap.below &&
+            k > 0 &&
+            !removed(gap.seam - k - 1) &&
+            !removed(gap.seam) &&
+            !listSide(captured.first, gap.seam - k - 1) &&
+            !listSide(captured.last, gap.seam)
+        ) {
+            const x = at.line - (gap.seam - k);
+            const blanksAbove = start - 1 - lastNonBlank(outLines, start - 1);
+            const blanksBelow = firstNonBlank(outLines, start + payload.length) - (start + payload.length);
+            if (blanksAbove !== Math.max(x, 1) || blanksBelow !== Math.max(k - x, 1))
+                problems.push(`gap of ${k} split at ${x} writes ${blanksAbove} above, ${blanksBelow} below`);
+        }
 
         problems.push(
             ...splitParagraphs(doc, outDoc, captured.segments),
@@ -667,12 +716,13 @@ function sweepCross(
     if (targetChanged) problems.push('target content changed');
     if (sortedJoin(contentOf(sourceOut)) !== sortedJoin(without(contentOf(sourceText), moved)))
         problems.push('source content changed');
+    // The payload keeps the blank lines between its own blocks.
+    const widest = Math.max(1, longestSeparator(sourceText), longestSeparator(targetText));
     for (const [before, after, label] of [
         [targetText, targetOut, 'target'],
         [sourceText, sourceOut, 'source'],
     ]) {
-        if (longestSeparator(after) > Math.max(1, longestSeparator(before)))
-            problems.push(`double blank line in ${label}`);
+        if (longestSeparator(after) > widest) problems.push(`double blank line in ${label}`);
         if (frontmatterEndLine(stringDoc(after)) !== frontmatterEndLine(stringDoc(before)))
             problems.push(`frontmatter changed in ${label}`);
     }

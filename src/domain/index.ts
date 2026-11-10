@@ -17,6 +17,7 @@ export {
     listLevel,
     locateDropPosition,
     type SnapDropInput,
+    seamRow,
     snapDrop,
 } from './markdown/drop-locate';
 export type { Gap } from './markdown/gap';

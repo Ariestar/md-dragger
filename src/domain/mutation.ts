@@ -23,8 +23,12 @@ type SpacingContext = { lineMap: LineMap; tabSize: number };
 /**
  * Write the payload into a gap as one point insertion, with the blank lines
  * on each side computed from the gap's own blank lines, needsBlankLine, the
- * run kinds and the standalone property. The gap's blank lines are kept, and
- * padding, frontmatter and the final newline stay where they are.
+ * run kinds and the standalone property. Padding, frontmatter and the final
+ * newline stay where they are. In an interior gap with blank lines, `line` is
+ * the boundary the drop chose (the seam before it, clamped into the gap): the
+ * gap's blank lines above it stay above the payload and the rest below, and a
+ * side left with none gets one. A side a list sets (sideSpacing) keeps its
+ * count and fixes the boundary instead, and the other side takes the rest.
  * `standalone` tells whether a gap neighbour was kept apart, in the document
  * the user sees (not a temporary one with the moved blocks removed), and
  * `fromQuote` whether the payload comes from the quote a quoted neighbour line
@@ -40,6 +44,7 @@ export function insertIntoGap(
         parent: Block | null;
         standalone: (neighbour: Block) => boolean;
         fromQuote: (neighbourLine: number) => boolean;
+        line: number;
     },
 ): TextChange {
     const { lineMap, tabSize } = options;
@@ -53,7 +58,7 @@ export function insertIntoGap(
         },
     };
     const aboveLine = gap.above ? lineMap.prevNonEmpty[gap.seam - 1] : 0;
-    const spacing = (side: 'top' | 'bottom', block: Block, line: number): number =>
+    const spacing = (side: 'top' | 'bottom', block: Block, line: number): number | null =>
         sideSpacing(doc, gap, side, { block, line, facing: facingAt(doc, line, options) }, ends[side], options);
 
     if (gap.above && gap.below) {
@@ -67,18 +72,33 @@ export function insertIntoGap(
             textLines.every((line) => continuesOrderedRun(head, parseLine(line, tabSize)));
         if (joinsRunBelow) ends.top.facing = asRunHead(ends.top.facing);
         const sTop = spacing('top', gap.above, aboveLine);
-        if (sTop + sBot < k) {
-            throw new Error(`md-dragger: ${sTop} + ${sBot} blank lines cannot hold a gap of ${k}`);
+        // `kept`: the gap's own blank lines that stay above the payload, where its first line lands. A side a list
+        // sets fixes it; when that leaves the top without a blank line, the one it gets is the gap's own.
+        const kept =
+            sTop !== null
+                ? Math.min(sTop, k)
+                : sBot !== null
+                  ? Math.max(k - Math.min(sBot, k), Math.min(1, k))
+                  : Math.max(0, Math.min(k, options.line - aboveLine - 1));
+        const top = sTop ?? Math.max(kept, 1);
+        const bottom = sBot ?? Math.max(k - kept, 1);
+        if (top + bottom < k) {
+            throw new Error(`md-dragger: ${top} + ${bottom} blank lines cannot hold a gap of ${k}`);
         }
-        const kept = Math.min(sTop, k);
         const at = doc.line(aboveLine + 1 + kept).from;
-        return insertAt(at, `${'\n'.repeat(sTop - kept)}${text}\n${'\n'.repeat(sBot - (k - kept))}`);
+        return insertAt(at, `${'\n'.repeat(top - kept)}${text}\n${'\n'.repeat(bottom - (k - kept))}`);
     }
+    // An edge has no blank lines of its own: sideSpacing sets each side.
+    const edgeSpacing = (side: 'top' | 'bottom', block: Block, line: number): number => {
+        const s = spacing(side, block, line);
+        if (s === null) throw new Error(`md-dragger: the ${side} side of an edge has no blank lines to take`);
+        return s;
+    };
     if (gap.below) {
-        return insertAt(doc.line(gap.seam).from, `${text}\n${'\n'.repeat(spacing('bottom', gap.below, gap.seam))}`);
+        return insertAt(doc.line(gap.seam).from, `${text}\n${'\n'.repeat(edgeSpacing('bottom', gap.below, gap.seam))}`);
     }
     if (gap.above) {
-        return insertAt(doc.line(aboveLine).to, `\n${'\n'.repeat(spacing('top', gap.above, aboveLine))}${text}`);
+        return insertAt(doc.line(aboveLine).to, `\n${'\n'.repeat(edgeSpacing('top', gap.above, aboveLine))}${text}`);
     }
     if (doc.length === 0) return insertAt(0, text);
     const frontmatterEnd = frontmatterEndLine(doc);
@@ -92,14 +112,17 @@ function insertAt(pos: number, insert: string): TextChange {
 
 /**
  * Blank lines between the payload end `end` and the gap neighbour `neighbour`
- * on one side:
+ * on one side, or null when the gap's own blank lines decide (an interior gap
+ * with blank lines: insertIntoGap splits them):
  *   1. a list item next to a list takes the spacing of the list it joins,
- *      per side, so a list it does not join stays tight or loose;
+ *      per side, so a list it does not join stays tight or loose; between two
+ *      items of that list it keeps the gap's blank lines on both sides;
  *   2. a quote line inside a tight quote run joins the run;
- *   3. otherwise the gap's own blank lines, raised to one when the payload end
- *      was standalone, when it would join a quote it did not come from, when
- *      the two lines would not stay apart, or when they would join a
- *      standalone neighbour of the same paragraph or quote kind.
+ *   3. otherwise the gap's own blank lines; in a tight gap or at an edge, one
+ *      blank line when the payload end was standalone, when it would join a
+ *      quote it did not come from, when the two lines would not stay apart,
+ *      or when they would join a standalone neighbour of the same paragraph or
+ *      quote kind, and none otherwise.
  */
 function sideSpacing(
     doc: Doc,
@@ -112,7 +135,7 @@ function sideSpacing(
         standalone: (neighbour: Block) => boolean;
         fromQuote: (neighbourLine: number) => boolean;
     },
-): number {
+): number | null {
     const { lineMap } = options;
     const interior = gap.above !== null && gap.below !== null;
     const k = interior ? gap.blankLines : 0;
@@ -122,12 +145,14 @@ function sideSpacing(
 
     if (end.run === 'list' && neighbourRun === 'list') {
         // Each side takes the spacing of the list it belongs to: a neighbour in the list the item joins (at its
-        // target level) sets the joined list's spacing, unless both are in it; the parent's own lines above an item
-        // that starts its sublist stay tight to it; a list line of another level keeps k.
+        // target level) sets the joined list's spacing, unless both are in it, when each keeps k; the parent's own
+        // lines above an item that starts its sublist stay tight to it; next to any other list line the gap's own
+        // blank lines decide.
         const parentLine = options.parent?.lines.startLine ?? 0;
         const otherLine = side === 'top' ? gap.seam : gap.seam - gap.blankLines - 1;
         const both = interior && listItemOutsideQuote(lineMap, otherLine, parentLine) !== null;
         const item = listItemOutsideQuote(lineMap, neighbour.line, parentLine);
+        if (item === null && !(side === 'top' && options.parent && !both) && k > 0) return null;
         const spacing =
             item !== null && !both
                 ? listJoinSpacing(lineMap, item, side, parentLine)
@@ -147,7 +172,7 @@ function sideSpacing(
     ) {
         return 0;
     }
-    if (k > 0) return k;
+    if (k > 0) return null;
     // Two quoted lines written together are one quote.
     if (upper.line.quote.depth > 0 && lower.line.quote.depth > 0 && !options.fromQuote(neighbour.line)) return 1;
     if (end.standalone || needsBlankLine(upper, lower)) return 1;
