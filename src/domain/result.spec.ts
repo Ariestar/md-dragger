@@ -8,7 +8,7 @@ describe('domain/result', () => {
 
     it('isReject narrows reject-shaped values', () => {
         expect(isReject(reject('empty_selection'))).toBe(true);
-        expect(isReject({ type: 'reject', reason: 'table_before' })).toBe(true);
+        expect(isReject({ type: 'reject', reason: 'inside_table' })).toBe(true);
     });
 
     it('isReject rejects non-reject values', () => {

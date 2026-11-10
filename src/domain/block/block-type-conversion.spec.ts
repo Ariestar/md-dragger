@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { stringDoc } from '../transaction/string-doc';
-import { type BlockTemplate, planConvert, resolveBlockTemplate } from './block-type-conversion';
+import { detectBlock } from './block-detector';
+import { type BlockTemplate, type ConvertTo, planConvert, resolveBlockTemplate } from './block-type-conversion';
 import { BlockType } from './block-types';
 
 describe('domain/block-type-conversion', () => {
@@ -280,6 +281,21 @@ describe('domain/block-type-conversion', () => {
                     insert: '```dataview\ntable file.name\nfrom #tag\n```',
                 },
             ]);
+        });
+
+        it('leaves the callout indented under a list item as it is', () => {
+            const text = '- item\n    > [!note] x\n    > body\n- next';
+            const doc = stringDoc(text);
+            const block = detectBlock(doc, 1, { tabSize: 4 });
+            if (!block) throw new Error('no block');
+            const convert = (to: ConvertTo) => {
+                const [change] = planConvert({ doc, block, to });
+                return text.slice(0, change.from) + change.insert + text.slice(change.to);
+            };
+            expect(convert({ type: BlockType.ListItem, markerType: 'task' })).toBe(
+                '- [ ] item\n    > [!note] x\n    > body\n- next',
+            );
+            expect(convert({ type: BlockType.CodeBlock })).toBe('```\nitem\n```\n    > [!note] x\n    > body\n- next');
         });
 
         it('preserves line indentation when converting nested items', () => {

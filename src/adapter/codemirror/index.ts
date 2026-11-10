@@ -4,6 +4,7 @@ import { EDITOR_CLASS, type MdDraggerCodeMirrorOptions, resolveListIndentUnit } 
 import {
     DRAG_SOURCE_LINE_CLASS,
     DROP_SEAM_BELOW_CLASS,
+    DROP_SEAM_CENTER_CLASS,
     DROP_SEAM_CLASS,
     DROP_SEAM_COPY_CLASS,
     DROP_SEAM_TOP_CLASS,
@@ -73,6 +74,7 @@ export { pointerDocument, pointInTopDocument } from './views';
 export {
     DRAG_SOURCE_LINE_CLASS,
     DROP_SEAM_BELOW_CLASS,
+    DROP_SEAM_CENTER_CLASS,
     DROP_SEAM_CLASS,
     DROP_SEAM_COPY_CLASS,
     DROP_SEAM_TOP_CLASS,
@@ -80,11 +82,6 @@ export {
     INVALID_CLASS,
     listIndentUnitFacet,
     listLevel,
-    /**
-     * @deprecated Import listLevel from md-dragger/domain instead.
-     * Scheduled for removal in the next major release.
-     */
-    listLevel as sourceListLevel,
     SOURCE_LEVEL_STYLE_VAR,
     seamOffset,
     sourceHighlightDecoration,

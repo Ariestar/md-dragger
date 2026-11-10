@@ -122,4 +122,52 @@ describe('domain/block-detector', () => {
         expect(inner?.lines.startLine).toBe(1);
         expect(inner?.lines.endLine).toBe(5);
     });
+
+    it('makes a quote-prefixed line indented under an item part of the item', () => {
+        const text = ['- item', '    > [!note] x', '    > body', '- next'].join('\n');
+        const doc = stringDoc(text);
+        expect(detectBlock(doc, 1, { tabSize: 4 })).toEqual({
+            type: BlockType.ListItem,
+            lines: { startLine: 1, endLine: 3 },
+        });
+        expect(detectBlock(doc, 2, { tabSize: 4 })).toEqual({
+            type: BlockType.Callout,
+            lines: { startLine: 2, endLine: 3 },
+        });
+        expect(detectBlock(doc, 4, { tabSize: 4 })?.lines).toEqual({ startLine: 4, endLine: 4 });
+    });
+
+    it('makes a quote-prefixed child part of the item without a line map (documents over 30,000 lines)', () => {
+        const filler = Array.from({ length: 30_000 }, (_, i) => `filler ${i}`);
+        const doc = stringDoc(['- item', '    > [!note] x', '    > body', '- next', ...filler].join('\n'));
+        expect(detectBlock(doc, 1, { tabSize: 4 })?.lines).toEqual({ startLine: 1, endLine: 3 });
+        expect(detectBlock(doc, 4, { tabSize: 4 })?.lines).toEqual({ startLine: 4, endLine: 4 });
+    });
+
+    it('keeps the nesting of a list inside a quote', () => {
+        const doc = stringDoc(['> - a', '>     - b', '> - c'].join('\n'));
+        expect(detectBlock(doc, 1, { tabSize: 4 })).toEqual({
+            type: BlockType.ListItem,
+            lines: { startLine: 1, endLine: 2 },
+        });
+        expect(detectBlock(doc, 2, { tabSize: 4 })?.lines).toEqual({ startLine: 2, endLine: 2 });
+    });
+
+    it('ends a quoted list inside an item, and the items around it, at a line left of its `>`', () => {
+        const text = ['- root', '    - a', '        > - q', '    - b', '- end'].join('\n');
+        const filler = Array.from({ length: 30_000 }, (_, i) => `filler ${i}`);
+        for (const doc of [stringDoc(text), stringDoc([text, ...filler].join('\n'))]) {
+            expect(detectBlock(doc, 2, { tabSize: 4 })?.lines).toEqual({ startLine: 2, endLine: 3 });
+        }
+        const sibling = stringDoc(['- p', '    > - q', '    - sub', '        > - deep', '    - sub two'].join('\n'));
+        expect(detectBlock(sibling, 2, { tabSize: 4 })?.lines).toEqual({ startLine: 2, endLine: 2 });
+        expect(detectBlock(sibling, 3, { tabSize: 4 })?.lines).toEqual({ startLine: 3, endLine: 4 });
+        const outside = stringDoc(['- a', '    > - q', '>     - r', '- b'].join('\n'));
+        expect(detectBlock(outside, 1, { tabSize: 4 })?.lines).toEqual({ startLine: 1, endLine: 2 });
+    });
+
+    it('does not let an item own a quote line at its own indent', () => {
+        const doc = stringDoc(['- item', '> quote'].join('\n'));
+        expect(detectBlock(doc, 1, { tabSize: 4 })?.lines).toEqual({ startLine: 1, endLine: 1 });
+    });
 });
