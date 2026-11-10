@@ -11,11 +11,6 @@ export function isHorizontalRuleLine(text: string | null): boolean {
     return /^([-*_])(?:\s*\1){2,}$/.test(trimmed);
 }
 
-export function isBlockquoteLine(text: string | null): boolean {
-    if (!text) return false;
-    return /^(> ?)+/.test(text.trimStart());
-}
-
 export function isCalloutLine(text: string | null): boolean {
     if (!text) return false;
     return /^(\s*> ?)+\s*\[!/.test(text.trimStart());

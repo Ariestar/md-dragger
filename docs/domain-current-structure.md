@@ -352,7 +352,7 @@ planSourceDeletion(payload) → TextChange[]
 | `rules/self-drop.ts` | `selfDrop` | 落在自身范围内是否允许（含原地 indent） |
 | `mutation/list-mutation.ts` | `adjustListToTargetContext`, `computeListIndentPlan`, … | 按目标 list 改源文本 indent |
 | `mutation/text-mutation-policy.ts` | `buildInsertTextForDrop` | runtime 注入用的 insertText 胶水 |
-| `mutation/document-change.ts` | `resolveInsertionChange`, `resolveDeleteRange` | 字符级插入/删除定位 |
+| `mutation/document-change.ts` | `resolveDeleteRange` | 字符级删除定位 |
 
 ---
 
@@ -396,7 +396,7 @@ DropInput { sourceDoc, selection, target, deps }
   → MovePlan
   → moveTx({ sourceDoc, plan })
        · deps.insertText(...)             // 通常是 buildInsertTextForDrop
-       · resolveInsertionChange / deletes
+       · insertIntoGap / removeSegment
   → DocEdit[] | CommandReject
   → adapter applyCommit → host dispatch({ changes })
 ```
