@@ -119,10 +119,11 @@ function findNextNonEmptyLine(
 const blockDetectionCache = new WeakMap<Doc, Map<number, Map<number, Block | null>>>();
 const LINE_MAP_EAGER_MAX = 30_000;
 
-const YAML_FENCE_RE = /^-{3}\s*$/;
+export const YAML_FENCE_RE = /^-{3}\s*$/;
 const yamlEndCache = new WeakMap<Doc, number>();
 
-function yamlEndLine(doc: Doc): number {
+/** Last line of the YAML frontmatter (`---` on line 1 through the next `---` line); 0 when there is none. */
+export function frontmatterEndLine(doc: Doc): number {
     const cached = yamlEndCache.get(doc);
     if (cached !== undefined) return cached;
 
@@ -139,8 +140,17 @@ function yamlEndLine(doc: Doc): number {
     return endLine;
 }
 
+/**
+ * Record that `derived`, a text made from `from` without touching its
+ * frontmatter lines, has `from`'s frontmatter: re-detecting it could read a
+ * `---` that the edit only exposed temporarily.
+ */
+export function inheritFrontmatterEnd(derived: Doc, from: Doc): void {
+    yamlEndCache.set(derived, frontmatterEndLine(from));
+}
+
 function inYamlFrontmatter(doc: Doc, lineNumber: number): boolean {
-    const endLine = yamlEndLine(doc);
+    const endLine = frontmatterEndLine(doc);
     return endLine > 0 && lineNumber >= 1 && lineNumber <= endLine;
 }
 

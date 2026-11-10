@@ -1,221 +1,159 @@
 import { detectBlock } from '../block/block-detector';
-import { isBlockquoteLine, isHorizontalRuleLine } from '../block/block-guards';
 import { type Block, BlockType } from '../block/block-types';
 import type { Doc } from '../markdown/document-types';
-import { getLineMap, getLineMetaAt, type LineMap } from '../markdown/line-map';
-import { type InsertionRuleDecision, type InsertionSlotContext, resolveInsertionRule } from './insertion-rules';
+import type { Gap } from '../markdown/gap';
+import { type LineMap, listItemContaining, quoteRunAt } from '../markdown/line-map';
+import type { LineRange } from '../markdown/line-range-types';
+import { parseLine } from '../parse/parse-line';
 
-type ContainerType = BlockType.ListItem | BlockType.Blockquote | BlockType.Callout;
+export type DropDecision =
+    | { allowDrop: true }
+    | { allowDrop: false; rejectReason: 'inside_list' | 'inside_quote_run'; region: LineRange };
 
-export interface ContainerPolicyResolveOptions {
-    lineMap?: LineMap;
-    tabSize: number;
-}
+/** Blocks a list takes: list items, and the blocks a drop into a list turns into list items (see `listConversion`). */
+export const ADAPTABLE_BLOCKS: ReadonlySet<BlockType> = new Set([
+    BlockType.Paragraph,
+    BlockType.Heading,
+    BlockType.ListItem,
+    BlockType.Blockquote,
+]);
 
-function getImmediateLineText(doc: Doc, lineNumber: number): string | null {
-    if (lineNumber < 1 || lineNumber > doc.lines) return null;
-    return doc.line(lineNumber).text;
-}
-
-function getActiveLineMap(doc: Doc, options: ContainerPolicyResolveOptions): LineMap {
-    return options.lineMap ?? getLineMap(doc, { tabSize: options.tabSize });
-}
-
-function prevNonEmpty(doc: Doc, lineNumber: number, lineMap: LineMap): number | null {
-    if (doc.lines <= 0) return null;
-    const clampedLine = Math.max(1, Math.min(doc.lines, lineNumber));
-    const prev = lineMap.prevNonEmpty[clampedLine];
-    return prev > 0 ? prev : null;
-}
-
-function nextNonEmpty(doc: Doc, lineNumber: number, lineMap: LineMap): number | null {
-    if (doc.lines <= 0) return null;
-    const clampedLine = Math.max(1, Math.min(doc.lines, lineNumber));
-    const next = lineMap.nextNonEmpty[clampedLine];
-    return next > 0 ? next : null;
-}
-
-export function findEnclosingListBlock(
-    doc: Doc,
-    lineNumber: number,
-    options: ContainerPolicyResolveOptions,
-): Block | null {
-    if (lineNumber < 1 || lineNumber > doc.lines) return null;
-    const lineMap = getActiveLineMap(doc, options);
-
-    const radius = 8;
-    const minLine = Math.max(1, lineNumber - radius);
-    const maxLine = Math.min(doc.lines, lineNumber + radius);
-    let best: Block | null = null;
-
-    for (let ln = minLine; ln <= maxLine; ln++) {
-        const meta = getLineMetaAt(lineMap, ln);
-        if (meta && !meta.isList) continue;
-
-        const block = detectBlock(doc, ln, { tabSize: lineMap.tabSize });
-        if (!block || block.type !== BlockType.ListItem) continue;
-        const blockStart = block.lines.startLine;
-        const blockEnd = block.lines.endLine;
-        if (lineNumber < blockStart || lineNumber > blockEnd) continue;
-
-        if (!best || block.lines.endLine - block.lines.startLine > best.lines.endLine - best.lines.startLine) {
-            best = block;
-        }
-    }
-
-    return best;
-}
-
-function isTableBlockStartAtLine(doc: Doc, lineNumber: number, options: { tabSize: number }): boolean {
-    if (lineNumber < 1 || lineNumber > doc.lines) return false;
-    const block = detectBlock(doc, lineNumber, options);
-    return !!block && block.type === BlockType.Table && block.lines.startLine === lineNumber;
-}
-
-function isHorizontalRuleAtLine(doc: Doc, lineNumber: number, options: { tabSize: number }): boolean {
-    if (lineNumber < 1 || lineNumber > doc.lines) return false;
-    const block = detectBlock(doc, lineNumber, options);
-    if (block) {
-        return block.type === BlockType.HorizontalRule && block.lines.startLine === lineNumber;
-    }
-    return isHorizontalRuleLine(doc.line(lineNumber).text);
-}
-
-function isCalloutAfterBoundary(
-    doc: Doc,
-    prevImmediateLine: number,
-    nextIsQuoteLike: boolean,
-    options: { tabSize: number },
-): boolean {
-    if (prevImmediateLine < 1 || prevImmediateLine > doc.lines) return false;
-    if (nextIsQuoteLike) return false;
-    const prevBlock = detectBlock(doc, prevImmediateLine, options);
-    return !!prevBlock && prevBlock.type === BlockType.Callout && prevBlock.lines.endLine === prevImmediateLine;
-}
-
-function listSlotAt(
-    doc: Doc,
-    targetLineNumber: number,
-    options: ContainerPolicyResolveOptions,
-): { type: ContainerType; block: Block } | null {
-    if (doc.lines <= 0) return null;
-    const lineMap = getActiveLineMap(doc, options);
-
-    const candidates = [
-        targetLineNumber - 1,
-        targetLineNumber,
-        targetLineNumber + 1,
-        prevNonEmpty(doc, targetLineNumber - 1, lineMap),
-        nextNonEmpty(doc, targetLineNumber, lineMap),
-    ].filter((v): v is number => typeof v === 'number' && v >= 1 && v <= doc.lines);
-    const seen = new Set<number>();
-    let best: Block | null = null;
-
-    for (const line of candidates) {
-        if (seen.has(line)) continue;
-        seen.add(line);
-        const lineMeta = getLineMetaAt(lineMap, line);
-        if (lineMeta && !lineMeta.isList) continue;
-
-        const block = findEnclosingListBlock(doc, line, {
-            lineMap,
-            tabSize: options.tabSize,
-        });
-        if (!block) continue;
-
-        const blockTopBoundary = block.lines.startLine;
-        const blockBottomBoundary = block.lines.endLine + 1;
-        const isInsideContainer = targetLineNumber > blockTopBoundary && targetLineNumber < blockBottomBoundary;
-        if (!isInsideContainer) continue;
-
-        if (!best || block.lines.endLine - block.lines.startLine > best.lines.endLine - best.lines.startLine) {
-            best = block;
-        }
-    }
-
-    if (!best) return null;
-    return { type: BlockType.ListItem, block: best };
-}
-
-/** Classify insert seam environment (list/quote/table/…). Private to canDropAt. */
-function slotAt(doc: Doc, targetLineNumber: number, options: ContainerPolicyResolveOptions): InsertionSlotContext {
-    const lineMap = getActiveLineMap(doc, options);
-    const clampedTarget = Math.max(1, Math.min(doc.lines + 1, targetLineNumber));
-    const prevImmediateLine = clampedTarget - 1;
-    const nextImmediateLine = clampedTarget <= doc.lines ? clampedTarget : null;
-    const prevMeta = getLineMetaAt(lineMap, prevImmediateLine);
-    const nextMeta = nextImmediateLine === null ? null : getLineMetaAt(lineMap, nextImmediateLine);
-
-    const prevImmediateText = prevMeta ? null : getImmediateLineText(doc, prevImmediateLine);
-    const nextImmediateText =
-        nextMeta || nextImmediateLine === null ? null : getImmediateLineText(doc, nextImmediateLine);
-    const prevIsQuoteLike = prevMeta ? prevMeta.isQuote : isBlockquoteLine(prevImmediateText);
-    const nextIsQuoteLike = nextMeta ? nextMeta.isQuote : isBlockquoteLine(nextImmediateText);
-
-    const detectOptions = { tabSize: options.tabSize };
-
-    // Fence interior seams (between the opening fence and the closing fence)
-    // belong to the fenced block itself — no block may be inserted there.
-    const targetBlock = detectBlock(doc, clampedTarget, detectOptions);
-    if (
-        targetBlock &&
-        (targetBlock.type === BlockType.CodeBlock ||
-            targetBlock.type === BlockType.MathBlock ||
-            targetBlock.type === BlockType.Comment) &&
-        clampedTarget > targetBlock.lines.startLine &&
-        clampedTarget <= targetBlock.lines.endLine
-    ) {
-        return targetBlock.type === BlockType.MathBlock
-            ? 'inside_math_block'
-            : targetBlock.type === BlockType.Comment
-              ? 'inside_comment_block'
-              : 'inside_code_block';
-    }
-
-    if (isCalloutAfterBoundary(doc, prevImmediateLine, nextIsQuoteLike, detectOptions)) {
-        return 'callout_after';
-    }
-
-    if (nextImmediateLine !== null && isTableBlockStartAtLine(doc, nextImmediateLine, detectOptions)) {
-        return 'table_before';
-    }
-
-    if (nextImmediateLine !== null && isHorizontalRuleAtLine(doc, nextImmediateLine, detectOptions)) {
-        return 'hr_before';
-    }
-
-    if (prevIsQuoteLike && nextIsQuoteLike) {
-        return 'inside_quote_run';
-    }
-    if (!prevIsQuoteLike && nextIsQuoteLike) {
-        return 'quote_before';
-    }
-    if (prevIsQuoteLike && !nextIsQuoteLike) {
-        return 'quote_after';
-    }
-
-    const listContext = listSlotAt(doc, clampedTarget, { lineMap, tabSize: options.tabSize });
-    if (listContext) {
-        return 'inside_list';
-    }
-
-    return 'outside';
+/**
+ * The text a payload line keeps as a list item: without its heading marker,
+ * quote prefix or indent. Text that itself starts with a list marker stays as
+ * it is, so it nests a list in the item. Empty for a bare `>` or an empty
+ * heading, which become no item.
+ */
+export function itemText(line: string, tabSize: number): string {
+    const parsed = parseLine(line, tabSize);
+    if (parsed.marker?.kind === 'heading') return parsed.body;
+    return `${parsed.marker?.text ?? ''}${parsed.body}`;
 }
 
 /**
- * Can this source block land at the insert seam (before targetLineNumber)?
- * Classifies the seam (list/quote/table/…) then applies insertion rules.
+ * Whether a drop into a list turns the payload into list items: every block is
+ * a paragraph, heading or plain quote, and some line has text.
+ */
+export function convertsToItems(payload: { blocks: readonly Block[]; content: string }, tabSize: number): boolean {
+    return (
+        payload.blocks.every((block) => block.type !== BlockType.ListItem && ADAPTABLE_BLOCKS.has(block.type)) &&
+        payload.content.split('\n').some((line) => itemText(line, tabSize).trim().length > 0)
+    );
+}
+
+/**
+ * The line prefix (a `formatBlockContent` linePrefix) a payload's lines take
+ * as list items where it drops, or null where it moves as it is. Only a
+ * payload convertsToItems accepts converts, and only into an unquoted list:
+ * under a list parent, or at the root inside an item's subtree or between two
+ * unquoted list lines with no blank line, where it lands as an item of the
+ * root list. It takes the marker of the list it joins (bullet character and
+ * checkbox; an ordered list's numbers are renumbered): the parent's child
+ * next to the gap (the parent's own when it has none), or that root item. A
+ * seam inside a tight quote run converts nothing: the quote keeps its lines.
+ */
+export function listConversion(
+    payload: { blocks: readonly Block[]; content: string },
+    gap: Gap,
+    parent: Block | null,
+    options: { lineMap: LineMap; tabSize: number },
+): string | null {
+    const { lineMap, tabSize } = options;
+    if (!convertsToItems(payload, tabSize)) return null;
+    const { lineMeta } = lineMap;
+    const aboveLine = gap.above ? lineMap.prevNonEmpty[gap.seam - 1] : 0;
+    const between = aboveLine > 0 && gap.below !== null && gap.blankLines === 0;
+    if (between && lineMeta[aboveLine].quoteDepth > 0 && lineMeta[gap.seam].quoteDepth > 0) return null;
+
+    let head: number | null = null;
+    if (parent?.type === BlockType.ListItem) {
+        const parentLine = parent.lines.startLine;
+        const child = (line: number) => (line > 0 ? listItemContaining(lineMap, line, parentLine) : null);
+        const below = gap.below !== null && child(gap.seam) === gap.seam ? gap.seam : null;
+        head = child(aboveLine) ?? below ?? parentLine;
+    } else if (aboveLine > 0 && gap.below) {
+        const item = listItemContaining(lineMap, aboveLine, 0);
+        const inSubtree = item !== null && lineMap.listSubtreeEndLine[item] >= gap.seam;
+        const intoList = between && lineMeta[gap.seam].isList && lineMeta[gap.seam].quoteDepth === 0;
+        if (inSubtree || intoList) head = item;
+    }
+    if (head === null || lineMeta[head].quoteDepth > 0) return null;
+    const { marker } = parseLine(lineMap.doc.line(head).text, tabSize);
+    if (marker?.kind !== 'list') throw new Error(`md-dragger: list line ${head} has no list marker`);
+    // An ordered list's numbers, and its delimiter, are the renumbering's.
+    if (marker.markerType === 'ordered') return '${ordinal}. ';
+    const bullet = marker.text.trimStart()[0];
+    return marker.markerType === 'task' ? `${bullet} [ ] ` : `${bullet} `;
+}
+
+/**
+ * Container rules for a gap of the document `lineMap` describes, over every
+ * top-level selected block of the payload (read in `sourceDoc`):
+ *   - an unquoted list item's subtree accepts only unquoted list items, and
+ *     a payload it turns into list items (a list inside a quote is that quote
+ *     run's interior);
+ *   - a tight quote run (every seam inside a callout, inside a plain quote,
+ *     and around quoted lists) accepts only one stack of plain quote lines of
+ *     its own depth, between two plain quote lines outside any callout.
+ * A gap must pass both; every other gap accepts every block. A rejection
+ * carries the protected region, whose edges are where the drop can go
+ * instead: the list rule comes first, so a seam in a quote run inside a list
+ * item reports the item, whose edges leave it.
  */
 export function canDropAt(
+    payload: { blocks: readonly Block[]; content: string },
+    gap: Gap,
+    options: { lineMap: LineMap; tabSize: number; sourceDoc: Doc },
+): DropDecision {
+    if (!gap.above || !gap.below) return { allowDrop: true };
+    const { lineMap, tabSize, sourceDoc } = options;
+    const { blocks } = payload;
+    const aboveLine = gap.seam - gap.blankLines - 1;
+    const quoteDepth = (block: Block) => parseLine(sourceDoc.line(block.lines.startLine).text, tabSize).quote.depth;
+
+    const item = listItemContaining(lineMap, aboveLine, 0);
+    if (
+        item !== null &&
+        lineMap.lineMeta[item].quoteDepth === 0 &&
+        lineMap.listSubtreeEndLine[item] >= gap.seam &&
+        !blocks.every((block) => block.type === BlockType.ListItem && quoteDepth(block) === 0) &&
+        listConversion(payload, gap, null, { lineMap, tabSize }) === null
+    ) {
+        return {
+            allowDrop: false,
+            rejectReason: 'inside_list',
+            region: { startLine: item, endLine: lineMap.listSubtreeEndLine[item] },
+        };
+    }
+
+    const depth = lineMap.lineMeta[aboveLine].quoteDepth;
+    if (gap.blankLines === 0 && depth > 0 && lineMap.lineMeta[gap.seam].quoteDepth > 0) {
+        const joinsRun =
+            gap.above.type === BlockType.Blockquote &&
+            gap.below.type === BlockType.Blockquote &&
+            lineMap.lineMeta[gap.seam].quoteDepth === depth &&
+            !calloutCovers(lineMap.doc, aboveLine, gap.seam, { lineMap, tabSize }) &&
+            !payload.content.split('\n').some((line) => line.trim().length === 0) &&
+            blocks.every((block) => block.type === BlockType.Blockquote && quoteDepth(block) === depth);
+        if (!joinsRun) {
+            return { allowDrop: false, rejectReason: 'inside_quote_run', region: quoteRunAt(lineMap, aboveLine) };
+        }
+    }
+    return { allowDrop: true };
+}
+
+/** Whether one callout, starting at or above `top`, reaches down to `bottom`. */
+export function calloutCovers(
     doc: Doc,
-    sourceBlock: Block,
-    targetLineNumber: number,
-    options: { lineMap?: LineMap; tabSize: number },
-): InsertionRuleDecision {
-    const lineMap = options.lineMap ?? getLineMap(doc, { tabSize: options.tabSize });
-    const slotContext = slotAt(doc, targetLineNumber, { lineMap, tabSize: options.tabSize });
-    return resolveInsertionRule({
-        sourceType: sourceBlock.type,
-        slotContext,
-    });
+    top: number,
+    bottom: number,
+    options: { lineMap: LineMap; tabSize: number },
+): boolean {
+    const { lineMeta } = options.lineMap;
+    for (let line = top; line >= 1 && lineMeta[line].quoteDepth > 0; line--) {
+        if (!lineMeta[line].isCallout) continue;
+        const callout = detectBlock(doc, line, options);
+        if (callout?.type === BlockType.Callout && callout.lines.endLine >= bottom) return true;
+    }
+    return false;
 }
