@@ -230,6 +230,25 @@ describe('adapter/monaco geometry and highlighting', () => {
         });
     });
 
+    it('paints the top of a gap’s first blank line, and the top of the next line below every other boundary', () => {
+        const model = createMockModel('x\n\n\na');
+        const host = createMockEditor(model);
+        const at = (line: number) => dropSeam(host.editor, { doc: monacoDoc(model), line, parent: null }, options)?.y;
+        // Rows are 20px from the editor top (50).
+        expect(at(2)).toBe(70);
+        expect(at(3)).toBe(90);
+        expect(at(4)).toBe(110);
+    });
+
+    it('paints below a view zone, at the top of the line a drop lands before', () => {
+        const model = createMockModel('# top\n\n# below\n\n# source');
+        const host = createMockEditor(model);
+        // A 40px view zone after line 2.
+        host.native.getTopForLineNumber = (line: number) => (line - 1) * 20 + (line > 2 ? 40 : 0);
+        host.native.getBottomForLineNumber = (line: number) => line * 20 + (line > 2 ? 40 : 0);
+        expect(dropSeam(host.editor, { doc: monacoDoc(model), line: 3, parent: null }, options)?.y).toBe(130);
+    });
+
     it('highlights disjoint ranges without selecting the gap', () => {
         const host = createMockEditor(createMockModel('one\ntwo\nthree'));
         const highlights = new DragHighlightManager(host.editor);
@@ -443,7 +462,7 @@ describe('adapter/monaco lifecycle', () => {
         pointer(host.domNode, 'pointerdown');
         pointer(host.win, 'pointermove');
         pointer(host.win, 'pointerup');
-        expect(model.getValue()).toBe('\ntwo\none');
+        expect(model.getValue()).toBe('two\n\none');
         expect(onDragEnd).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ kind: 'applied' }));
         expect(onCancel).not.toHaveBeenCalled();
         expect(config).toHaveBeenCalled();
