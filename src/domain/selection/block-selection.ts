@@ -1,6 +1,7 @@
 import { detectBlock } from '../block/block-detector';
 import type { Block } from '../block/block-types';
 import type { Doc } from '../markdown/document-types';
+import type { LineMap } from '../markdown/line-map';
 import { mergeLineRanges } from '../markdown/line-range';
 import type { LineRange } from '../markdown/line-range-types';
 
@@ -77,4 +78,42 @@ export function selectionLineRanges(docLines: number, selection: BlockSelection)
         docLines,
         selection.blocks.map((block) => block.lines),
     );
+}
+
+/**
+ * The blocks a move or delete acts on, and the segments they form. A block
+ * contained in another selected block is dropped (a list item and its child,
+ * a callout and its nested callout); blocks separated only by blank lines
+ * form one segment, those blank lines included, so a group keeps its spacing.
+ */
+export function selectionSegments(
+    selection: BlockSelection,
+    options: { lineMap: LineMap },
+): { blocks: Block[]; segments: LineRange[] } {
+    const unique = [...new Map(selection.blocks.map((block) => [blockKey(block), block])).values()];
+    const { blocks } = selectBlocks(
+        unique.filter(
+            (block) =>
+                !unique.some(
+                    (other) =>
+                        other !== block &&
+                        other.lines.startLine <= block.lines.startLine &&
+                        other.lines.endLine >= block.lines.endLine,
+                ),
+        ),
+    );
+    const segments: LineRange[] = [];
+    for (const block of blocks) {
+        const last = segments[segments.length - 1];
+        if (
+            last &&
+            (block.lines.startLine <= last.endLine ||
+                options.lineMap.nextNonEmpty[last.endLine + 1] === block.lines.startLine)
+        ) {
+            last.endLine = Math.max(last.endLine, block.lines.endLine);
+            continue;
+        }
+        segments.push({ ...block.lines });
+    }
+    return { blocks, segments };
 }

@@ -1,6 +1,6 @@
 import { EditorState } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
-import { type DropPosition, parseLine } from '../../domain';
+import { type DropPosition, parseLine, seamRow } from '../../domain';
 import { type CodeMirrorGeometryOptions, contentLeft, resolveListIndentUnit, resolveListIndentWidthPx } from './config';
 
 // Content band = the block's rendered row, as an absolute viewport rect.
@@ -68,9 +68,8 @@ export function dropSeam(
     options: CodeMirrorGeometryOptions,
 ): DropSeam | null {
     const doc = position.doc;
-    const targetLine = position.line;
-    const bandLine = targetLine <= 1 ? 1 : Math.min(targetLine - 1, doc.lines);
-    if (bandLine < 1 || bandLine > doc.lines) return null;
+    const { row, edge } = seamRow(position);
+    if (row < 1 || row > doc.lines) return null;
 
     let left: number;
     if (position.parent) {
@@ -84,10 +83,11 @@ export function dropSeam(
         left = contentLeft(options, view);
     }
 
-    const block = view.lineBlockAt(doc.line(bandLine).from);
+    const block = view.lineBlockAt(doc.line(row).from);
+    const y = edge === 'top' ? block.top : edge === 'below' ? block.bottom : (block.top + block.bottom) / 2;
     return {
         left,
         right: Math.max(left, view.contentDOM.getBoundingClientRect().right),
-        y: view.documentTop + (targetLine <= 1 ? block.top : block.bottom),
+        y: view.documentTop + y,
     };
 }
