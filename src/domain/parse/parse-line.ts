@@ -9,7 +9,7 @@ import {
 import type { MarkerType } from '../markdown/document-types';
 import type { Indent, LineMarker, ParsedLine } from './types';
 
-function indentWidth(raw: string, tabSize: number): number {
+export function indentWidth(raw: string, tabSize: number): number {
     let width = 0;
     for (const ch of raw) {
         width += ch === '\t' ? tabSize : 1;

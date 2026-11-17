@@ -80,11 +80,6 @@ export {
     INVALID_CLASS,
     listIndentUnitFacet,
     listLevel,
-    /**
-     * @deprecated Import listLevel from md-dragger/domain instead.
-     * Scheduled for removal in the next major release.
-     */
-    listLevel as sourceListLevel,
     SOURCE_LEVEL_STYLE_VAR,
     seamOffset,
     sourceHighlightDecoration,
