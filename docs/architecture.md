@@ -71,7 +71,7 @@ When `enabled` is false the adapter renders no handles and the runtime ignores p
 pointer press → InputSource.onPress → runtime (press session)
 pointer move  → onMove → hold/drag threshold → drag begins
                 → drag_source_changed output (host paints source highlight)
-pointer move  → drag_over → locate.resolveDropPosition → seam painted
+pointer move  → drag_over → locate.resolveDropPosition → planMove → planned seam painted
 pointer up    → commitDrop → domain move plan → DocEdit[] → commit.apply
                 → dropped output → host clears paint, refreshes doc
 Escape / cancel → cancel output with reason (host can distinguish

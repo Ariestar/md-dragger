@@ -47,6 +47,7 @@ export function deleteBlockAt(view: EditorView, lineNumber: number): boolean {
   const result = planDelete({
     doc: view.state.doc,
     selection: selectOne(block),
+    tabSize: TAB_SIZE,
   });
   if ('type' in result) return false; // CommandReject
   if (!result.changes.length) return false;

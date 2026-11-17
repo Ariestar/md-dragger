@@ -88,7 +88,7 @@ The predicate is re-checked **per render and per press**, because such nested ed
 The adapter produces:
 
 - a zero-width gutter (`md-dragger-gutter`) with handle markers (`md-dragger-handle`, carrying `data-block-start`),
-- line decorations for the drag source (`md-dragger-drag-source`), the drop seam (`md-dragger-drop-seam`, `-top`/`-below`), and an invalid-state class (`is-invalid`),
+- line decorations for the drag source (`md-dragger-drag-source`), the drop seam (`md-dragger-drop-seam`, `-top`/`-below`/`-center`), and an invalid-state class (`is-invalid`),
 - CSS variables hosts fill from adapter geometry (`--d-source-level` per row, seam offset variables from `seamOffset()`).
 
 Styling is the host's job — the classes are the protocol. The Obsidian plugin's `styles.css` is a complete reference implementation.

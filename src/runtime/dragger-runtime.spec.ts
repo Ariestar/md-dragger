@@ -118,3 +118,85 @@ describe('DraggerRuntime host commit', () => {
         expect(apply.mock.calls[0]?.[0]).toHaveLength(1);
     });
 });
+
+describe('DraggerRuntime drop indicator', () => {
+    it('paints the line the write uses, for a move and for a copy', () => {
+        // The pointer is on the upper half of `P`; `- s` joins the list above, loose once it moves, tight when copied.
+        const doc = stringDoc('- a\n\n- s\n- b\n\n\nP');
+        const block = detectBlock(doc, 3, { tabSize: 4 });
+        if (!block) throw new Error('Missing source block');
+        const outputs: PipelineOutput[] = [];
+        const runtime = new DraggerRuntime({
+            input: {
+                onPress: () => () => undefined,
+                onMove: () => () => undefined,
+                onRelease: () => () => undefined,
+            },
+            document: { getDoc: () => doc },
+            locate: {
+                sourceLineFromInput: () => 3,
+                resolveDropPosition: () => ({ doc, line: 7, parent: null }),
+            },
+            commit: { apply: () => undefined },
+            config: { tabSize: 4, listIndentUnit: 4 },
+            onChange: (change) => outputs.push(...change.outputs),
+        });
+        const point: Point = { x: 0, y: 0 };
+        const pointer: Pointer = { id: 1, type: 'mouse' };
+        const painted = () => {
+            const over = outputs.filter((output) => output.type === 'drag_over').at(-1);
+            return over?.type === 'drag_over' ? over.drop.position?.line : undefined;
+        };
+        runtime.beginHold('seam', selectOne(block), pointer.type);
+        runtime.markHoldReady('seam', pointer.type);
+        runtime.beginDrag('seam', selectOne(block), point, pointer, pointer.type);
+        runtime.moveDrag('seam', point, pointer, pointer.type);
+        expect(painted()).toBe(6);
+        runtime.moveDrag('seam', point, pointer, pointer.type, { altKey: true });
+        expect(painted()).toBe(5);
+    });
+});
+
+describe('DraggerRuntime drop zone', () => {
+    it('keeps the zone the locate step reports through the drag and the commit', async () => {
+        const text = 'x\n\na\nb\n\ny';
+        const doc = stringDoc(text);
+        const block = detectBlock(doc, 4, { tabSize: 4 });
+        if (!block) throw new Error('Missing source block');
+        const outputs: PipelineOutput[] = [];
+        let written = '';
+        const runtime = new DraggerRuntime({
+            input: {
+                onPress: () => () => undefined,
+                onMove: () => () => undefined,
+                onRelease: () => () => undefined,
+            },
+            document: { getDoc: () => doc },
+            locate: {
+                sourceLineFromInput: () => 4,
+                // The upper half of `a`.
+                resolveDropPosition: () => ({ doc, line: 3, parent: null, zone: 'joinBelow' }),
+            },
+            commit: {
+                apply: (edits) => {
+                    written = text;
+                    for (const c of [...edits[0].changes].sort((p, q) => q.from - p.from)) {
+                        written = written.slice(0, c.from) + c.insert + written.slice(c.to);
+                    }
+                },
+            },
+            config: { tabSize: 4, listIndentUnit: 4 },
+            onChange: (change) => outputs.push(...change.outputs),
+        });
+        const point: Point = { x: 0, y: 0 };
+        const pointer: Pointer = { id: 1, type: 'mouse' };
+        runtime.beginHold('zone', selectOne(block), pointer.type);
+        runtime.markHoldReady('zone', pointer.type);
+        runtime.beginDrag('zone', selectOne(block), point, pointer, pointer.type);
+        runtime.moveDrag('zone', point, pointer, pointer.type);
+        const over = outputs.filter((output) => output.type === 'drag_over').at(-1);
+        expect(over?.type === 'drag_over' && over.drop.position?.zone).toBe('joinBelow');
+        expect(await runtime.commitDrop('zone', point, pointer, pointer.type)).toMatchObject({ kind: 'applied' });
+        expect(written).toBe('x\n\nb\na\n\ny');
+    });
+});
