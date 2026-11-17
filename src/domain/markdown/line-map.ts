@@ -1,11 +1,11 @@
 import { isCalloutLine, isHorizontalRuleLine } from '../block/block-guards';
 import { isListLine, parseLine } from '../parse/parse-line';
 import type { Doc } from './document-types';
+import type { LineRange } from './line-range-types';
 
 export interface LineMeta {
     isEmpty: boolean;
     isList: boolean;
-    isQuote: boolean;
     isCallout: boolean;
     isTable: boolean;
     isHr: boolean;
@@ -29,7 +29,6 @@ const lineMapCache = new WeakMap<object, Map<number, LineMap>>();
 const EMPTY_LINE_META: LineMeta = {
     isEmpty: true,
     isList: false,
-    isQuote: false,
     isCallout: false,
     isTable: false,
     isHr: false,
@@ -43,7 +42,6 @@ function createLineMetaFromText(text: string, tabSize: number): LineMeta {
     return {
         isEmpty,
         isList: isListLine(parsed),
-        isQuote: parsed.quote.depth > 0,
         isCallout: isCalloutLine(text),
         isTable: text.trimStart().startsWith('|'),
         isHr: isHorizontalRuleLine(text),
@@ -200,4 +198,26 @@ export function listLineAtOrAbove(lineMap: LineMap, lineNumber: number): number 
     if (meta?.isList) return clamped;
     const prevListLine = lineMap.prevListLine[clamped];
     return prevListLine > 0 ? prevListLine : null;
+}
+
+/**
+ * Head line of the list item whose subtree contains `line`, among the items
+ * whose parent item starts at `parentLine` (0 = the document root, which
+ * gives the outermost item), or null.
+ */
+export function listItemContaining(lineMap: LineMap, line: number, parentLine: number): number | null {
+    if (line < 1 || line > lineMap.doc.lines) return null;
+    let head = lineMap.lineMeta[line].isList ? line : lineMap.prevListLine[line];
+    while (head > 0 && lineMap.listSubtreeEndLine[head] < line) head = lineMap.listParentLine[head];
+    while (head > 0 && lineMap.listParentLine[head] !== parentLine) head = lineMap.listParentLine[head];
+    return head > 0 ? head : null;
+}
+
+/** The contiguous run of quoted lines containing `line`. */
+export function quoteRunAt(lineMap: LineMap, line: number): LineRange {
+    let startLine = line;
+    while (startLine > 1 && lineMap.lineMeta[startLine - 1].quoteDepth > 0) startLine--;
+    let endLine = line;
+    while (endLine < lineMap.doc.lines && lineMap.lineMeta[endLine + 1].quoteDepth > 0) endLine++;
+    return { startLine, endLine };
 }

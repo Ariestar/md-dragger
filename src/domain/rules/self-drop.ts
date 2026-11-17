@@ -1,15 +1,14 @@
-import { BlockType } from '../block/block-types';
+import { type Block, BlockType } from '../block/block-types';
 import type { DropPosition } from '../command/drop-position';
 import type { Doc } from '../markdown/document-types';
 import { dropIndentWidth } from '../markdown/drop-locate';
+import { canonicalSeam } from '../markdown/gap';
 import { getLineMetaAt, type LineMap } from '../markdown/line-map';
 import { isLineNumberInRanges } from '../markdown/line-range';
 import type { LineRange } from '../markdown/line-range-types';
 import { isListLine } from '../parse/parse-line';
 import type { ParsedLine } from '../parse/types';
 import type { RejectReason } from '../result';
-import type { BlockSelection } from '../selection/block-selection';
-import { selectionLineRanges } from '../selection/block-selection';
 
 export type SelfDropResult = {
     inSelfRange: boolean;
@@ -20,12 +19,12 @@ export type SelfDropResult = {
 
 function isListSelection(params: {
     doc: Doc;
-    source: BlockSelection;
+    blocks: readonly Block[];
     parse: (line: string) => ParsedLine;
-    ranges: LineRange[];
+    ranges: readonly LineRange[];
 }): boolean {
-    const { doc, source, parse, ranges } = params;
-    if (source.blocks[0]?.type !== BlockType.ListItem) return false;
+    const { doc, blocks, parse, ranges } = params;
+    if (blocks[0]?.type !== BlockType.ListItem) return false;
 
     for (const range of ranges) {
         let foundContent = false;
@@ -41,40 +40,37 @@ function isListSelection(params: {
 }
 
 /**
- * Self-drop: dropping inside the source selection range (including the
- * no-op seam right below it). Indent intent comes only from DropPosition
- * (dropIndentWidth) — no near-line scan. Container rules never apply here:
- * hovering over the source block itself is a no-op for every block type,
- * even when its own body is also a container rejection (fenced block).
+ * Self-drop: dropping on the source segments or on the gap right below the
+ * last one (a canonical seam, possibly past blank lines). Indent intent comes
+ * only from DropPosition (dropIndentWidth) — no near-line scan.
  */
 export function selfDrop(params: {
     doc: Doc;
-    source: BlockSelection;
+    blocks: readonly Block[];
+    segments: LineRange[];
     targetLineNumber: number;
     parseLineWithQuote: (line: string) => ParsedLine;
-    lineMap?: LineMap;
+    lineMap: LineMap;
     position?: DropPosition;
     tabSize: number;
     indentUnit: number;
 }): SelfDropResult {
-    const { doc, source, targetLineNumber, parseLineWithQuote: parse, lineMap, position, tabSize, indentUnit } = params;
+    const { doc, blocks, segments, targetLineNumber, lineMap, position, tabSize, indentUnit } = params;
+    const parse = params.parseLineWithQuote;
 
-    const sourceBlock = source.blocks[0];
+    const sourceBlock = blocks[0];
     if (!sourceBlock) {
         return { inSelfRange: false, allowInPlaceIndentChange: false, rejectReason: 'self_range_blocked' };
     }
 
-    const sourceRanges = selectionLineRanges(doc.lines, source);
-    if (sourceRanges.length === 0) {
-        return { inSelfRange: false, allowInPlaceIndentChange: false };
-    }
     const effectiveSourceRange = {
-        startLine: sourceRanges[0].startLine,
-        endLine: sourceRanges[sourceRanges.length - 1].endLine,
+        startLine: segments[0].startLine,
+        endLine: segments[segments.length - 1].endLine,
     };
+    const seamAfterSelf = canonicalSeam(doc, effectiveSourceRange.endLine + 1, { lineMap });
 
-    const inSelectedRange = isLineNumberInRanges(targetLineNumber, sourceRanges);
-    const inSelfRange = inSelectedRange || targetLineNumber === effectiveSourceRange.endLine + 1;
+    const inSelectedRange = isLineNumberInRanges(targetLineNumber, segments);
+    const inSelfRange = inSelectedRange || targetLineNumber === seamAfterSelf;
     if (!inSelfRange) {
         return { inSelfRange: false, allowInPlaceIndentChange: false };
     }
@@ -97,7 +93,7 @@ export function selfDrop(params: {
         };
     }
 
-    if (!isListSelection({ doc, source, parse, ranges: sourceRanges })) {
+    if (!isListSelection({ doc, blocks, parse, ranges: segments })) {
         return {
             inSelfRange: true,
             allowInPlaceIndentChange: false,
@@ -106,7 +102,7 @@ export function selfDrop(params: {
     }
 
     const sourceLineNumber = effectiveSourceRange.startLine;
-    const sourceLineMeta = lineMap ? getLineMetaAt(lineMap, sourceLineNumber) : null;
+    const sourceLineMeta = getLineMetaAt(lineMap, sourceLineNumber);
     if (sourceLineMeta && !sourceLineMeta.isList) {
         return {
             inSelfRange: true,
@@ -124,14 +120,25 @@ export function selfDrop(params: {
     }
 
     const sourceIndent = sourceParsed.indent.width;
-    const isAfterSelf = targetLineNumber === effectiveSourceRange.endLine + 1;
+    const isAfterSelf = targetLineNumber === seamAfterSelf;
     const isSameLine = targetLineNumber === effectiveSourceRange.startLine;
+
+    // Nesting one segment under the block above it, across blank lines, is a move into its own upper gap: the move
+    // writes it with the spacing of the list it joins, where an in-place change would keep the blank lines.
+    if (
+        isSameLine &&
+        segments.length === 1 &&
+        targetIndentWidth > sourceIndent &&
+        getLineMetaAt(lineMap, sourceLineNumber - 1)?.isEmpty
+    ) {
+        return { inSelfRange: false, allowInPlaceIndentChange: false };
+    }
 
     // Nesting under self as child while dropping after self range = embedding
     if (
         isAfterSelf &&
         position.parent &&
-        isLineNumberInRanges(position.parent.lines.startLine, sourceRanges) &&
+        isLineNumberInRanges(position.parent.lines.startLine, segments) &&
         targetIndentWidth > sourceIndent
     ) {
         return {
