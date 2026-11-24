@@ -135,7 +135,7 @@
     "@types/node": "^26.6.6",
     "esbuild": "^0.28.2",
     "husky": "^9.1.7",
-    "lint-staged": "^17.6.0",
+    "lint-staged": "^17.6.1",
     "monaco-editor": "^0.57.0",
     "publint": "^0.3.25",
     "tslib": "^2.9.1",
