@@ -1,76 +1,91 @@
-import type { Block } from '../block/block-types';
-import { BlockType } from '../block/block-types';
+import { detectBlock, inheritFrontmatterEnd } from '../block/block-detector';
+import { type Block, BlockType } from '../block/block-types';
 import type { Doc } from '../markdown/document-types';
+import { blockAt, gapAt } from '../markdown/gap';
+import { getLineMap, type LineMap, quoteRunAt } from '../markdown/line-map';
 import type { LineRange } from '../markdown/line-range-types';
 import type { MovePlan } from '../move/move-plan';
-import { insertTextForMove, resolveDeleteRange, resolveInsertionChange } from '../mutation';
+import {
+    collapsedBlankLines,
+    continuesOrderedRun,
+    insertIntoGap,
+    insertTextForMove,
+    type PayloadEnd,
+    removeSegment,
+    startsListUnderList,
+} from '../mutation';
 import { parseLine } from '../parse/parse-line';
 import type { ParsedLine } from '../parse/types';
-import { type Reject, reject } from '../result';
-import { ADAPTABLE_BLOCKS } from '../rules/insertion-rules';
-import { type BlockSelection, selectionLineRanges } from '../selection/block-selection';
+import { isReject, type Reject, reject } from '../result';
+import { facingAt, isStandalone, runKind, runLines } from '../rules/separation';
+import { type BlockSelection, selectionSegments } from '../selection/block-selection';
 import type { DocEdit, TextChange } from './block-transaction';
 import { renumberRunsNear } from './list-renumber';
 import { buildPosMapper } from './pos-map';
 import { stringDoc } from './string-doc';
 
-export type MoveSourceSegment = {
-    lines: LineRange;
-    from: number;
-    to: number;
-    deleteFrom: number;
-    deleteTo: number;
-};
-
-export type MoveSourcePayload = {
-    content: string;
-    ranges: LineRange[];
-    segments: MoveSourceSegment[];
-};
-
 export type CapturedMoveSource = {
-    block: Block;
-    payload: MoveSourcePayload;
-    /** Every selected block can become a list item. A code block in the selection must stay verbatim. */
-    adaptToList: boolean;
+    /** Top-level selected blocks, in document order. */
+    blocks: Block[];
+    /** Lines that move together: blocks separated only by blank lines, with those blank lines. */
+    segments: LineRange[];
+    /** The segments joined the way their holes close at the source. */
+    content: string;
+    first: PayloadEnd;
+    last: PayloadEnd;
 };
 
-/**
- * Capture selected text and deletion ranges without modifying the document.
- * Adjacent or overlapping line ranges are merged; disjoint ranges are joined
- * with a newline. Returns null when no ranges remain within the document.
- * adaptToList is true only when every selected block is a paragraph, heading,
- * or blockquote. Document access errors propagate.
- */
-export function captureMoveSource(doc: Doc, selection: BlockSelection): CapturedMoveSource | null {
-    const ranges = selectionLineRanges(doc.lines, selection);
-    if (ranges.length === 0) return null;
+export function captureMoveSource(
+    doc: Doc,
+    selection: BlockSelection,
+    options: { lineMap: LineMap; tabSize: number },
+): CapturedMoveSource | null {
+    const { blocks, segments } = selectionSegments(selection, options);
+    if (segments.length === 0) return null;
 
-    const segments = ranges.map((range) => {
-        const start = doc.line(range.startLine);
-        const end = doc.line(range.endLine);
-        const deleteRange = resolveDeleteRange(doc, start.from, end.to);
-        return {
-            lines: range,
-            from: start.from,
-            to: end.to,
-            deleteFrom: deleteRange.from,
-            deleteTo: deleteRange.to,
-        };
-    });
-    const content = segments.map((s) => doc.sliceString(s.from, s.to)).join('\n');
-    const first = ranges[0];
-    const last = ranges[ranges.length - 1];
+    const text = (from: number, to: number) => doc.sliceString(doc.line(from).from, doc.line(to).to);
+    let content = text(segments[0].startLine, segments[0].endLine);
+    for (let i = 1; i < segments.length; i++) {
+        const upper = segments[i - 1].endLine;
+        const lower = segments[i].startLine;
+        const blankAbove = options.lineMap.nextNonEmpty[upper + 1] - upper - 1;
+        const blankBelow = lower - options.lineMap.prevNonEmpty[lower - 1] - 1;
+        const removed = { startLine: upper + 1 + blankAbove, endLine: lower - 1 - blankBelow };
+        const kept = collapsedBlankLines(
+            doc,
+            {
+                upper: facingAt(doc, upper, options),
+                lower: facingAt(doc, lower, options),
+                blankAbove,
+                blankBelow,
+                removed,
+            },
+            options,
+        );
+        content += `\n${'\n'.repeat(kept)}${text(segments[i].startLine, segments[i].endLine)}`;
+    }
 
+    const firstLine = segments[0].startLine;
+    const lastLine = segments[segments.length - 1].endLine;
+    // A paragraph or quote end was kept apart when its whole paragraph or quote moves with it.
+    const standalone = (line: number, block: Block) => {
+        if (block.type !== BlockType.Paragraph && block.type !== BlockType.Blockquote) {
+            return isStandalone(doc, block, options);
+        }
+        const run = runLines(doc, line, options);
+        return segments.some((s) => s.startLine <= run.startLine && run.endLine <= s.endLine);
+    };
+    const end = (line: number, block: Block): PayloadEnd => {
+        const facing = detectBlock(doc, line, options);
+        if (!facing) throw new Error(`md-dragger: no block at payload line ${line}`);
+        return { type: facing.type, run: runKind(doc, line, options), standalone: standalone(line, block) };
+    };
     return {
-        block: {
-            type: selection.blocks[0].type,
-            lines: { startLine: first.startLine, endLine: last.endLine },
-        },
-        payload: { content, ranges, segments },
-        adaptToList: selection.blocks.every(
-            (block) => block.type !== BlockType.ListItem && ADAPTABLE_BLOCKS.has(block.type),
-        ),
+        blocks,
+        segments,
+        content,
+        first: end(firstLine, blocks[0]),
+        last: end(lastLine, blocks[blocks.length - 1]),
     };
 }
 
@@ -81,7 +96,9 @@ export function captureMoveSource(doc: Doc, selection: BlockSelection): Captured
  * Errors from document access and text projection propagate.
  *
  *   1. Project   — insert string from source + DropPosition
- *   2. Geometry  — insert + delete (coordinates on original doc)
+ *   2. Geometry  — one insertion into the target gap (resolved as if the
+ *                  moved segments were already removed) plus one pure
+ *                  deletion per segment, on the original doc
  *   3. Renumber  — in memory, renumber only the ordered runs the move
  *                  touched, on the post-move doc
  *   4. Compose   — map the renumber marker edits back to original
@@ -91,48 +108,88 @@ export function captureMoveSource(doc: Doc, selection: BlockSelection): Captured
 export function moveTx(params: { sourceDoc: Doc; plan: MovePlan }): DocEdit[] | Reject {
     const { sourceDoc, plan } = params;
     const targetDoc = plan.position.doc;
-    const parse = (text: string) => parseLine(text, plan.tabSize);
-
-    const project = (sourceContent: string) =>
-        insertTextForMove({
-            doc: targetDoc,
-            sourceBlock: plan.captured.block,
-            adaptToList: plan.captured.adaptToList,
-            targetLineNumber: plan.position.line,
-            sourceContent,
-            position: plan.position,
-            tabSize: plan.tabSize,
-            indentUnit: plan.indentUnit,
-        });
-
-    if (plan.mode === 'copy') {
-        const insertText = project(plan.captured.payload.content);
-        if (!insertText.length) return reject('no_insert_text');
-        const insert = geometryInsert(targetDoc, plan.position.line, insertText);
-        return [compileDocEdit(targetDoc, insert, parse)];
-    }
+    const { tabSize } = plan;
+    const parse = (text: string) => parseLine(text, tabSize);
 
     if (plan.allowIndent) {
-        return [compileDocEdit(sourceDoc, relevelInPlace(sourceDoc, plan.captured.payload.ranges, project), parse)];
+        const relevelled = relevelInPlace(sourceDoc, plan.captured.segments, (text) => project(plan, text));
+        return [compileDocEdit(sourceDoc, relevelled, parse)];
     }
 
-    const insertText = project(plan.captured.payload.content);
-    if (!insertText.length) return reject('no_insert_text');
+    const step = moveInsertion(sourceDoc, plan);
+    if (isReject(step)) return step;
+    const { insertion, removals } = step;
+    if (plan.mode === 'copy' || sourceDoc !== targetDoc) {
+        const inserted = compileDocEdit(targetDoc, [insertion], parse);
+        return plan.mode === 'copy' ? [inserted] : [inserted, compileDocEdit(sourceDoc, removals, parse)];
+    }
+    return [compileDocEdit(sourceDoc, [insertion, ...removals], parse)];
+}
 
-    if (sourceDoc !== targetDoc) {
-        const insert = geometryInsert(targetDoc, plan.position.line, insertText);
-        const del = geometryDelete(plan.captured.payload);
-        return [compileDocEdit(targetDoc, insert, parse), compileDocEdit(sourceDoc, del, parse)];
+/**
+ * The geometry of a move or copy that is not an in-place indent change: the
+ * insertion into the target gap, on the original target document, and the
+ * removal of each segment from the source. planMove reads the line the
+ * insertion lands on. Rejects empty projected text, or a same-document gap
+ * that the removal puts inside a block.
+ */
+export function moveInsertion(
+    sourceDoc: Doc,
+    plan: MovePlan,
+): { insertion: TextChange; removals: TextChange[] } | Reject {
+    const targetDoc = plan.position.doc;
+    const { tabSize } = plan;
+    const text = project(plan, plan.captured.content);
+    if (!text.length) return reject('no_insert_text');
+    // A payload written as list items faces its neighbours as list items.
+    const item: PayloadEnd = { type: BlockType.ListItem, run: 'list', standalone: false };
+    const payload = plan.asItems
+        ? { text, first: item, last: item }
+        : { text, first: plan.captured.first, last: plan.captured.last };
+    const sourceLineMap = getLineMap(sourceDoc, { tabSize });
+    const removals = plan.captured.segments.map((segment) =>
+        removeSegment(sourceDoc, segment, {
+            lineMap: sourceLineMap,
+            tabSize,
+            renumbers: true,
+            blocks: plan.captured.blocks,
+        }),
+    );
+
+    // A copy, or a move to another document, inserts into the target as it is.
+    if (plan.mode === 'copy' || sourceDoc !== targetDoc) {
+        const targetLineMap = getLineMap(targetDoc, { tabSize });
+        const first = plan.captured.segments[0].startLine;
+        const insertion = insertIntoGap(targetDoc, plan.gap, payload, {
+            lineMap: targetLineMap,
+            tabSize,
+            parent: plan.position.parent,
+            standalone: (block) => isStandalone(targetDoc, block, { lineMap: targetLineMap }),
+            fromQuote: (line) => {
+                if (sourceDoc !== targetDoc) return false;
+                const run = quoteRunAt(targetLineMap, line);
+                return run.startLine <= first && first <= run.endLine;
+            },
+            line: plan.position.line,
+        });
+        return { insertion, removals };
     }
 
-    const geometry = geometrySameDoc({
-        doc: targetDoc,
-        payload: plan.captured.payload,
-        targetLine: plan.position.line,
-        insertText,
+    const insertion = insertAfterRemoval(sourceDoc, plan, payload, removals);
+    if (isReject(insertion)) return insertion;
+    return { insertion, removals };
+}
+
+/** The text a move writes for `sourceContent`: as list items or relevelled for the drop position (insertTextForMove). */
+function project(plan: MovePlan, sourceContent: string): string {
+    return insertTextForMove({
+        sourceBlock: plan.captured.blocks[0],
+        sourceContent,
+        position: plan.position,
+        asItems: plan.asItems,
+        tabSize: plan.tabSize,
+        indentUnit: plan.indentUnit,
     });
-    if ('type' in geometry) return geometry;
-    return [compileDocEdit(targetDoc, geometry, parse)];
 }
 
 /** An in-place list indent change: each segment's lines are replaced by their relevelled text, separators unchanged. */
@@ -146,6 +203,101 @@ function relevelInPlace(doc: Doc, segments: LineRange[], project: (text: string)
         next += count;
         return { ...ranges[i], insert };
     });
+}
+
+/** The source document with a move's deletions applied, kept per source document for the deletions it was built
+ * from: every frame of a drag plans the same removal. */
+const removedDocs = new WeakMap<Doc, { key: string; removed: Doc }>();
+
+/**
+ * The insertion of a same-document move. The destination gap is resolved on
+ * the document with the segments removed — a removed neighbour is replaced by
+ * its surviving neighbour, and the gap's blank lines by the collapsed ones —
+ * and so is the drop's boundary line, at the deletion point when the removal
+ * deletes it; the insertion offset is mapped back onto the original doc, at
+ * the far boundary of any deleted range it touches. Rejected when that gap
+ * lies inside a block.
+ */
+function insertAfterRemoval(
+    doc: Doc,
+    plan: MovePlan,
+    payload: { text: string; first: PayloadEnd; last: PayloadEnd },
+    removals: TextChange[],
+): TextChange | Reject {
+    const { tabSize } = plan;
+    const deletions = [...removals].sort((a, b) => a.from - b.from);
+    const key = deletions.map((d) => `${d.from}:${d.to}`).join(',');
+    let memo = removedDocs.get(doc);
+    if (memo?.key !== key) {
+        const fresh = stringDoc(applyChanges(doc, deletions));
+        inheritFrontmatterEnd(fresh, doc);
+        memo = { key, removed: fresh };
+        removedDocs.set(doc, memo);
+    }
+    const { removed } = memo;
+    const lineMap = getLineMap(removed, { tabSize });
+    const lineAfterRemoval = (line: number) =>
+        removed.lineAt(offsetAfterRemoval(deletions, doc.line(line).from)).number;
+    // The drop parent never moves. The gap's lower neighbour moves only in the source's own upper gap: the line
+    // after its segment takes its place.
+    const docLineMap = getLineMap(doc, { tabSize });
+    const segment = plan.captured.segments.find((s) => plan.gap.seam >= s.startLine && plan.gap.seam <= s.endLine);
+    const below = !plan.gap.below ? 0 : !segment ? plan.gap.seam : docLineMap.nextNonEmpty[segment.endLine + 1];
+
+    // Removing an unclosed fence can pair the fences below it differently: the gap can then lie inside a block.
+    const at = gapAt(removed, below > 0 ? lineAfterRemoval(below) : removed.lines + 1, { lineMap, tabSize });
+    if (at.type !== 'gap') return reject(at.reason);
+    const parent =
+        plan.position.parent && blockAt(removed, lineAfterRemoval(plan.position.parent.lines.startLine), { tabSize });
+    // Whether a neighbour was kept apart, and which quote it is in, are properties of the document the user sees:
+    // read them on the original lines.
+    const originalLine = (line: number) => doc.lineAt(offsetBeforeRemoval(deletions, removed.line(line).from)).number;
+    const standalone = (block: Block): boolean =>
+        isStandalone(doc, blockAt(doc, originalLine(block.lines.startLine), { tabSize }), { lineMap: docLineMap });
+    const fromQuote = (line: number): boolean => {
+        const run = quoteRunAt(docLineMap, originalLine(line));
+        const first = plan.captured.segments[0].startLine;
+        return run.startLine <= first && first <= run.endLine;
+    };
+    // The drop line maps to the deletion point when the removal deletes it; every other line read here survives.
+    const dropLine = (line: number) => {
+        const from = doc.line(line).from;
+        const cut = deletions.find((d) => d.from < from && from < d.to);
+        return removed.lineAt(offsetAfterRemoval(deletions, cut ? cut.from : from)).number;
+    };
+    const line = plan.position.line > doc.lines ? removed.lines + 1 : dropLine(plan.position.line);
+    const insertion = insertIntoGap(removed, at.gap, payload, {
+        lineMap,
+        tabSize,
+        parent,
+        standalone,
+        fromQuote,
+        line,
+    });
+
+    const pos = offsetBeforeRemoval(deletions, insertion.from);
+    return { from: pos, to: pos, insert: insertion.insert };
+}
+
+/** Offset in the original document of an offset in the document with `deletions` (sorted, pure) applied: at the far
+ * boundary of any deleted range it touches. */
+function offsetBeforeRemoval(deletions: TextChange[], pos: number): number {
+    let original = pos;
+    for (const d of deletions) {
+        if (d.from > original) break;
+        original += d.to - d.from;
+    }
+    return original;
+}
+
+/** Offset in the document with `deletions` (sorted, pure) applied, for an offset outside every deleted range. */
+function offsetAfterRemoval(deletions: TextChange[], pos: number): number {
+    let removedBefore = 0;
+    for (const d of deletions) {
+        if (pos > d.from && pos < d.to) throw new Error(`md-dragger: offset ${pos} lies inside a moved range`);
+        if (d.to <= pos) removedBefore += d.to - d.from;
+    }
+    return pos - removedBefore;
 }
 
 function compileDocEdit(doc: Doc, geometry: TextChange[], parse: (line: string) => ParsedLine): DocEdit {
@@ -167,7 +319,8 @@ function compileDocEdit(doc: Doc, geometry: TextChange[], parse: (line: string) 
  * Rows of the post-move doc whose ordered runs the move touched: rows around
  * the inserted block (only when it actually joins a neighbouring run) and
  * rows around each deleted range (a removed run member, or two run segments
- * that merge across the hole). Runs elsewhere stay untouched.
+ * that merge across the hole), plus an ordered item the move leaves starting
+ * a list under a list line. Runs elsewhere stay untouched.
  */
 function renumberAnchors(doc: Doc, geometry: TextChange[], edited: Doc, parse: (line: string) => ParsedLine): number[] {
     const sorted = [...geometry].sort((a, b) => a.from - b.from);
@@ -180,10 +333,11 @@ function renumberAnchors(doc: Doc, geometry: TextChange[], edited: Doc, parse: (
 
     for (const c of sorted) {
         if (c.insert.length > 0) {
-            const start = c.from + editedDeltaBefore(sorted, c.from);
-            // The written text's own last row: a trailing newline is a line
-            // terminator, so the row after it is the one past it.
-            const end = start + c.insert.length - trailingNewlines(c.insert);
+            // The inserted block's own first and last rows: its leading and
+            // trailing newlines are separators, so the rows next to it are
+            // the ones past them.
+            const start = c.from + editedDeltaBefore(sorted, c.from) + leadingNewlines(c.insert);
+            const end = c.from + editedDeltaBefore(sorted, c.from) + c.insert.length - trailingNewlines(c.insert);
             const first = firstContentLine(c.insert);
             const last = lastContentLine(c.insert);
             if (start > 0 && continuesOrderedRun(parse(first), parse(lineTextAt(edited, start - 1)))) {
@@ -192,25 +346,55 @@ function renumberAnchors(doc: Doc, geometry: TextChange[], edited: Doc, parse: (
             if (end < edited.length && continuesOrderedRun(parse(last), parse(lineTextAt(edited, end + 1)))) {
                 addRow(end + 1);
             }
+            // Every written row, where the payload's own segments meet, and the row after it.
+            const rows = edited.lineAt(Math.min(end + 1, edited.length)).number;
+            for (let row = edited.lineAt(start).number; row <= rows; row++) {
+                if (startsListUnderList(edited, row - 1, parse(edited.line(row).text), parse)) anchors.add(row);
+            }
         }
         if (c.to > c.from) {
-            // A deletion that reaches the document end has no row after it. An in-place write replaces whole
-            // lines without their terminator: the row after it is past that terminator.
+            // A deletion that reaches the document end has no row after it. A change that ends at the end of a
+            // line keeps its terminator (an in-place write, or a removal that leaves a blank line): the row after
+            // it is past that terminator.
             const end = c.to < doc.length ? mapper.forward(c.to) : null;
-            const after = end !== null && c.insert.length > 0 ? end + 1 : end;
+            const keepsTerminator = doc.line(doc.lineAt(c.to).number).from < c.to;
+            const after = end !== null && keepsTerminator ? end + 1 : end;
+            // A run is a stack of adjacent lines. Across the blank lines removed with a segment, the row on the
+            // other side is renumbered on its own: only right for the row below when it becomes the head.
+            const blank = (line: number) => line < 1 || doc.line(line).text.trim().length === 0;
             if (c.from > 0) {
                 const before = mapper.forward(c.from - 1);
                 if (before !== null) {
                     const r1 = parse(lineTextAt(edited, before));
                     const lastDeleted = parse(lineTextAt(doc, c.to - 1));
-                    if (continuesOrderedRun(r1, lastDeleted)) addRow(before);
+                    const tightAbove = !blank(doc.lineAt(c.from - 1).number + 1);
+                    if (tightAbove && continuesOrderedRun(r1, lastDeleted)) addRow(before);
                     if (after !== null && continuesOrderedRun(r1, parse(lineTextAt(edited, after)))) addRow(before);
                 }
             }
             if (after !== null) {
                 const r2 = parse(lineTextAt(edited, after));
-                const firstDeleted = parse(lineTextAt(doc, c.from));
-                if (continuesOrderedRun(firstDeleted, r2)) addRow(after);
+                const first = doc.lineAt(c.from).number;
+                const firstDeleted = parse(doc.line(first).text);
+                let above = first - 1;
+                while (above > 0 && blank(above)) above--;
+                const head = above === 0 || !continuesOrderedRun(parse(doc.line(above).text), firstDeleted);
+                const tightBelow = !blank(doc.lineAt(c.to - 1).number);
+                if ((tightBelow || head) && continuesOrderedRun(firstDeleted, r2)) addRow(after);
+                // Below the blank line a removal leaves, the run that lost the deleted lines right above it starts
+                // over when the nearest of them at its level was in it.
+                if (keepsTerminator && c.insert.length === 0) {
+                    let level = doc.lineAt(c.to - 1).number;
+                    while (
+                        level > first &&
+                        (blank(level) || parse(doc.line(level).text).indent.width > r2.indent.width)
+                    ) {
+                        level--;
+                    }
+                    if (continuesOrderedRun(parse(doc.line(level).text), r2)) addRow(after);
+                }
+                const row = edited.lineAt(after).number;
+                if (startsListUnderList(edited, row - 1, parse(edited.line(row).text), parse)) addRow(after);
             }
         }
     }
@@ -283,6 +467,10 @@ function editedDeltaBefore(sorted: TextChange[], from: number): number {
     return delta;
 }
 
+function leadingNewlines(text: string): number {
+    return text.length - text.replace(/^\n+/, '').length;
+}
+
 function trailingNewlines(text: string): number {
     return text.length - text.replace(/\n+$/, '').length;
 }
@@ -304,17 +492,6 @@ function lastContentLine(text: string): string {
     return '';
 }
 
-/** Two ordered list lines of one renumbered run: the same indent and quote depth. */
-function continuesOrderedRun(head: ParsedLine, line: ParsedLine): boolean {
-    const isOrdered = (p: ParsedLine) => p.marker?.kind === 'list' && p.marker.markerType === 'ordered';
-    return (
-        isOrdered(head) &&
-        isOrdered(line) &&
-        head.indent.width === line.indent.width &&
-        head.quote.depth === line.quote.depth
-    );
-}
-
 /** Apply non-overlapping TextChanges to a doc and return the resulting text. */
 function applyChanges(doc: Doc, changes: TextChange[]): string {
     let out = '';
@@ -324,41 +501,6 @@ function applyChanges(doc: Doc, changes: TextChange[]): string {
         pos = c.to;
     }
     return out + doc.sliceString(pos, doc.length);
-}
-
-function geometryInsert(doc: Doc, targetLine: number, insertText: string): TextChange[] {
-    const insertion = resolveInsertionChange(doc, targetLine, insertText, {
-        lengthAfterDelete: doc.length,
-    });
-    return [{ from: insertion.pos, to: insertion.pos, insert: insertion.text }];
-}
-
-function geometryDelete(payload: MoveSourcePayload): TextChange[] {
-    return payload.segments.map((s) => ({
-        from: s.deleteFrom,
-        to: s.deleteTo,
-        insert: '',
-    }));
-}
-
-function geometrySameDoc(params: {
-    doc: Doc;
-    payload: MoveSourcePayload;
-    targetLine: number;
-    insertText: string;
-}): TextChange[] | Reject {
-    const { doc, payload, targetLine, insertText } = params;
-
-    const deletedLen = payload.segments.reduce((sum, s) => sum + (s.deleteTo - s.deleteFrom), 0);
-    const insertion = resolveInsertionChange(doc, targetLine, insertText, {
-        lengthAfterDelete: doc.length - deletedLen,
-    });
-
-    if (payload.segments.some((s) => insertion.pos > s.deleteFrom && insertion.pos < s.deleteTo)) {
-        return reject('insertion_inside_deleted_range');
-    }
-
-    return [{ from: insertion.pos, to: insertion.pos, insert: insertion.text }, ...geometryDelete(payload)];
 }
 
 function sortChanges(changes: TextChange[]): TextChange[] {
