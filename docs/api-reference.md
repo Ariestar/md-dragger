@@ -21,10 +21,11 @@ Pure functions and types — no I/O, no DOM.
 | --- | --- |
 | `detectBlock(doc, lineNumber, { tabSize })` | Block containing a line (`{ type, lines: { startLine, endLine } }` or `null`). Handles headings, lists (with subtree), tables, callouts, blockquotes, fences, math, hr. |
 | `parseLine(text, tabSize)` | Structural line parse: quote depth, indent, marker (heading/list/table-row/fence/callout/hr), body. |
-| `planMove(input)` | Compute a `MovePlan` for moving a `BlockSelection` to a `DropPosition` (respects container rules, indent, renumbering). |
+| `planMove(input)` | Compute a `MovePlan` for moving a `BlockSelection` to a `DropPosition` (respects container rules, indent, renumbering). Its `position.line` is the boundary of the gap the write uses, which may differ from the input's: paint the planned position. |
 | `moveTx(targetDoc, geometry, parse?)` | Build the minimal `DocEdit[]` for a move (single doc → single edit/transaction). |
 | `locateDropPosition({ doc, selection, hitLine, belowMid, … })` | Structural drop position for a target line — where a block may legally land. |
 | `snapDrop(input: SnapDropInput)` | Snap a rejected seam to the nearest insertable seam, preserving source no-op seams. |
+| `seamRow(position)` | The row the drop indicator sits on for a position's line, and which edge of it (`top` / `below`). It maps the line and decides nothing: paint the position `planMove` returns, the boundary of the gap the write uses. |
 | `SnapDropInput` | Raw seam (including its destination document), source document/selection, indentation widths, tab size, and indent unit. |
 | `listLevel(lineText, tabSize, indentUnit)` | 0-based list nesting level (0 for root or non-list). Requires a finite, positive indent unit; throws if the computed level is non-finite. |
 | `selectOne(block)`, `selectBlocks(…)`, `addBlocks/removeBlocks/hasBlock`, `selectionLineRanges` | Selection helpers. |
@@ -145,7 +146,7 @@ Compose them yourself instead of `mdDragger()` when you need a custom mix:
 | `lineAtPoint(view, point)` / `lineAtScreenPoint(point)` / `sourceLineFromInput(view, input)` / `resolveDropPosition(…)` | Locate helpers. |
 | `seamOffset(view, position, options)` / `dropSeam(view, position, options)` / `lineBand(…)` | Geometry for painting the drop seam. |
 | `dropSeamDecoration(outputs, state)` / `sourceHighlightDecoration(outputs, state)` | Decoration builders for the drop seam and drag source. |
-| `snapDrop`, `listLevel`, deprecated `sourceListLevel` | Domain utilities re-exported for CodeMirror consumers. New hosts should import `snapDrop` and `listLevel` from `md-dragger/domain`; `sourceListLevel` is the same function as `listLevel` and is scheduled for removal in the next major release. |
+| `snapDrop`, `listLevel` | Domain utilities re-exported for CodeMirror consumers. New hosts should import them from `md-dragger/domain`. |
 | `dragTransitionEffect` | `StateEffect` carrying each pipeline output batch; visual plugins read it off `update.transactions`. |
 | `resolveConfig`, `resolveLocateOptions`, `resolveListIndentUnit`, `resolveListIndentWidthPx`, `resolveTabSize`, `isDraggerEnabled` | Config resolvers. |
 
@@ -155,7 +156,7 @@ The adapter emits protocol classes; hosts style them:
 
 - `.md-dragger-gutter` / `.md-dragger-handle[data-block-start]` — handle gutter and markers.
 - `.md-dragger-drag-source` — line decoration on the dragged block rows (carries `--d-source-level` per row).
-- `.md-dragger-drop-seam` / `.md-dragger-drop-seam-top` / `.md-dragger-drop-seam-below` / `.is-invalid` — the drop indicator line.
+- `.md-dragger-drop-seam` / `.md-dragger-drop-seam-top` / `.md-dragger-drop-seam-below` / `.is-invalid` — the drop indicator line, on the top or bottom edge of the row `seamRow` gives (`-top` also on a gap's first blank line).
 - View-level CSS variables hosts fill from geometry: seam left/width (`--d-seam-left`, `--d-seam-width` in the Obsidian host), rendered list indent step (`--d-list-indent-step`).
 
 The Obsidian plugin's `styles.css` is the reference implementation of the whole protocol.
