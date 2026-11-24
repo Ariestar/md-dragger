@@ -337,11 +337,7 @@ export class DraggerRuntime implements RuntimeController {
         if (!position) return null;
         const doc = position.doc;
         const line = Math.max(1, Math.min(doc.lines + 1, position.line));
-        return {
-            doc,
-            line,
-            parent: position.parent,
-        };
+        return { ...position, line };
     }
 
     private plan(selection: BlockSelection, position: DropPosition | null, mode?: 'move' | 'copy'): MoveResult {
@@ -357,26 +353,17 @@ export class DraggerRuntime implements RuntimeController {
         });
     }
 
+    /** The drop as the indicator paints it: the planned position, where the write puts the payload, when the plan is
+     * ok; the located one, with the rejection, otherwise. */
     private buildDropSnapshot(
         selection: BlockSelection,
         position: DropPosition | null,
         mode?: 'move' | 'copy',
     ): DragDropSnapshot {
-        return {
-            position,
-            mode,
-            rejectReason: position === null ? 'no_target' : this.dropRejectReason(selection, position, mode),
-        };
-    }
-
-    private dropRejectReason(
-        selection: BlockSelection,
-        position: DropPosition,
-        mode?: 'move' | 'copy',
-    ): DragCancelReason | null {
         const planned = this.plan(selection, position, mode);
-        if (planned.type === 'ok') return null;
-        return planned.reason;
+        return planned.type === 'ok'
+            ? { position: planned.value.position, mode, rejectReason: null }
+            : { position, mode, rejectReason: planned.reason };
     }
 
     private cancelDrop(drop: DragDropSnapshot, reason: DragCancelReason): DropResolution {

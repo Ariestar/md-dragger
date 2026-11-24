@@ -1,6 +1,6 @@
 import { EditorState, Facet, type Range } from '@codemirror/state';
 import { Decoration, type DecorationSet, type EditorView } from '@codemirror/view';
-import { type DropPosition, listLevel, selectionLineRanges } from '../../domain';
+import { type DropPosition, listLevel, seamRow, selectionLineRanges } from '../../domain';
 import { dragSelectionDoc, dropSeamState, type PipelineOutput, selectionFromOutputs } from '../../runtime';
 import { type CodeMirrorGeometryOptions, contentLeft } from './config';
 import { dropSeam } from './geometry';
@@ -13,6 +13,7 @@ export { listLevel } from '../../domain';
 export const DROP_SEAM_CLASS = 'md-dragger-drop-seam';
 export const DROP_SEAM_TOP_CLASS = 'md-dragger-drop-seam-top';
 export const DROP_SEAM_BELOW_CLASS = 'md-dragger-drop-seam-below';
+export const DROP_SEAM_CENTER_CLASS = 'md-dragger-drop-seam-center';
 export const DROP_SEAM_COPY_CLASS = 'md-dragger-drop-seam-copy';
 export const INVALID_CLASS = 'is-invalid';
 export const DRAG_SOURCE_LINE_CLASS = 'md-dragger-drag-source';
@@ -64,19 +65,20 @@ export function sourceHighlightDecoration(outputs: readonly PipelineOutput[], st
     return Decoration.set(decorations);
 }
 
+const EDGE_CLASS = { top: DROP_SEAM_TOP_CLASS, below: DROP_SEAM_BELOW_CLASS, center: DROP_SEAM_CENTER_CLASS };
+
 /** Drop-seam line decoration derived from one engine output batch: on the
- * seam row (above the first line, or below the previous line), marked
- * invalid when the drop is rejected and marked with the copy class in copy mode. */
+ * seam row (seamRow), marked invalid when the drop is rejected and marked
+ * with the copy class in copy mode. */
 export function dropSeamDecoration(outputs: readonly PipelineOutput[], state: EditorState): DecorationSet {
     const { position, invalid, mode } = dropSeamState(outputs, state.doc);
     if (position === null) return Decoration.none;
-    const top = position.line <= 1;
-    const seamRow = top ? 1 : Math.min(position.line - 1, state.doc.lines);
+    const { row, edge } = seamRow(position);
     const modeClass = mode === 'copy' ? ` ${DROP_SEAM_COPY_CLASS}` : '';
     return Decoration.set([
         Decoration.line({
-            class: `${DROP_SEAM_CLASS} ${top ? DROP_SEAM_TOP_CLASS : DROP_SEAM_BELOW_CLASS}${invalid ? ` ${INVALID_CLASS}` : ''}${modeClass}`,
-        }).range(state.doc.line(seamRow).from),
+            class: `${DROP_SEAM_CLASS} ${EDGE_CLASS[edge]}${invalid ? ` ${INVALID_CLASS}` : ''}${modeClass}`,
+        }).range(state.doc.line(row).from),
     ]);
 }
 

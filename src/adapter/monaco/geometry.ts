@@ -1,5 +1,5 @@
 import type { editor } from 'monaco-editor';
-import { type DropPosition, listLevel } from '../../domain';
+import { type DropPosition, listLevel, seamRow } from '../../domain';
 import { type MdDraggerMonacoOptions, resolveConfig, resolveListIndentWidthPx } from './config';
 
 export type LineBand = {
@@ -73,7 +73,8 @@ export function dropSeam(
     const scrollTop = codeEditor.getScrollTop();
     const lineCount = model.getLineCount();
 
-    const targetLine = position.line;
+    const { row, edge } = seamRow(position);
+    if (row < 1 || row > lineCount) return null;
     let left: number;
 
     if (position.parent) {
@@ -84,14 +85,11 @@ export function dropSeam(
         left = domRect.left + layout.contentLeft - codeEditor.getScrollLeft();
     }
 
-    let y: number;
-    if (targetLine <= 1) {
-        y = domRect.top + codeEditor.getTopForLineNumber(1) - scrollTop;
-    } else if (targetLine > lineCount) {
-        y = domRect.top + codeEditor.getBottomForLineNumber(lineCount) - scrollTop;
-    } else {
-        y = domRect.top + codeEditor.getTopForLineNumber(targetLine) - scrollTop;
-    }
+    const top = codeEditor.getTopForLineNumber(row);
+    const bottom = codeEditor.getBottomForLineNumber(row);
+    // Below a row is the top of the next one, past any view zone between them, where an insertion there shows.
+    const below = row < lineCount ? codeEditor.getTopForLineNumber(row + 1) : bottom;
+    const y = domRect.top + (edge === 'top' ? top : edge === 'below' ? below : (top + bottom) / 2) - scrollTop;
 
     const right = Math.max(left, domRect.left + layout.contentLeft + layout.contentWidth);
 
