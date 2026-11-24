@@ -33,9 +33,24 @@ export type ConvertTo =
 export function planConvert(params: { doc: Doc; block: Block; to: ConvertTo }): TextChange[];
 export function planConvert(params: { doc: Doc; lines: LineRange; to: ConvertTo }): TextChange[];
 export function planConvert(params: { doc: Doc; block?: Block; lines?: LineRange; to: ConvertTo }): TextChange[] {
-    const span = params.block?.lines ?? params.lines;
+    const span = params.block ? convertedLines(params.doc, params.block) : params.lines;
     if (!span) return [];
     return planConvertLines(params.doc, span.startLine, span.endLine, params.to);
+}
+
+/**
+ * The lines of a block that a conversion rewrites. The quote-prefixed children of an unquoted list item (a callout
+ * indented under it) are blocks of their own and stay as they are: the item's text ends above the first of them.
+ */
+function convertedLines(doc: Doc, block: Block): LineRange {
+    const { startLine, endLine } = block.lines;
+    const quoted = (line: number) => /^\s*>/.test(doc.line(line).text);
+    if (block.type !== BlockType.ListItem || quoted(startLine)) return block.lines;
+    let end = startLine;
+    for (let line = startLine + 1; line <= endLine && !quoted(line); line++) {
+        if (doc.line(line).text.trim().length > 0) end = line;
+    }
+    return { startLine, endLine: end };
 }
 
 /** Resolve a built-in conversion target to its template, or return a custom template unchanged. */
